@@ -1,0 +1,5 @@
+# Go model adapter
+
+`model.OpenAI` implements `durable.Model` using streaming, OpenAI-compatible Chat Completions. Configure `BaseURL` for OpenAI or a local endpoint, `APIKey` when needed, `HTTPClient` for transport customization, and `MaxResponseBytes` to cap the stream (8 MiB by default). The adapter sends messages, tool schemas, streaming mode, and `stream_options.include_usage`; it maps streamed content, fragmented tool arguments, and input/output token counts to the root types.
+
+This is intentionally not a port of pi-ai. It has no provider/model catalog, auth resolution or OAuth, provider-specific request conversions, retries, reasoning/thinking mapping, multimodal content, image/classifier APIs, cost accounting, prompt-cache/session fields, or comprehensive error taxonomy. It does not infer or send session affinity fields. Use any implementation of root `durable.Model` when those capabilities are needed. HTTP errors expose only status codes; response bodies are not included in errors.

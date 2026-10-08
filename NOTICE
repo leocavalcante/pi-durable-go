@@ -1,0 +1,18 @@
+pi-durable-go is an independently maintained Go port inspired by and adapted
+from Pi Durable in the Pi monorepo:
+
+  https://github.com/earendil-works/pi
+  packages/durable
+  Upstream release: v1.1.0 (2026-10-07)
+  Upstream commit: abe508e1b89912adde45528136c3221eb69acdd7
+
+Pi and Pi Durable are distributed under the MIT License.
+Copyright (c) 2025 Mario Zechner
+
+This project preserves the upstream copyright and license in LICENSE.
+Go-specific implementation: Copyright (c) 2026 Leo Cavalcante.
+
+This is not an official Earendil project. Compatibility is described in
+COMPATIBILITY.md; the Go storage format is not compatible with upstream files.
+
+Dependencies retain their own licenses; see go.mod and DEPENDENCIES.md.

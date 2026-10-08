@@ -1,0 +1,13 @@
+.pi-durable/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+*.db
+*.db-shm
+*.db-wal
+*.test
+coverage.out
+.env
+.env.*
+!.env.example
+/bin/
