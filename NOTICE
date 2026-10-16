@@ -3,8 +3,8 @@ from Pi Durable in the Pi monorepo:
 
   https://github.com/earendil-works/pi
   packages/durable
-  Upstream release: v1.1.0 (2026-10-07)
-  Upstream commit: abe508e1b89912adde45528136c3221eb69acdd7
+  Original port base: v1.1.0 (2026-10-07), commit abe508e1b89912adde45528136c3221eb69acdd7
+  Current reference: v1.3.0 main (2026-10-15), commit 4954d760504c11df9b2cbdc040346107b6a8153d
 
 Pi and Pi Durable are distributed under the MIT License.
 Copyright (c) 2025 Mario Zechner

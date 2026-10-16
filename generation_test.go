@@ -62,6 +62,21 @@ func TestGenerationRunsToolAsDurableOwnedTask(t *testing.T) {
 		t.Fatal(err)
 	}
 	found := false
+	assistantTimed, toolTimed := false, false
+	for _, entry := range state.Entries {
+		if entry.Message == nil || entry.Message.DurationMs == nil {
+			continue
+		}
+		if entry.Kind == "pi.assistant" {
+			assistantTimed = true
+		}
+		if entry.Kind == "pi.tool-result" {
+			toolTimed = true
+		}
+	}
+	if !assistantTimed || !toolTimed {
+		t.Fatalf("missing response durations: assistant=%v tool=%v", assistantTimed, toolTimed)
+	}
 	for _, task := range state.Tasks {
 		if task.Kind == "pi.tool" && task.Status == "terminal" && task.Outcome != nil && task.Outcome.Status == "completed" {
 			found = true

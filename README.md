@@ -1,8 +1,8 @@
 # pi-durable-go
 
-An experimental Go port of [Pi Durable](https://github.com/earendil-works/pi/tree/v1.1.0/packages/durable): persistent agent conversations, checkpointed tasks, transactional application state, and restart recovery.
+An experimental Go port of [Pi Durable](https://github.com/earendil-works/pi/tree/main/packages/durable): persistent agent conversations, checkpointed tasks, transactional application state, and restart recovery.
 
-**This is an independent project, not the Pi coding-agent CLI or a complete upstream-compatible replacement.** The port targets Pi Durable v1.1.0. Read [COMPATIBILITY.md](COMPATIBILITY.md) before relying on it.
+**This is an independent project, not the Pi coding-agent CLI or a complete upstream-compatible replacement.** It was last compared against Pi Durable v1.3.0; the Go implementation supports a subset of its contracts. Read [COMPATIBILITY.md](COMPATIBILITY.md) before relying on it.
 
 ## Requirements
 
@@ -79,7 +79,7 @@ h.Resume()
 
 Import `github.com/leocavalcante/pi-durable-go/storage`. Reinstall application extensions on each reopen; `Open` restores built-in definitions. `Resume`, submission, or a task/submission wait starts scheduling; opening alone does not.
 
-A submission's `RequestID` deduplicates admission within one conversation. Retrying it returns the original even if the content changed; reusing it for another submission type is rejected. Persist `submission.ID()` for reconnection with `h.Submission(ctx, id)`.
+A submission's `RequestID` deduplicates admission within one conversation. Retrying it returns the original even if the content changed; reusing it for another submission type is rejected. Persist `submission.ID()` for reconnection with `h.Submission(ctx, id)`. Inputs may use `Entry` to attach a custom non-`pi.*` kind and JSON data to the user message. Display-only write submissions settle immediately during a run unless a reset is queued.
 
 **Admission deduplication is not exactly-once external execution.** A crash between an external effect and the commit recording its result leaves uncertainty. Use service-side idempotency keys, queryable receipts, or reconciliation. Interrupted tools replay only when both their stored and current policies declare `ReplaySafe`. Coding tools default to unsafe.
 
@@ -96,7 +96,7 @@ The [chat example](examples/chat/main.go) wires these together with SQLite. It m
 
 A Harness owns one Session and scheduler. A conversation is a transcript, not a goroutine. Entries, tasks, submissions, and JSON documents change on one serialized atomic commit line. Storage succeeds before snapshots or progress are published.
 
-Tasks are checkpointed state machines, not persisted Go stacks. Define their initial checkpoint, phase handler, and optional abort/migration handlers. Owned child tasks and conversations support cancellation trees. Background work can outlive an ordinary conversation abort.
+Tasks are checkpointed state machines, not persisted Go stacks. Define their initial checkpoint, phase handler, and optional abort/migration handlers. Task records include start/end times; assistant and tool-result messages include per-attempt durations. Owned child tasks and conversations support cancellation trees. Background work can outlive an ordinary conversation abort.
 
 Application documents have explicit versions, scopes, and fork policies. Use `UpdateDocument[T]` inside a commit and `ReadDocument[T]` outside it. Reads do not initialize absent state. Rewindable `asOf` documents fork at the entry's entire commit.
 

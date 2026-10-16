@@ -103,6 +103,7 @@ type Message struct {
 	IsError    bool       `json:"isError,omitempty"`
 	Aborted    bool       `json:"aborted,omitempty"`
 	Usage      Usage      `json:"usage,omitempty"`
+	DurationMs *int64     `json:"durationMs,omitempty"`
 }
 type ToolCall struct {
 	ID        string          `json:"id"`
@@ -219,12 +220,13 @@ type ToolDefinition struct {
 	Execute    func(context.Context, json.RawMessage, *ToolRuntime) (ToolResult, error)
 }
 type ToolResult struct {
-	Content   string          `json:"content"`
-	Details   json.RawMessage `json:"details,omitempty"`
-	IsError   bool            `json:"isError,omitempty"`
-	Usage     Usage           `json:"usage,omitempty"`
-	Terminate bool            `json:"terminate,omitempty"`
-	Handoff   string          `json:"handoff,omitempty"`
+	Content    string          `json:"content"`
+	Details    json.RawMessage `json:"details,omitempty"`
+	IsError    bool            `json:"isError,omitempty"`
+	Usage      Usage           `json:"usage,omitempty"`
+	DurationMs *int64          `json:"durationMs,omitempty"`
+	Terminate  bool            `json:"terminate,omitempty"`
+	Handoff    string          `json:"handoff,omitempty"`
 }
 type ModelRequest struct {
 	Model         ModelRef   `json:"model"`

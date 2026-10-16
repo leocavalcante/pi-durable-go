@@ -109,6 +109,60 @@ func TestSteerJoinsRunAndFollowUpStartsNext(t *testing.T) {
 		t.Fatal("input order changed")
 	}
 }
+func TestDisplayOnlyWriteSettlesImmediatelyDuringRun(t *testing.T) {
+	_, root, started, release := boundaryHarness(t, 1)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	active, err := root.Submit(ctx, SubmissionRequest{Content: "active"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-started:
+	case <-ctx.Done():
+		t.Fatal("tool not started")
+	}
+	queued, err := root.Submit(ctx, SubmissionRequest{Content: "follow-up"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	display, err := root.Submit(ctx, SubmissionRequest{Type: "write", Entry: &Entry{Kind: "app.notice", Data: json.RawMessage(`{"text":"queued"}`)}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	displayRecord, err := display.Record(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	queuedRecord, err := queued.Record(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if displayRecord.Status != "done" || queuedRecord.Status != "queued" {
+		t.Fatalf("display=%+v queued=%+v", displayRecord, queuedRecord)
+	}
+	entries, err := root.Entries(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, entry := range entries {
+		if entry.Kind == "app.notice" && string(entry.Data) == `{"text":"queued"}` {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("display-only write was not placed immediately")
+	}
+	close(release)
+	if _, err := active.Wait(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := queued.Wait(ctx); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestQueuedCompactionBecomesStaleAtResetPlacement(t *testing.T) {
 	_, root, started, release := boundaryHarness(t, 2)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

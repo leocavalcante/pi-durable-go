@@ -139,6 +139,7 @@ func runGeneration(ctx context.Context, r *TaskRuntime, task TaskRecord) error {
 				return err
 			}
 		}
+		started := time.Now()
 		response, err := r.h.options.Model.Generate(ctx, cp.Request, func(delta string) error {
 			cp.Partial += delta
 			return r.Commit(ctx, func(*Tx) (TaskTransition, error) {
@@ -146,6 +147,7 @@ func runGeneration(ctx context.Context, r *TaskRuntime, task TaskRecord) error {
 				return TaskTransition{Status: "running", Checkpoint: data}, err
 			})
 		})
+		responseDurationMs := time.Since(started).Milliseconds()
 		if err != nil {
 			if ctx.Err() != nil {
 				return ctx.Err()
@@ -210,7 +212,7 @@ func runGeneration(ctx context.Context, r *TaskRuntime, task TaskRecord) error {
 			}
 		}
 		return r.Commit(ctx, func(tx *Tx) (TaskTransition, error) {
-			message := Message{Role: "assistant", Content: response.Content, Thinking: response.Thinking, ToolCalls: response.ToolCalls, Usage: response.Usage}
+			message := Message{Role: "assistant", Content: response.Content, Thinking: response.Thinking, ToolCalls: response.ToolCalls, Usage: response.Usage, DurationMs: &responseDurationMs}
 			assistant, err := tx.Append(task.Conversation, Entry{Kind: "pi.assistant", Message: &message})
 			if err != nil {
 				return TaskTransition{}, err
@@ -518,7 +520,9 @@ func runTool(ctx context.Context, r *TaskRuntime, task TaskRecord) error {
 	} else {
 		return fmt.Errorf("%w: tool phase", ErrInvalid)
 	}
+	started := time.Now()
 	result, executeErr := def.Execute(ctx, cp.Arguments, runtime)
+	durationMs := time.Since(started).Milliseconds()
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
@@ -527,6 +531,7 @@ func runTool(ctx context.Context, r *TaskRuntime, task TaskRecord) error {
 		status = "failed"
 		result = ToolResult{Content: executeErr.Error(), IsError: true}
 	}
+	result.DurationMs = &durationMs
 	for _, hook := range hooks {
 		if hook.AfterTool != nil {
 			if err := hook.AfterTool(ctx, &result, runtime); err != nil {
@@ -536,6 +541,7 @@ func runTool(ctx context.Context, r *TaskRuntime, task TaskRecord) error {
 			}
 		}
 	}
+	result.DurationMs = &durationMs
 	return finishTool(ctx, r, task, result, status)
 }
 func finishTool(ctx context.Context, r *TaskRuntime, task TaskRecord, result ToolResult, status string) error {
@@ -590,7 +596,7 @@ func finishTool(ctx context.Context, r *TaskRuntime, task TaskRecord, result Too
 		if err != nil {
 			return TaskTransition{}, err
 		}
-		id, err := tx.Append(task.Conversation, Entry{Kind: "pi.tool-result", Message: &Message{Role: "tool", ToolCallID: input.Call.ID, ToolName: input.Call.Name, Content: result.Content, IsError: result.IsError, Usage: result.Usage}, Data: details})
+		id, err := tx.Append(task.Conversation, Entry{Kind: "pi.tool-result", Message: &Message{Role: "tool", ToolCallID: input.Call.ID, ToolName: input.Call.Name, Content: result.Content, IsError: result.IsError, Usage: result.Usage, DurationMs: result.DurationMs}, Data: details})
 		if err != nil {
 			return TaskTransition{}, err
 		}
@@ -627,7 +633,7 @@ func placeBusyBoundary(tx *Tx, cid ConversationID, input *generationInput) (bool
 			continue
 		}
 		if s.Request.WhenBusy == "steer" && !reset {
-			if _, err := tx.Append(cid, Entry{Kind: "pi.user", Message: &Message{Role: "user", Content: s.Request.Content}}); err != nil {
+			if _, err := tx.Append(cid, inputEntry(s.Request)); err != nil {
 				return false, err
 			}
 			s.Status = "running"
@@ -651,7 +657,7 @@ func advanceInbox(tx *Tx, cid ConversationID) error {
 			}
 			continue
 		}
-		if _, err := tx.Append(cid, Entry{Kind: "pi.user", Message: &Message{Role: "user", Content: s.Request.Content}}); err != nil {
+		if _, err := tx.Append(cid, inputEntry(s.Request)); err != nil {
 			return err
 		}
 		s.Status = "running"

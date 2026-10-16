@@ -103,6 +103,42 @@ func TestSubmissionDedupAndAnswer(t *testing.T) {
 		t.Fatalf("answer %+v", entry)
 	}
 }
+func TestInputEntryPreservesCustomKindAndData(t *testing.T) {
+	h := testHarness(t)
+	c := testRoot(t, h)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	sub, err := c.Submit(ctx, SubmissionRequest{Content: "hello", Entry: &Entry{Kind: "app.message", Data: json.RawMessage(`{"source":"client"}`)}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := sub.Wait(ctx); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := c.Entries(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		if entry.Kind == "app.message" {
+			if entry.Message == nil || entry.Message.Content != "hello" || string(entry.Data) != `{"source":"client"}` {
+				t.Fatalf("input entry %+v", entry)
+			}
+			return
+		}
+	}
+	t.Fatal("custom input entry not found")
+}
+
+func TestInputEntryRejectsReservedKinds(t *testing.T) {
+	h := testHarness(t)
+	c := testRoot(t, h)
+	_, err := c.Submit(context.Background(), SubmissionRequest{Content: "hello", Entry: &Entry{Kind: "pi.assistant"}})
+	if !errors.Is(err, ErrInvalid) {
+		t.Fatalf("reserved input kind: %v", err)
+	}
+}
+
 func TestCancelledWaitDoesNotWithdrawSubmission(t *testing.T) {
 	h := testHarness(t)
 	c := testRoot(t, h)

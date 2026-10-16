@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strings"
 )
 
 // Conversation is an ID-based handle, not an independently running process.
@@ -277,6 +278,15 @@ func (c *Conversation) Submit(ctx context.Context, request SubmissionRequest) (*
 	if request.Type == "write" && (request.Entry == nil || request.Entry.Kind == "") {
 		return nil, fmt.Errorf("%w: write requires entry", ErrInvalid)
 	}
+	if request.Type == "input" && request.Entry != nil {
+		entry := request.Entry
+		if entry.Kind == "" || strings.HasPrefix(entry.Kind, "pi.") || entry.Message != nil || entry.ID != 0 || entry.Conversation != 0 || entry.Parent != 0 || entry.Sequence != 0 || !entry.CreatedAt.IsZero() {
+			return nil, fmt.Errorf("%w: input entry must contain only a non-reserved kind and data", ErrInvalid)
+		}
+		if len(entry.Data) > 0 && !json.Valid(entry.Data) {
+			return nil, fmt.Errorf("%w: input entry data must be JSON", ErrInvalid)
+		}
+	}
 	var id SubmissionID
 	err := c.h.Commit(ctx, func(tx *Tx) error {
 		rec, err := tx.Conversation(c.id)
@@ -301,6 +311,9 @@ func (c *Conversation) Submit(ctx context.Context, request SubmissionRequest) (*
 		tx.state.Submissions[id] = &SubmissionRecord{ID: id, Conversation: c.id, Request: request, Status: "queued", CreatedAt: tx.clock()}
 		if rec.Busy == 0 {
 			return advanceInbox(tx, c.id)
+		}
+		if isDisplayOnlyWrite(request) && !queuedResetExists(tx, c.id) {
+			return placeWrite(tx, c.id, tx.state.Submissions[id])
 		}
 		return nil
 	})
