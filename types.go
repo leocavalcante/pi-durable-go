@@ -143,23 +143,26 @@ type SubmissionRecord struct {
 }
 
 type TaskRecord struct {
-	ID             TaskID                     `json:"id"`
-	Conversation   ConversationID             `json:"conversation"`
-	Kind           string                     `json:"kind"`
-	Version        int                        `json:"version"`
-	Owner          Owner                      `json:"owner"`
-	Background     bool                       `json:"background,omitempty"`
-	Status         string                     `json:"status"` // pending, running, waiting, completing, terminal
-	Input          json.RawMessage            `json:"input"`
-	Checkpoint     json.RawMessage            `json:"checkpoint"`
-	WaitOn         []TaskID                   `json:"waitOn,omitempty"`
-	WaitPolicy     string                     `json:"waitPolicy,omitempty"`
-	WakeAt         *time.Time                 `json:"wakeAt,omitempty"`
-	AbortRequested bool                       `json:"abortRequested,omitempty"`
-	Outcome        *Outcome                   `json:"outcome,omitempty"`
-	Memos          map[string]json.RawMessage `json:"memos,omitempty"`
-	StartedAt      *time.Time                 `json:"startedAt,omitempty"`
-	EndedAt        *time.Time                 `json:"endedAt,omitempty"`
+	ID             TaskID          `json:"id"`
+	Conversation   ConversationID  `json:"conversation"`
+	Kind           string          `json:"kind"`
+	Version        int             `json:"version"`
+	Owner          Owner           `json:"owner"`
+	Background     bool            `json:"background,omitempty"`
+	Status         string          `json:"status"` // pending, running, waiting, completing, terminal
+	Input          json.RawMessage `json:"input"`
+	Checkpoint     json.RawMessage `json:"checkpoint"`
+	WaitOn         []TaskID        `json:"waitOn,omitempty"`
+	WaitPolicy     string          `json:"waitPolicy,omitempty"`
+	WakeAt         *time.Time      `json:"wakeAt,omitempty"`
+	AbortRequested bool            `json:"abortRequested,omitempty"`
+	// AbortReason is "restart" for abandoned work; empty means an abort request.
+	AbortReason      string                     `json:"abortReason,omitempty"`
+	AbandonOnRestart bool                       `json:"abandonOnRestart,omitempty"`
+	Outcome          *Outcome                   `json:"outcome,omitempty"`
+	Memos            map[string]json.RawMessage `json:"memos,omitempty"`
+	StartedAt        *time.Time                 `json:"startedAt,omitempty"`
+	EndedAt          *time.Time                 `json:"endedAt,omitempty"`
 }
 type Outcome struct {
 	Status string          `json:"status"` // completed, failed, aborted
@@ -169,6 +172,10 @@ type Outcome struct {
 type TaskOptions struct {
 	Owner      Owner
 	Background bool
+	// AbandonOnRestart aborts a still-live task when a later Harness starts
+	// scheduling. Opening for inspection alone does not mark it. Use for work
+	// whose creator waits only in memory and cannot resume after a restart.
+	AbandonOnRestart bool
 }
 type TaskTransition struct {
 	Status     string

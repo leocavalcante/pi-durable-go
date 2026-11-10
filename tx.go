@@ -173,7 +173,7 @@ func (tx *Tx) CreateTask(cid ConversationID, def TaskDefinition, input json.RawM
 		return 0, fmt.Errorf("%w: checkpoint JSON", ErrInvalid)
 	}
 	id := TaskID(tx.id())
-	tx.state.Tasks[id] = &TaskRecord{ID: id, Conversation: cid, Kind: def.Kind, Version: def.Version, Owner: opts.Owner, Background: opts.Background, Status: "pending", Input: append(json.RawMessage(nil), input...), Checkpoint: append(json.RawMessage(nil), checkpoint...)}
+	tx.state.Tasks[id] = &TaskRecord{ID: id, Conversation: cid, Kind: def.Kind, Version: def.Version, Owner: opts.Owner, Background: opts.Background, AbandonOnRestart: opts.AbandonOnRestart, Status: "pending", Input: append(json.RawMessage(nil), input...), Checkpoint: append(json.RawMessage(nil), checkpoint...)}
 	return id, nil
 }
 

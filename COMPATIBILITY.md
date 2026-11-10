@@ -13,7 +13,7 @@ This is a semantic Go port of the central runtime, not a line-by-line translatio
 - ID-based conversations, root creation, explicit reconfiguration, transcript forks, and per-conversation provider session IDs.
 - Input/write submissions, including custom non-`pi.*` input-entry kinds and data, request-ID admission deduplication, waiting, and queued-input withdrawal. Display-only writes settle immediately during a run unless a reset is queued.
 - Model generation and tool tasks with persisted intent and replay-safety policies.
-- Custom task checkpoints, timers, waiting, ownership, cancellation, and background work.
+- Custom task checkpoints, timers, waiting, ownership, cancellation, and background work. `abandonOnRestart` marks old live work on scheduling, not inspection; reasons cascade through ordinary ownership while respecting background boundaries. `OwnedTasks` and invocation-bound `AbortOwned` expose direct task children across attempts/restarts.
 - Versioned documents with conversation/session/task scope; conversation `latest`/`rewindable` history and `initial`/`current`/`asOf` forks.
 - Ordered extension selections, same-name replacement, tool wrappers, and hook interfaces.
 - Latest-snapshot conversation/document observation, resets, and explicit durable compaction. Task start/end timestamps and per-attempt model/tool response durations are recorded.
@@ -40,7 +40,7 @@ The pure-Go `model.OpenAI` adapter supports text and tools over OpenAI-compatibl
 
 The Pi bridge starts one Node process per request, loads no AgentSession/project resources/extensions, does not refresh remote catalogs, and loses process-local caches between requests. Provider-specific native assistant blocks/signatures are persisted for replay, without importing Pi session files. The Go boundary still does not expose multimodal content, image/classifier APIs, virtual models, deferred model handles, or positional prompt/tool updates. See [model/README.md](model/README.md) for setup, cancellation/credential-write limits, and local-only SDK authentication tests.
 
-The v1.2+ tool APIs are also absent: tagged model/nested tool-task inputs, nested tool calls, structured tool output, tool caller restrictions, model-tool selection, deferred tools/search, and codemode. Tasks do not support `abandonOnRestart`, `abortOwned`, or `ownedTasks`.
+The v1.2+ tool APIs are also absent: tagged model/nested tool-task inputs, nested tool calls, structured tool output, tool caller restrictions, model-tool selection, deferred tools/search, and codemode. Task restart abandonment and direct owned-task APIs are implemented. Task outcomes remain Go's `completed`/`failed`/`aborted` subset: explicit aborts of missing/incompatible definitions still wait for code rather than yielding upstream's `orphaned` receipt. Definition handover, migration-failure reporting/caching, comprehensive wait-cycle validation, and invocation-bound conversation handles are not implemented.
 
 Explicit compaction is checkpointed, but automatic token-threshold/background compaction and provider-overflow recovery are not implemented. `Open` reinstalls the built-in compaction definition on every reopen. Compaction requests do not pass through generation hooks. Summaries and resets never delete original entries.
 

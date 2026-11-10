@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"sync/atomic"
 	"time"
 )
@@ -12,6 +13,7 @@ type TaskRuntime struct {
 	h          *Harness
 	ID         TaskID
 	invocation *taskInvocation
+	aborting   bool // immutable invocation mode
 	ended      atomic.Bool
 }
 
@@ -42,6 +44,9 @@ func (r *TaskRuntime) Commit(ctx context.Context, change func(*Tx) (TaskTransiti
 		}
 		if current.Status != "running" {
 			return ErrConflict
+		}
+		if !r.aborting && (current.AbortRequested || belowCancellationIntent(tx.state, current)) {
+			return context.Canceled
 		}
 		transition, err := change(tx)
 		if err != nil {
@@ -99,6 +104,77 @@ func (r *TaskRuntime) Memo(ctx context.Context, key string, candidate json.RawMe
 	})
 	return value, err
 }
+
+// OwnedTasks returns detached, live, directly task-owned records in ID order,
+// including children created by an earlier invocation. Tasks in owned
+// conversations are deliberately excluded. Call outside a Commit callback.
+func (r *TaskRuntime) OwnedTasks(ctx context.Context) ([]TaskRecord, error) {
+	if err := r.check(); err != nil {
+		return nil, err
+	}
+	state, err := r.h.Snapshot(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if err := r.check(); err != nil {
+		return nil, err
+	}
+	owned := make([]TaskRecord, 0)
+	for _, task := range state.Tasks {
+		if task.Owner.Task == r.ID && task.Status != "terminal" {
+			owned = append(owned, *task)
+		}
+	}
+	sort.Slice(owned, func(i, j int) bool { return owned[i].ID < owned[j].ID })
+	return owned, nil
+}
+
+// AbortOwned marks a directly owned child and waits for its terminal receipt.
+// A restart mark is retained so an abandonment's abort handler sees its reason.
+// Cancelling this wait does not undo the durable mark. The invocation ending
+// cancels the wait as well. Call outside a Commit callback.
+func (r *TaskRuntime) AbortOwned(ctx context.Context, id TaskID) error {
+	if err := r.check(); err != nil {
+		return err
+	}
+	bound, cancel := context.WithCancel(ctx)
+	defer cancel()
+	if r.invocation != nil {
+		stop := context.AfterFunc(r.invocation.ctx, cancel)
+		defer stop()
+	}
+	if err := r.h.Commit(bound, func(tx *Tx) error {
+		if err := r.check(); err != nil {
+			return err
+		}
+		current, err := tx.Task(r.ID)
+		if err != nil {
+			return err
+		}
+		if current.Status != "running" {
+			return ErrConflict
+		}
+		if !r.aborting && (current.AbortRequested || belowCancellationIntent(tx.state, current)) {
+			return context.Canceled
+		}
+		child, err := tx.Task(id)
+		if err != nil {
+			return err
+		}
+		if child.Owner.Task != r.ID {
+			return fmt.Errorf("%w: task %d is not owned by task %d", ErrInvalid, id, r.ID)
+		}
+		markAbortTreeReason(tx.state, id, child.AbortReason)
+		return nil
+	}); err != nil {
+		return err
+	}
+	r.h.scheduler.cancelMarked()
+	r.h.scheduler.kick()
+	_, err := r.h.scheduler.wait(bound, id)
+	return err
+}
+
 func applyTransition(tx *Tx, task *TaskRecord, tr TaskTransition, now time.Time) error {
 	switch tr.Status {
 	case "pending", "running", "waiting", "terminal":
@@ -136,9 +212,7 @@ func applyTransition(tx *Tx, task *TaskRecord, tr TaskTransition, now time.Time)
 		}
 		task.Outcome = tr.Outcome
 		if tr.Outcome.Status != "completed" {
-			for _, child := range ownedLive(tx.state, task.ID) {
-				markAbortTree(tx.state, child)
-			}
+			markOwned(tx.state, task.ID, "")
 		}
 		if len(ownedLive(tx.state, task.ID)) > 0 {
 			task.Status = "completing"
