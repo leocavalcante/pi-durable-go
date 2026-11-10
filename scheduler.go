@@ -455,7 +455,10 @@ func (s *Scheduler) wait(ctx context.Context, id TaskID) (TaskRecord, error) {
 				if ctx.Err() != nil {
 					return TaskRecord{}, ctx.Err()
 				}
-				return TaskRecord{}, ErrClosed
+				return TaskRecord{}, s.h.Err()
+			}
+			if err := s.h.Err(); err != nil {
+				return TaskRecord{}, err
 			}
 			t := state.Tasks[id]
 			if t == nil {

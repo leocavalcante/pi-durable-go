@@ -119,8 +119,9 @@ Application documents have explicit versions, scopes, and fork policies. Use `Up
 - One owning Session per storage. Database transaction safety does not coordinate multiple schedulers.
 - SQLite uses WAL and `synchronous=FULL`; JSONL fsyncs complete records. Initial file/directory creation is not directory-fsynced, and guarantees depend on the OS/filesystem/device. Do not assume full power-loss durability.
 - Storage currently serializes whole snapshots. This is simple but unsuitable for very large transcripts or high-frequency progress without further work.
-- An uncertain storage error poisons the Session. Stop, close, and reopen; do not continue mutating it.
-- `Close` stops local invocations without durably cancelling pending work. `AbortTask` requests persisted cancellation. Cancellation is cooperative.
+- An uncertain storage error poisons and automatically closes the Session: observers end, pending waits fail, and running invocations are signalled. The failing call returns the original error; later operations return `SessionFailedError`, matching `ErrPoisoned` and unwrapping to the first cause. Never continue mutating it. Reopen only after shutdown settles.
+- `Done()` and `WaitClosed(ctx)` on a Harness or Session expose shutdown completion (`SessionEnd{Reason: "closed"}` or `"failed"` with `Err`). `Err()` reports sealed admission/failure immediately. Waiting does not initiate shutdown; cancelling a wait does not cancel cleanup.
+- `Close` stops local invocations without durably cancelling pending work. `AbortTask` requests persisted cancellation. Cancellation is cooperative: task code that ignores it keeps shutdown pending and storage open. A timed-out `Close(ctx)` seals admission and continues cleanup; call again or use `WaitClosed` to join it.
 - Never make network/model calls, wait for approval, or nest a commit inside a commit callback.
 - History and files can contain sensitive information. Do not publish runtime databases or sessions.
 

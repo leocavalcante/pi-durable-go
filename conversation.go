@@ -350,7 +350,10 @@ func (s *Submission) Wait(ctx context.Context) (SubmissionRecord, error) {
 				if ctx.Err() != nil {
 					return SubmissionRecord{}, ctx.Err()
 				}
-				return SubmissionRecord{}, ErrClosed
+				return SubmissionRecord{}, s.h.Err()
+			}
+			if err := s.h.Err(); err != nil {
+				return SubmissionRecord{}, err
 			}
 			rec := state.Submissions[s.id]
 			if rec == nil {

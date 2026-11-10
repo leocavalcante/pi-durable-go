@@ -9,7 +9,7 @@ This is a semantic Go port of the central runtime, not a line-by-line translatio
 - Serialized commits across transcripts, submissions, tasks, and JSON documents.
 - Memory, SQLite, and append-only JSONL persistence.
 - Detached snapshots and commit-before-publication observation.
-- Fatal/poisoned Sessions after uncertain storage writes; rejected transactions roll back.
+- Fatal/poisoned Sessions after uncertain storage writes; rejected transactions roll back. Fatal writes end observers and waits, signal task invocations, and automatically close storage after admitted work drains. `Err`, `Done`, and `WaitClosed` expose the first cause and shutdown completion, including close failures.
 - ID-based conversations, root creation, explicit reconfiguration, transcript forks, and per-conversation provider session IDs.
 - Input/write submissions, including custom non-`pi.*` input-entry kinds and data, request-ID admission deduplication, waiting, and queued-input withdrawal. Display-only writes settle immediately during a run unless a reset is queued.
 - Model generation and tool tasks with persisted intent and replay-safety policies.
@@ -30,7 +30,7 @@ Go backends persist a versioned whole-State JSON snapshot per commit. Upstream u
 
 Go transaction methods reject access after callback completion, and committed values are detached from escaped pointers. Go cannot revoke an already-returned pointer like a JavaScript proxy. Do not retain transaction references. Upstream's table read-after-write restriction is not reproduced.
 
-The Go observer coalesces to the latest full snapshot rather than buffering up to 100 exact Chord frames. There is no Chord operation stream, RPC/service/facet layer, coding-agent event compatibility layer, or offline multi-writer protocol. Views expose application documents as well as built-in state. Upstream's `Session.closed` result and `session_failed` watch-end reason are not exposed; Go callers receive errors from operations and a closed watch channel.
+The Go observer coalesces to the latest full snapshot rather than buffering up to 100 exact Chord frames. There is no Chord operation stream, RPC/service/facet layer, coding-agent event compatibility layer, or offline multi-writer protocol. Views expose application documents as well as built-in state. Go exposes Session shutdown through `Done()`/`WaitClosed(ctx)` rather than upstream's `closed` promise. `SessionFailedError` wraps the first failure and matches `ErrPoisoned`; `SessionEnd` distinguishes clean/failed shutdown after backend closure. Per-watch terminal results (`stopped`, `cancelled`, `session_failed`, etc.) are not exposed: legacy watch APIs close their channels, and hosts inspect `Harness.Err()` for Session failure. There is no `onReport` callback or general internal-bookkeeping failure hook.
 
 Document families, incarnation-specific observation, retirement/recreation history, and configurable document checkpoint policies are not implemented. `Configure` replaces a complete Agent rather than applying upstream's incremental selection-patch API; `modelTools` and deferred tool-selection updates are also absent.
 

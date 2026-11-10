@@ -137,14 +137,14 @@ func TestAbortInvocationModeIsPublishedBeforeReservation(t *testing.T) {
 	// Hold admission so the invocation cannot yet reserve/read its record.
 	// A concurrent cascade must already know it is an abort invocation, or
 	// cancelMarked/dispatch can repeatedly cancel it before cleanup starts.
-	h.mu.Lock()
+	h.session.mu.Lock()
 	h.Resume()
 	h.scheduler.start(task, def)
 	h.scheduler.mu.Lock()
 	inv := h.scheduler.invocations[id]
 	mode := inv != nil && inv.aborting
 	h.scheduler.mu.Unlock()
-	h.mu.Unlock()
+	h.session.mu.Unlock()
 	if !mode {
 		t.Fatal("abort invocation published as a run invocation")
 	}

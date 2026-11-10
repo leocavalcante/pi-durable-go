@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -17,11 +18,15 @@ type Session struct {
 	storage   Storage
 	state     *State
 	now       func() time.Time
-	closed    bool
-	poisoned  bool
 	watchers  map[*stateWatcher]struct{}
+	failure   atomic.Pointer[SessionFailedError]
+	closeOnce sync.Once
+	closing   chan struct{}
 	closeDone chan struct{}
 	closeErr  error
+	end       SessionEnd
+	// Installed before the Harness can schedule; called off the commit line.
+	beforeClose func()
 }
 
 type stateWatcher struct {
@@ -51,17 +56,17 @@ func NewSession(ctx context.Context, storage Storage, now func() time.Time) (*Se
 	if err != nil {
 		return nil, fmt.Errorf("durable: invalid stored state: %w", err)
 	}
-	return &Session{storage: storage, state: st, now: now, watchers: map[*stateWatcher]struct{}{}}, nil
+	return &Session{storage: storage, state: st, now: now, watchers: map[*stateWatcher]struct{}{}, closing: make(chan struct{}), closeDone: make(chan struct{})}, nil
 }
 
 func (s *Session) Commit(ctx context.Context, fn func(*Tx) error) error {
+	if err := s.Err(); err != nil {
+		return err
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.closed {
-		return ErrClosed
-	}
-	if s.poisoned {
-		return ErrPoisoned
+	if err := s.Err(); err != nil {
+		return err
 	}
 	if err := ctx.Err(); err != nil {
 		return err
@@ -97,7 +102,7 @@ func (s *Session) Commit(ctx context.Context, fn func(*Tx) error) error {
 	if err != nil {
 		var rejected *RejectedError
 		if !errors.As(err, &rejected) {
-			s.poisoned = true
+			s.failLocked(err)
 		}
 		return err
 	}
@@ -109,33 +114,32 @@ func (s *Session) Commit(ctx context.Context, fn func(*Tx) error) error {
 }
 
 func (s *Session) Snapshot(ctx context.Context) (*State, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if err := ctx.Err(); err != nil {
+	if err := s.Err(); err != nil {
 		return nil, err
 	}
-	if s.closed {
-		return nil, ErrClosed
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.Err(); err != nil {
+		return nil, err
 	}
-	if s.poisoned {
-		return nil, ErrPoisoned
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
 	return cloneState(s.state)
 }
 
 func (s *Session) Watch(ctx context.Context) (<-chan *State, func(), error) {
+	if err := s.Err(); err != nil {
+		return nil, nil, err
+	}
 	s.mu.Lock()
-	if err := ctx.Err(); err != nil {
+	if err := s.Err(); err != nil {
 		s.mu.Unlock()
 		return nil, nil, err
 	}
-	if s.closed {
+	if err := ctx.Err(); err != nil {
 		s.mu.Unlock()
-		return nil, nil, ErrClosed
-	}
-	if s.poisoned {
-		s.mu.Unlock()
-		return nil, nil, ErrPoisoned
+		return nil, nil, err
 	}
 	initial, err := cloneState(s.state)
 	if err != nil {
@@ -187,33 +191,6 @@ func (s *Session) offer(w *stateWatcher, state *State) {
 	case w.ch <- v:
 	default:
 	}
-}
-
-func (s *Session) Close() error {
-	s.mu.Lock()
-	if s.closed {
-		done := s.closeDone
-		s.mu.Unlock()
-		<-done
-		return s.closeErr
-	}
-	s.closed = true
-	s.closeDone = make(chan struct{})
-	for w := range s.watchers {
-		if !w.closed {
-			w.closed = true
-			close(w.ch)
-			close(w.done)
-		}
-		delete(s.watchers, w)
-	}
-	s.mu.Unlock()
-	err := s.storage.Close()
-	s.mu.Lock()
-	s.closeErr = err
-	close(s.closeDone)
-	s.mu.Unlock()
-	return err
 }
 
 func cloneState(s *State) (*State, error) {

@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"sort"
-	"sync"
 	"time"
 )
 
@@ -14,8 +13,6 @@ type Harness struct {
 	registry     *Registry
 	options      HarnessOptions
 	scheduler    *Scheduler
-	mu           sync.Mutex
-	closed       bool // admission sealed, even if Close's wait times out
 	stopRegistry func()
 }
 
@@ -39,8 +36,12 @@ func Open(ctx context.Context, storage Storage, options HarnessOptions) (*Harnes
 	h := &Harness{session: session, registry: options.Registry, options: options}
 	h.scheduler = newScheduler(h)
 	h.stopRegistry = h.registry.Subscribe(h.scheduler.kick)
-	if err = h.reconcile(ctx); err != nil {
+	session.beforeClose = func() {
+		h.scheduler.close()
+		<-h.scheduler.done
 		h.stopRegistry()
+	}
+	if err = h.reconcile(ctx); err != nil {
 		_ = session.Close()
 		return nil, err
 	}
@@ -48,11 +49,6 @@ func Open(ctx context.Context, storage Storage, options HarnessOptions) (*Harnes
 }
 func (h *Harness) Commit(ctx context.Context, change func(*Tx) error) error {
 	if h == nil || h.session == nil {
-		return ErrClosed
-	}
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	if h.closed {
 		return ErrClosed
 	}
 	return h.session.Commit(ctx, func(tx *Tx) error {
@@ -84,17 +80,7 @@ func (h *Harness) Close(ctx context.Context) error {
 	if h == nil {
 		return nil
 	}
-	h.mu.Lock()
-	h.closed = true
-	h.mu.Unlock()
-	h.scheduler.close()
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-h.scheduler.done:
-	}
-	h.stopRegistry()
-	return h.session.Close()
+	return h.session.closeContext(ctx)
 }
 func (h *Harness) AbortTask(ctx context.Context, id TaskID) error {
 	h.Resume()
