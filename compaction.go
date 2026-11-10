@@ -63,6 +63,11 @@ func (c *Conversation) Compact(ctx context.Context, instructions string) (TaskID
 	if err != nil {
 		return 0, err
 	}
+	// Native continuation data is not summary input. In particular, encrypted
+	// thinking/signatures should not be exposed to the summarizing model.
+	for i := range messages {
+		messages[i].ProviderData = nil
+	}
 	transcript, err := json.Marshal(messages)
 	if err != nil {
 		return 0, err

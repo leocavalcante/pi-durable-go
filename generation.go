@@ -212,7 +212,7 @@ func runGeneration(ctx context.Context, r *TaskRuntime, task TaskRecord) error {
 			}
 		}
 		return r.Commit(ctx, func(tx *Tx) (TaskTransition, error) {
-			message := Message{Role: "assistant", Content: response.Content, Thinking: response.Thinking, ToolCalls: response.ToolCalls, Usage: response.Usage, DurationMs: &responseDurationMs}
+			message := Message{Role: "assistant", Content: response.Content, Thinking: response.Thinking, ToolCalls: response.ToolCalls, Usage: response.Usage, DurationMs: &responseDurationMs, ProviderData: response.ProviderData}
 			assistant, err := tx.Append(task.Conversation, Entry{Kind: "pi.assistant", Message: &message})
 			if err != nil {
 				return TaskTransition{}, err

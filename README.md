@@ -87,10 +87,20 @@ A submission's `RequestID` deduplicates admission within one conversation. Retry
 
 - `tools.Coding()` supplies `read`, `write`, `edit`, and `bash`.
 - `tools.NewLocalEnv(cwd)` supplies local filesystem and process execution. **A working directory is not a sandbox.**
-- `model.OpenAI` supplies a streaming OpenAI-compatible Chat Completions adapter.
-- Implement `durable.Model` for other providers. This project does not port pi-ai's provider catalog, OAuth, or multimodal APIs.
+- `model.Pi` reuses an installed Pi coding-agent SDK's authentication and provider transports, including existing `/login` OAuth credentials and refresh. Requires Node.js 22.19+ and the tested Pi SDK 1.5.2 baseline; no Pi agent/tool loop is started.
+- `model.OpenAI` supplies a pure-Go streaming OpenAI-compatible Chat Completions adapter with an explicit API key.
+- Implement `durable.Model` for other integrations. Multimodal APIs and a native Go provider/OAuth catalog are not implemented. See [model/README.md](model/README.md) for setup, credential discovery, and limits.
 
-The [chat example](examples/chat/main.go) wires these together with SQLite. It makes real model requests only when you run it. Review tools and isolate the process before giving it untrusted input or credentials.
+The [chat example](examples/chat/main.go) wires these together with SQLite and defaults to Pi authentication:
+
+```sh
+# First sign in using /login in Pi. Use a provider/model from Pi's /model picker.
+go run ./examples/chat -provider openai-codex -model YOUR_PI_MODEL_ID -prompt 'Hello'
+# Or keep the standalone pure-Go adapter:
+OPENAI_API_KEY=... go run ./examples/chat -adapter openai -model YOUR_MODEL_ID -prompt 'Hello'
+```
+
+It makes real model requests only when you run it. Review tools and isolate the process before giving it untrusted input or credentials. Pi credential commands and the selected SDK execute with host permissions; they are not sandboxed.
 
 ## Runtime model
 

@@ -19,8 +19,12 @@ import (
 )
 
 func main() {
-	modelID := flag.String("model", "", "Chat Completions model ID (required)")
-	baseURL := flag.String("base-url", "https://api.openai.com/v1", "OpenAI-compatible API base URL")
+	modelID := flag.String("model", "", "model ID (required)")
+	provider := flag.String("provider", "openai", "Pi provider ID")
+	adapter := flag.String("adapter", "pi", "model adapter: pi (reuse Pi auth) or openai (pure Go)")
+	piPackage := flag.String("pi-package-dir", "", "installed pi-coding-agent package directory; empty discovers Pi")
+	piAgent := flag.String("pi-agent-dir", "", "Pi auth/models directory; empty uses Pi's default")
+	baseURL := flag.String("base-url", "https://api.openai.com/v1", "API base URL for -adapter openai only")
 	stateDir := flag.String("state", ".pi-durable", "private state directory")
 	prompt := flag.String("prompt", "", "input prompt; empty resumes existing work")
 	coding := flag.Bool("coding-tools", false, "enable local read/write/edit/bash; not sandboxed")
@@ -28,6 +32,18 @@ func main() {
 	flag.Parse()
 	if *modelID == "" {
 		log.Fatal("-model is required")
+	}
+	var generator durable.Model
+	switch *adapter {
+	case "pi":
+		generator = model.Pi{PackageDir: *piPackage, AgentDir: *piAgent}
+	case "openai":
+		generator = model.OpenAI{BaseURL: *baseURL, APIKey: os.Getenv("OPENAI_API_KEY")}
+	default:
+		log.Fatal("-adapter must be pi or openai")
+	}
+	if *adapter != "openai" && *baseURL != "https://api.openai.com/v1" {
+		log.Fatal("-base-url applies only to -adapter openai; configure Pi models.json for -adapter pi")
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -42,7 +58,7 @@ func main() {
 	if err := registry.Install(durable.CompactionExtension()); err != nil {
 		log.Fatal(err)
 	}
-	opts := durable.HarnessOptions{Model: &model.OpenAI{BaseURL: *baseURL, APIKey: os.Getenv("OPENAI_API_KEY")}, Registry: registry}
+	opts := durable.HarnessOptions{Model: generator, Registry: registry}
 	if *coding {
 		if err := registry.Install(tools.Coding()); err != nil {
 			log.Fatal(err)
@@ -71,7 +87,7 @@ func main() {
 			log.Print(err)
 		}
 	}()
-	root, err := h.Root(ctx, durable.ConversationOptions{Agent: durable.Agent{Model: durable.ModelRef{Provider: "openai", ID: *modelID}}})
+	root, err := h.Root(ctx, durable.ConversationOptions{Agent: durable.Agent{Model: durable.ModelRef{Provider: *provider, ID: *modelID}}})
 	if err != nil {
 		log.Fatal(err)
 	}

@@ -11,6 +11,10 @@ checksums are recorded in `go.mod` and `go.sum`.
 | [`modernc.org/sqlite`](https://pkg.go.dev/modernc.org/sqlite) | BSD-3-Clause | Pure-Go SQLite driver; SQLite itself is public domain |
 | [`github.com/santhosh-tekuri/jsonschema/v6`](https://github.com/santhosh-tekuri/jsonschema) | Apache-2.0 | Local JSON Schema validation for tool arguments |
 
+## Optional Pi SDK runtime
+
+`model.Pi` runs a separately installed Node.js and `@earendil-works/pi-coding-agent` (MIT; tested baseline 1.5.2), using that SDK's own pi-ai/auth/provider dependencies. These are not Go dependencies, vendored code, or bundled binaries. The bridge is original integration code using the public SDK. Install only trusted packages and preserve their licenses/notices if redistributing them. The default Go runtime and `model.OpenAI` do not require Node/npm.
+
 ## Runtime transitive dependencies
 
 - MIT: `github.com/dustin/go-humanize`, `github.com/mattn/go-isatty`, `github.com/ncruces/go-strftime`.

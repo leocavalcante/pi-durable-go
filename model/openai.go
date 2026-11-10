@@ -1,6 +1,5 @@
-// Package model contains model adapters. OpenAI implements the common
-// OpenAI-compatible Chat Completions streaming protocol, not pi-ai's full
-// provider system.
+// Package model contains a pure-Go OpenAI-compatible Chat Completions adapter
+// and an optional Pi coding-agent SDK adapter for shared auth and providers.
 package model
 
 import (

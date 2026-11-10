@@ -104,6 +104,9 @@ type Message struct {
 	Aborted    bool       `json:"aborted,omitempty"`
 	Usage      Usage      `json:"usage,omitempty"`
 	DurationMs *int64     `json:"durationMs,omitempty"`
+	// ProviderData is adapter-owned assistant replay data (for example signed
+	// thinking blocks). Persist it with the message; never put credentials here.
+	ProviderData json.RawMessage `json:"providerData,omitempty"`
 }
 type ToolCall struct {
 	ID        string          `json:"id"`
@@ -240,6 +243,8 @@ type ModelResponse struct {
 	Thinking  string     `json:"thinking,omitempty"`
 	ToolCalls []ToolCall `json:"toolCalls,omitempty"`
 	Usage     Usage      `json:"usage"`
+	// ProviderData is copied to the committed assistant Message for later replay.
+	ProviderData json.RawMessage `json:"providerData,omitempty"`
 }
 
 // Model implementations must honor cancellation. Delta callbacks persist progress
