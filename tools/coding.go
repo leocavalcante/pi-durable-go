@@ -9,7 +9,6 @@ import (
 	"io"
 	"math"
 	"os"
-	"sort"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -26,7 +25,7 @@ func Coding() durable.Extension {
 	return durable.Extension{Name: "coding-tools", Tools: []durable.ToolDefinition{
 		{ToolSpec: durable.ToolSpec{Name: "read", Description: "Read the contents of a file. For text files, output is truncated to 2000 lines or 50KB (whichever is hit first). Use offset/limit for large files. When you need the full file, continue with offset until complete.", Parameters: schema(`{"type":"object","required":["path"],"properties":{"path":{"type":"string","description":"Path to the file to read (relative or absolute)"},"offset":{"type":"integer","minimum":1,"description":"Line number to start reading from (1-indexed)"},"limit":{"type":"integer","minimum":0,"description":"Maximum number of lines to read"}},"additionalProperties":false}`)}, Execute: readTool},
 		{ToolSpec: durable.ToolSpec{Name: "write", Description: "Write content to a file, creating parent directories and atomically replacing the destination.", Parameters: schema(`{"type":"object","required":["path","content"],"properties":{"path":{"type":"string"},"content":{"type":"string"}},"additionalProperties":false}`)}, Execute: writeTool},
-		{ToolSpec: durable.ToolSpec{Name: "edit", Description: "Replace unique, exact text regions. Every replacement matches the original file and must not overlap another edit.", Parameters: schema(`{"type":"object","required":["path","edits"],"properties":{"path":{"type":"string"},"edits":{"type":"array","minItems":1,"items":{"type":"object","required":["oldText","newText"],"properties":{"oldText":{"type":"string","minLength":1},"newText":{"type":"string"}},"additionalProperties":false}}},"additionalProperties":false}`)}, Execute: editTool},
+		{ToolSpec: durable.ToolSpec{Name: "edit", Description: "Edit a single file using exact text replacement. Every edits[].oldText must match a unique, non-overlapping region of the original file. If two changes affect the same block or nearby lines, merge them into one edit instead of emitting overlapping edits. Do not include large unchanged regions just to connect distant changes.", Parameters: schema(`{"type":"object","required":["path","edits"],"properties":{"path":{"type":"string"},"edits":{"type":"array","minItems":1,"items":{"type":"object","required":["oldText","newText"],"properties":{"oldText":{"type":"string","minLength":1},"newText":{"type":"string"}},"additionalProperties":false}}},"additionalProperties":false}`)}, Execute: editTool},
 		{ToolSpec: durable.ToolSpec{Name: "bash", Description: "Execute a bash command in the current working directory. Returns combined stdout and stderr. Output is truncated to last 2000 lines or 50KB (whichever is hit first). If truncated, full output is saved to a temp file. Optionally provide a timeout in seconds.", Parameters: schema(`{"type":"object","required":["command"],"properties":{"command":{"type":"string","minLength":1,"description":"Bash command to execute"},"timeout":{"type":"number","description":"Timeout in seconds (optional, no default timeout)"}},"additionalProperties":false}`)}, Execute: bashTool},
 	}}
 }
@@ -156,8 +155,11 @@ func editTool(ctx context.Context, raw json.RawMessage, rt *durable.ToolRuntime)
 	if err := decodeArgs(raw, &a); err != nil {
 		return durable.ToolResult{}, err
 	}
-	if a.Path == "" || len(a.Edits) == 0 {
-		return durable.ToolResult{}, errors.New("path and at least one edit are required")
+	if a.Path == "" {
+		return durable.ToolResult{}, errors.New("path must not be empty")
+	}
+	if len(a.Edits) == 0 {
+		return durable.ToolResult{}, errors.New("Edit tool input is invalid. edits must contain at least one replacement.")
 	}
 	e, err := env(rt)
 	if err != nil {
@@ -169,46 +171,23 @@ func editTool(ctx context.Context, raw json.RawMessage, rt *durable.ToolRuntime)
 	if err != nil {
 		return durable.ToolResult{}, err
 	}
-	text := string(original)
-	type span struct {
-		start, end  int
-		replacement string
+	text, bom := string(original), ""
+	if strings.HasPrefix(text, "\uFEFF") {
+		text, bom = text[len("\uFEFF"):], "\uFEFF"
 	}
-	spans := make([]span, 0, len(a.Edits))
+	ending := detectLineEnding(text)
+	edits := make([]textEdit, len(a.Edits))
 	for i, edit := range a.Edits {
-		if edit.OldText == "" {
-			return durable.ToolResult{}, fmt.Errorf("edits[%d].oldText must not be empty", i)
-		}
-		at := strings.Index(text, edit.OldText)
-		if at < 0 {
-			return durable.ToolResult{}, fmt.Errorf("could not find edits[%d] in %s", i, a.Path)
-		}
-		if strings.Index(text[at+1:], edit.OldText) >= 0 {
-			return durable.ToolResult{}, fmt.Errorf("edits[%d].oldText is not unique", i)
-		}
-		spans = append(spans, span{at, at + len(edit.OldText), edit.NewText})
+		edits[i] = textEdit{edit.OldText, edit.NewText}
 	}
-	sort.Slice(spans, func(i, j int) bool { return spans[i].start < spans[j].start })
-	for i := 1; i < len(spans); i++ {
-		if spans[i].start < spans[i-1].end {
-			return durable.ToolResult{}, errors.New("edit ranges overlap")
-		}
-	}
-	var updated strings.Builder
-	at := 0
-	for _, s := range spans {
-		updated.WriteString(text[at:s.start])
-		updated.WriteString(s.replacement)
-		at = s.end
-	}
-	updated.WriteString(text[at:])
-	if updated.String() == text {
-		return durable.ToolResult{}, errors.New("edits produce no changes")
-	}
-	if err := e.WriteFile(ctx, a.Path, []byte(updated.String())); err != nil {
+	_, updated, err := applyEditsToNormalizedContent(normalizeToLF(text), edits, a.Path)
+	if err != nil {
 		return durable.ToolResult{}, err
 	}
-	return result(fmt.Sprintf("Successfully replaced %d block(s) in %s.", len(spans), a.Path))
+	if err := e.WriteFile(ctx, a.Path, []byte(bom+restoreLineEndings(updated, ending))); err != nil {
+		return durable.ToolResult{}, err
+	}
+	return result(fmt.Sprintf("Successfully replaced %d block(s) in %s.", len(a.Edits), a.Path))
 }
 
 func bashTool(ctx context.Context, raw json.RawMessage, rt *durable.ToolRuntime) (durable.ToolResult, error) {

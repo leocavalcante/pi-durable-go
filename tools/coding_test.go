@@ -71,22 +71,25 @@ func runCoding(t *testing.T, dir, name, args string) (durable.Message, string) {
 	t.Fatal("no tool result")
 	return durable.Message{}, ""
 }
-func TestCodingEditRejectsOverlappingOccurrences(t *testing.T) {
+
+// Like upstream, occurrences are counted without overlap: "aa" occurs once
+// in "aaa".
+func TestCodingEditCountsOccurrencesWithoutOverlap(t *testing.T) {
 	dir := t.TempDir()
 	file := filepath.Join(dir, "text")
 	if err := os.WriteFile(file, []byte("aaa"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	result, _ := runCoding(t, dir, "edit", `{"path":"text","edits":[{"oldText":"aa","newText":"b"}]}`)
-	if !result.IsError {
-		t.Fatal("accepted overlapping occurrences")
+	if result.IsError {
+		t.Fatal(result.Content)
 	}
 	data, err := os.ReadFile(file)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(data) != "aaa" {
-		t.Fatal("failed edit changed file")
+	if string(data) != "ba" {
+		t.Fatalf("edited %q", data)
 	}
 }
 func TestCodingEditMatchesAllEditsAgainstOriginal(t *testing.T) {
@@ -203,5 +206,32 @@ func TestCodingBashResultsLikeUpstream(t *testing.T) {
 	full, err := os.ReadFile(path)
 	if err != nil || strings.Count(string(full), "\n") != 3000 {
 		t.Fatalf("spill file: %d lines, %v", strings.Count(string(full), "\n"), err)
+	}
+}
+
+func TestCodingEditLikeUpstream(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "crlf")
+	if err := os.WriteFile(file, []byte("\uFEFFfirst line  \r\nsays \u201chi\u201d\r\nlast\r\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	// A fuzzy match: trailing spaces and smart quotes differ; unchanged lines keep their bytes.
+	result, _ := runCoding(t, dir, "edit", `{"path":"crlf","edits":[{"oldText":"says \"hi\"","newText":"says bye"}]}`)
+	if result.IsError {
+		t.Fatal(result.Content)
+	}
+	data, _ := os.ReadFile(file)
+	if string(data) != "\uFEFFfirst line  \r\nsays bye\r\nlast\r\n" {
+		t.Fatalf("edited %q", data)
+	}
+	for _, tc := range []struct{ args, want string }{
+		{`{"path":"crlf","edits":[{"oldText":"missing","newText":"x"}]}`, "Could not find the exact text in crlf. The old text must match exactly including all whitespace and newlines."},
+		{`{"path":"crlf","edits":[{"oldText":"line","newText":"x"},{"oldText":"first line","newText":"y"}]}`, "edits[1] and edits[0] overlap in crlf. Merge them into one edit or target disjoint regions."},
+		{`{"path":"crlf","edits":[{"oldText":"last","newText":"last"}]}`, "No changes made to crlf. The replacement produced identical content."},
+	} {
+		result, _ := runCoding(t, dir, "edit", tc.args)
+		if !result.IsError || !strings.Contains(result.Content, tc.want) {
+			t.Fatalf("%s: %+v", tc.args, result)
+		}
 	}
 }
