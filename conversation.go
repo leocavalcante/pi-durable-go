@@ -108,20 +108,16 @@ func contextFromState(s *State, cid ConversationID) ([]Message, error) {
 				messages = append(messages, *e.Message)
 			}
 		case "pi.compaction":
-			var comp struct {
-				Summary string  `json:"summary"`
-				Cut     EntryID `json:"cut"`
-			}
-			if err := json.Unmarshal(e.Data, &comp); err != nil {
+			summary, cut, err := compactionSummary(e)
+			if err != nil {
 				return nil, err
 			}
 			// Reconstruct everything after the cut, including messages that arrived
 			// while the summary was generated. A summary never deletes stored history.
-			var next []Message
-			next = append(next, Message{Role: "user", Content: "Conversation summary:\n" + comp.Summary})
+			next := []Message{summary}
 			seen := false
 			for _, older := range entries {
-				if older.ID == comp.Cut {
+				if older.ID == cut {
 					seen = true
 					continue
 				}

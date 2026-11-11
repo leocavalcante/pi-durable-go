@@ -35,7 +35,9 @@ func TestPiDurableToolsReopenAndCompaction(t *testing.T) {
 			store.Close()
 			t.Fatal(err)
 		}
-		h, err := durable.Open(ctx, store, durable.HarnessOptions{Model: p, Registry: registry})
+		keepNothing := 0.0
+		h, err := durable.Open(ctx, store, durable.HarnessOptions{Model: p, Registry: registry,
+			Settings: durable.Settings{Compaction: durable.CompactionSettings{KeepRecentTokens: &keepNothing}}})
 		if err != nil {
 			store.Close()
 			t.Fatal(err)

@@ -8,6 +8,10 @@ import (
 	"time"
 )
 
+// compactEverything keeps no recent tokens, so the small conversations of
+// tests have a range to summarize.
+var compactEverything = CompactionSettings{KeepRecentTokens: ptr(0.0)}
+
 // compactionConversation has one completed turn to compact, appended directly
 // so that every model call is a compaction request.
 func compactionConversation(t *testing.T, h *Harness) (*Conversation, EntryID) {
@@ -48,7 +52,7 @@ func TestRetryPolicyCompactionRetriesTransientError(t *testing.T) {
 	model := &scriptedModel{steps: []func(context.Context, ModelRequest, func(string) error) (ModelResponse, error){
 		failWith(errors.New("503 overloaded"), ""), answerWith("summary"),
 	}}
-	h := taskTestHarness(t, HarnessOptions{Model: model, Now: clock.Now})
+	h := taskTestHarness(t, HarnessOptions{Model: model, Now: clock.Now, Settings: Settings{Compaction: compactEverything}})
 	c, _ := compactionConversation(t, h)
 	id, err := c.Compact(ctx, "")
 	if err != nil {
@@ -110,6 +114,7 @@ func TestRetryPolicyCompactionEndings(t *testing.T) {
 				model.steps = append(model.steps, failWith(err, ""))
 			}
 			model.steps = append(model.steps, answerWith("summary"))
+			tc.settings.Compaction = compactEverything
 			h := taskTestHarness(t, HarnessOptions{Model: model, Now: clock.Now, Settings: tc.settings})
 			c, _ := compactionConversation(t, h)
 			id, err := c.Compact(ctx, "")

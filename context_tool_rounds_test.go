@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"reflect"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -33,7 +34,7 @@ func (m *contextRoundsModel) capturedRequests() []ModelRequest {
 func newContextRoundsConversation(t *testing.T) (*Harness, *Conversation, *contextRoundsModel) {
 	t.Helper()
 	model := &contextRoundsModel{}
-	h, err := Open(context.Background(), NewMemoryStorage(), HarnessOptions{Model: model})
+	h, err := Open(context.Background(), NewMemoryStorage(), HarnessOptions{Model: model, Settings: Settings{Compaction: compactEverything}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -250,16 +251,14 @@ func TestCompactionInputUsesNormalizedToolRoundContextWithoutRewritingHistory(t 
 	if len(requests) != 1 || len(requests[0].Messages) != 2 {
 		t.Fatalf("compaction model requests: %+v", requests)
 	}
-	var compactedContext []Message
-	if err := json.Unmarshal([]byte(requests[0].Messages[1].Content), &compactedContext); err != nil {
-		t.Fatalf("decode compaction context: %v", err)
+	// The summarized range is normalized like model context: the call's
+	// missing result is synthesized after it, and the unmatched one dropped.
+	prompt := requests[0].Messages[1].Content
+	want := "[User]: question for compaction\n\n[Assistant]: calling lookup\n\n[Assistant tool calls]: lookup()\n\n[Tool result]: Tool result unavailable: history ends before this call completed."
+	if !strings.HasPrefix(prompt, "<conversation>\n"+want+"\n</conversation>") || !strings.HasSuffix(prompt, "Additional focus: keep tool call identity") {
+		t.Fatalf("summary prompt=%q", prompt)
 	}
-	if !reflect.DeepEqual(compactedContext, beforeContext) {
-		t.Fatalf("compaction context differs from Conversation.Context\n got: %#v\nwant: %#v", compactedContext, beforeContext)
-	}
-	if want := (Message{Role: "tool", ToolCallID: call.ID, ToolName: call.Name, IsError: true, Content: "Tool result unavailable: history ends before this call completed."}); !reflect.DeepEqual(compactedContext[2], want) {
-		t.Fatalf("compaction missing result identity: got %#v want %#v", compactedContext[2], want)
-	}
+	_ = beforeContext
 
 	afterEntries, err := c.Entries(context.Background())
 	if err != nil {

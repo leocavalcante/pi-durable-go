@@ -217,7 +217,7 @@ func TestTaskFaultToolCleanupAndMissingResultContext(t *testing.T) {
 func TestTaskCompactionModelErrorsAreApplicationFailures(t *testing.T) {
 	for _, missing := range []bool{false, true} {
 		t.Run(map[bool]string{false: "error", true: "missing"}[missing], func(t *testing.T) {
-			options := HarnessOptions{}
+			options := HarnessOptions{Settings: Settings{Compaction: compactEverything}}
 			if !missing {
 				options.Model = taskModelFunc(func(context.Context, ModelRequest, func(string) error) (ModelResponse, error) {
 					return ModelResponse{}, errors.New(strings.Repeat("x", 9000))
@@ -226,6 +226,9 @@ func TestTaskCompactionModelErrorsAreApplicationFailures(t *testing.T) {
 			h := taskTestHarness(t, options)
 			c := testRoot(t, h)
 			if err := h.Commit(context.Background(), func(tx *Tx) error {
+				if _, err := tx.Append(c.id, Entry{Kind: "pi.user", Message: &Message{Role: "user", Content: "question"}}); err != nil {
+					return err
+				}
 				_, err := tx.Append(c.id, Entry{Kind: "pi.assistant", Message: &Message{Role: "assistant", Content: "done"}})
 				return err
 			}); err != nil {
@@ -239,7 +242,7 @@ func TestTaskCompactionModelErrorsAreApplicationFailures(t *testing.T) {
 			}
 			record, err := h.WaitTask(ctx, id)
 			if err != nil || record.Outcome.Status != OutcomeFailed || record.Outcome.Error == "" || len(record.Outcome.Error) > 4096 {
-				t.Fatalf("record=%+v error=%v", record, err)
+				t.Fatalf("record=%+v outcome=%+v error=%v", record, record.Outcome, err)
 			}
 		})
 	}

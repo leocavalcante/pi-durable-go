@@ -409,7 +409,7 @@ func TestRunControlCompactionStatus(t *testing.T) {
 	release := make(chan struct{})
 	var calls atomic.Int32
 	model := taskModelFunc(func(ctx context.Context, request ModelRequest, _ func(string) error) (ModelResponse, error) {
-		if strings.HasPrefix(request.Messages[0].Content, "Summarize") {
+		if strings.HasPrefix(request.Messages[0].Content, "You are a context summarization assistant") {
 			if calls.Add(1) == 1 {
 				<-release
 				return ModelResponse{}, errors.New("bad summary request")
@@ -418,7 +418,7 @@ func TestRunControlCompactionStatus(t *testing.T) {
 		}
 		return ModelResponse{Content: "answer"}, nil
 	})
-	h, root := runHarness(t, model, Settings{})
+	h, root := runHarness(t, model, Settings{Compaction: compactEverything})
 	waitSettled(t, h, submit(t, root, SubmissionRequest{Content: "hi"}))
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -435,7 +435,7 @@ func TestRunControlCompactionStatus(t *testing.T) {
 		t.Fatalf("record=%+v error=%v", record, err)
 	}
 	live = readLiveState(t, h, root.ID())
-	if live.Compactions != nil || live.CompactionFailure == nil || live.CompactionFailure.TaskID != failing || live.CompactionFailure.Error != "bad summary request" {
+	if live.Compactions != nil || live.CompactionFailure == nil || live.CompactionFailure.TaskID != failing || live.CompactionFailure.Error != "Summarization failed: bad summary request" {
 		t.Fatalf("after failure=%+v", live)
 	}
 	succeeding, err := root.Compact(ctx, "")

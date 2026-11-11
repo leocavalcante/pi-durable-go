@@ -42,7 +42,7 @@ export class ModelRuntime {
         throw new Error("native replay did not survive durable tool execution");
       }
       result.content = [{ type: "text", text: "complete" }];
-    } else if (context.messages.some((message) => message.role === "system" && message.content.startsWith("Summarize this conversation"))) {
+    } else if (context.messages.some((message) => message.role === "system" && message.content.startsWith("You are a context summarization assistant"))) {
       if (JSON.stringify(context).includes("pi-assistant-v1")) throw new Error("native data leaked into compaction input");
       result.content = [{ type: "text", text: "summary" }];
     } else if (model.id === "inspect") {

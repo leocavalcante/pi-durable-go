@@ -33,6 +33,12 @@ type generationCheckpoint struct {
 	Assistant EntryID  `json:"assistant,omitempty"`
 	// Run is the answered run whose AfterRun hooks the finish phase asks.
 	Run *RunSummary `json:"run,omitempty"`
+	// Compacted is the blocking compaction this generation waited for; it
+	// starts no other one. Overflow is the error text of the overflow that
+	// started it, Threshold set when the blocking threshold did.
+	Compacted TaskID `json:"compacted,omitempty"`
+	Overflow  string `json:"overflow,omitempty"`
+	Threshold bool   `json:"threshold,omitempty"`
 }
 
 func (cp generationCheckpoint) attempt() int {
@@ -132,7 +138,7 @@ func runGeneration(ctx context.Context, r *TaskRuntime, task TaskRecord) error {
 			}); err != nil {
 				return TaskTransition{}, err
 			}
-			next, err := json.Marshal(generationCheckpoint{Phase: "prepare", Attempt: attempt})
+			next, err := json.Marshal(generationCheckpoint{Phase: "prepare", Attempt: attempt, Compacted: cp.Compacted})
 			return TaskTransition{Status: "running", Checkpoint: next}, err
 		})
 	case "tools":
@@ -178,9 +184,57 @@ func prepareGeneration(ctx context.Context, r *TaskRuntime, task TaskRecord, cp 
 	if last == nil || last.Role != "user" && last.Role != "tool" {
 		return failRun(ctx, r, task, runEnd{reason: RunNothingToAnswer}, "The conversation has nothing to answer", false)
 	}
-	request := buildRequest(ctx, r, state, *c)
 	attempt := cp.attempt()
+	if cp.Compacted != 0 && (cp.Overflow != "" || cp.Threshold) {
+		outcomes, err := r.Outcomes(ctx, []TaskID{cp.Compacted})
+		if err != nil {
+			return err
+		}
+		outcome := outcomes[0]
+		var result struct {
+			EntryID EntryID `json:"entryId"`
+		}
+		_ = json.Unmarshal(outcome.Result, &result)
+		// After an overflow, only a summary makes the request fit. A threshold
+		// compaction that failed left a context it judged too large.
+		if cp.Overflow != "" && (outcome.Status != OutcomeCompleted || result.EntryID == 0) {
+			return failRun(ctx, r, task, runEnd{reason: RunModelError, detail: cp.Overflow}, cp.Overflow, false)
+		}
+		if cp.Threshold && outcome.Status != OutcomeCompleted {
+			text := compactionFailureText(outcome)
+			return failRun(ctx, r, task, runEnd{reason: RunModelError, detail: text}, text, false)
+		}
+	}
+	request := buildRequest(ctx, r, state, *c)
+	threshold := ""
+	if cp.Compacted == 0 {
+		threshold = thresholdCompaction(r, state, *c, request)
+	}
+	if threshold == "blocking" {
+		// Compact first and prepare again; the transcript is unchanged until
+		// the compaction appends.
+		return r.Commit(ctx, func(tx *Tx) (TaskTransition, error) {
+			child, err := createCompaction(tx, task.Conversation, compactionInput{Reason: "threshold"}, task.ID)
+			if err != nil {
+				return TaskTransition{}, err
+			}
+			next, err := json.Marshal(generationCheckpoint{Phase: "prepare", Attempt: attempt, Compacted: child, Threshold: true})
+			return TaskTransition{Status: "waiting", Checkpoint: next, WaitOn: []TaskID{child}, WaitPolicy: "allSettled"}, err
+		})
+	}
 	return r.Commit(ctx, func(tx *Tx) (TaskTransition, error) {
+		if threshold == "background" {
+			live, err := readLive(tx, task.Conversation)
+			if err != nil {
+				return TaskTransition{}, err
+			}
+			// Checked in this commit, so a compaction admitted meanwhile counts.
+			if len(live.Compactions) == 0 {
+				if _, err := createCompaction(tx, task.Conversation, compactionInput{Reason: "threshold"}, 0); err != nil {
+					return TaskTransition{}, err
+				}
+			}
+		}
 		metadata, err := json.Marshal(struct {
 			Messages []Message  `json:"system"`
 			Tools    []ToolSpec `json:"tools"`
@@ -212,7 +266,7 @@ func prepareGeneration(ctx context.Context, r *TaskRuntime, task TaskRecord, cp 
 		}); err != nil {
 			return TaskTransition{}, err
 		}
-		data, err := json.Marshal(generationCheckpoint{Phase: "request", Attempt: attempt, Request: request})
+		data, err := json.Marshal(generationCheckpoint{Phase: "request", Attempt: attempt, Request: request, Compacted: cp.Compacted})
 		return TaskTransition{Status: "running", Checkpoint: data}, err
 	})
 }
@@ -273,13 +327,19 @@ func requestGeneration(ctx context.Context, r *TaskRuntime, task TaskRecord, cp 
 		// derivation excludes, with what it streamed.
 		failed := Message{Role: "assistant", Content: partial, Aborted: true, StopReason: "error", ErrorMessage: text,
 			ThinkingLevel: cp.Request.ThinkingLevel, Usage: response.Usage}
-		if !IsContextOverflowError(err, cp.Request.Model.Provider) && IsRetryableModelError(err) && policy.allows(attempt) {
+		overflow := IsContextOverflowError(err, cp.Request.Model.Provider)
+		if overflow && cp.Compacted == 0 {
+			if compacted, err := overflowCompaction(ctx, r, task, cp, failed, text); compacted || err != nil {
+				return err
+			}
+		}
+		if !overflow && IsRetryableModelError(err) && policy.allows(attempt) {
 			until := retryDeadline(r.h.now(), retryDelayMs(policy, attempt))
 			return r.Commit(ctx, func(tx *Tx) (TaskTransition, error) {
 				if _, e := appendAssistant(tx, task.Conversation, cp.Request.Model, failed); e != nil {
 					return TaskTransition{}, e
 				}
-				return retryTransition(tx, task.Conversation, attempt, until, text)
+				return retryTransition(tx, task.Conversation, attempt, until, text, cp.Compacted)
 			})
 		}
 		return r.Commit(ctx, func(tx *Tx) (TaskTransition, error) {
@@ -662,14 +722,14 @@ func finishToolRound(ctx context.Context, r *TaskRuntime, task TaskRecord, cp ge
 
 // retryTransition sleeps a failed attempt until the retry deadline, noting
 // the backoff in pi.live; the next attempt prepares its request again.
-func retryTransition(tx *Tx, cid ConversationID, attempt int, until time.Time, text string) (TaskTransition, error) {
+func retryTransition(tx *Tx, cid ConversationID, attempt int, until time.Time, text string, compacted TaskID) (TaskTransition, error) {
 	if err := updateLive(tx, cid, func(live *LiveState) error {
 		live.Generation = &LiveGeneration{Attempt: attempt, Retry: &LiveRetry{At: until.UnixMilli(), Error: text}}
 		return nil
 	}); err != nil {
 		return TaskTransition{}, err
 	}
-	next, err := json.Marshal(generationCheckpoint{Phase: "retry", Attempt: attempt, Until: until.UnixMilli()})
+	next, err := json.Marshal(generationCheckpoint{Phase: "retry", Attempt: attempt, Until: until.UnixMilli(), Compacted: compacted})
 	wake := time.UnixMilli(until.UnixMilli()).UTC()
 	return TaskTransition{Status: "sleeping", Checkpoint: next, WakeAt: &wake}, err
 }
@@ -847,7 +907,7 @@ func chargeInterruptedRequest(ctx context.Context, r *TaskRuntime, task TaskReco
 		if err := convertPartial(tx, task); err != nil {
 			return TaskTransition{}, err
 		}
-		return retryTransition(tx, task.Conversation, attempt, until, text)
+		return retryTransition(tx, task.Conversation, attempt, until, text, cp.Compacted)
 	})
 }
 
@@ -1265,4 +1325,91 @@ func unofferedCall(live *LiveState, callID string) bool {
 		}
 	}
 	return false
+}
+
+// thresholdCompaction decides which compaction preparation starts before its
+// request (§8.3): blocking above contextWindow − ReserveTokens, background
+// above the background threshold below that, and only when range selection
+// finds a cut. The context window comes from a ContextWindowModel; unknown
+// disables thresholds.
+func thresholdCompaction(r *TaskRuntime, state *State, c ConversationRecord, request ModelRequest) string {
+	model, ok := r.h.options.Model.(ContextWindowModel)
+	if !ok {
+		return ""
+	}
+	window := float64(model.ContextWindow(c.Agent.Model))
+	policy := resolveCompaction(r.h.options.Settings.Compaction, c.Agent.Compaction, c.Agent.Model)
+	if !policy.enabled || window <= 0 {
+		return ""
+	}
+	view, err := deriveContextView(state, c.ID, 0)
+	if err != nil {
+		return ""
+	}
+	tokens := float64(estimateContext(view, systemMessages(request.Messages)))
+	blocking := window - policy.reserveTokens
+	background := blocking - policy.backgroundTokens
+	over := ""
+	switch {
+	case tokens > blocking:
+		over = "blocking"
+	case policy.backgroundTokens > 0 && tokens > background:
+		over = "background"
+	}
+	if over == "" || selectCut(view, policy.keepRecentTokens) < 0 {
+		return ""
+	}
+	return over
+}
+
+// overflowCompaction starts a blocking compaction after a context overflow,
+// when the policy allows and a cut exists: the failed attempt is kept, and
+// the generation prepares again once the summary is in place.
+func overflowCompaction(ctx context.Context, r *TaskRuntime, task TaskRecord, cp generationCheckpoint, failed Message, text string) (bool, error) {
+	state, err := r.h.Snapshot(ctx)
+	if err != nil {
+		return false, err
+	}
+	conv := state.Conversations[task.Conversation]
+	if conv == nil {
+		return false, ErrNotFound
+	}
+	policy := resolveCompaction(r.h.options.Settings.Compaction, conv.Agent.Compaction, cp.Request.Model)
+	if !policy.enabled {
+		return false, nil
+	}
+	view, err := deriveContextView(state, task.Conversation, 0)
+	if err != nil || selectCut(view, policy.keepRecentTokens) < 0 {
+		return false, nil
+	}
+	return true, r.Commit(ctx, func(tx *Tx) (TaskTransition, error) {
+		if _, err := appendAssistant(tx, task.Conversation, cp.Request.Model, failed); err != nil {
+			return TaskTransition{}, err
+		}
+		if err := updateLive(tx, task.Conversation, func(live *LiveState) error {
+			live.Generation = nil
+			return nil
+		}); err != nil {
+			return TaskTransition{}, err
+		}
+		child, err := createCompaction(tx, task.Conversation, compactionInput{Reason: "overflow"}, task.ID)
+		if err != nil {
+			return TaskTransition{}, err
+		}
+		next, err := json.Marshal(generationCheckpoint{Phase: "prepare", Attempt: cp.attempt(), Compacted: child, Overflow: text})
+		return TaskTransition{Status: "waiting", Checkpoint: next, WaitOn: []TaskID{child}, WaitPolicy: "allSettled"}, err
+	})
+}
+
+// compactionFailureText is the error of a blocking compaction that ended
+// without completing.
+func compactionFailureText(outcome Outcome) string {
+	switch outcome.Status {
+	case OutcomeFailed, OutcomeFaulted:
+		return "Compaction failed: " + outcome.Error
+	case OutcomeOrphaned:
+		return "Compaction failed: " + outcome.Reason
+	default:
+		return "Compaction was aborted"
+	}
 }

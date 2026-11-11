@@ -4,22 +4,34 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 )
 
+// compactionInput is pi.compaction's input: why it runs (manual, threshold,
+// or overflow) and optional instructions. Version-2 records instead pinned a
+// summary Request and its Cut; they finish under their own flow.
 type compactionInput struct {
-	Request ModelRequest `json:"request"`
-	Cut     EntryID      `json:"cut"`
+	Reason       string       `json:"reason,omitempty"`
+	Instructions string       `json:"instructions,omitempty"`
+	Request      ModelRequest `json:"request,omitempty"` // version 2 only
+	Cut          EntryID      `json:"cut,omitempty"`     // version 2 only
 }
 
-// compactionCheckpoint is pi.compaction version 2. Phases: request (the
-// pinned summary request), retry (a backoff until Until, in Unix
-// milliseconds), and publish. Attempt is 1-based; zero reads as 1.
+// compactionCheckpoint is pi.compaction version 3. Phases: select, summarize
+// (the pinned summary request: model, thinking level, the newest entry, and
+// the first entry kept), and retry (a sleep until Until, in Unix
+// milliseconds). Version-2 records use request and publish. Attempt is
+// 1-based; zero reads as 1.
 type compactionCheckpoint struct {
-	Phase   string `json:"phase"`
-	Attempt int    `json:"attempt,omitempty"`
-	Until   int64  `json:"until,omitempty"`
-	Summary string `json:"summary,omitempty"`
+	Phase         string   `json:"phase"`
+	Attempt       int      `json:"attempt,omitempty"`
+	Until         int64    `json:"until,omitempty"`
+	Summary       string   `json:"summary,omitempty"` // version-2 publish
+	Model         ModelRef `json:"model,omitempty"`
+	ThinkingLevel string   `json:"thinkingLevel,omitempty"`
+	Tail          EntryID  `json:"tail,omitempty"`
+	FirstKept     EntryID  `json:"firstKept,omitempty"`
 }
 
 func (cp compactionCheckpoint) attempt() int {
@@ -30,12 +42,13 @@ func (cp compactionCheckpoint) attempt() int {
 }
 
 // compactionVersion is Go's own numbering of pi.compaction's stored form.
-// Version 2 added the retry phase and attempt; version-1 records read as
-// attempt 1 unchanged, and a version-1 Harness leaves version 2 blocked.
-const compactionVersion = 2
+// Version 2 added the retry phase; version 3 is upstream's select and
+// summarize, choosing the range when it runs. Earlier records migrate
+// unchanged and finish under their pinned request.
+const compactionVersion = 3
 
 func migrateCompaction(from int, input, checkpoint json.RawMessage) (MigratedTask, error) {
-	if from != 1 {
+	if from != 1 && from != 2 {
 		return MigratedTask{}, fmt.Errorf("pi.compaction has no migration from version %d", from)
 	}
 	return MigratedTask{Input: input, Checkpoint: checkpoint}, nil
@@ -50,9 +63,7 @@ func CompactionExtension() Extension {
 func compactionTaskDefinition() TaskDefinition {
 	return TaskDefinition{
 		Kind: "pi.compaction", Version: compactionVersion,
-		Initial: func(json.RawMessage) (json.RawMessage, error) {
-			return json.RawMessage(`{"phase":"request","attempt":1}`), nil
-		},
+		Initial: func(json.RawMessage) (json.RawMessage, error) { return json.RawMessage(`{"phase":"select"}`), nil },
 		Run:     runCompaction,
 		Migrate: migrateCompaction,
 		Abort: func(ctx context.Context, r *TaskRuntime, t TaskRecord) error {
@@ -68,75 +79,42 @@ func compactionTaskDefinition() TaskDefinition {
 		},
 	}
 }
+
+// createCompaction creates a compaction task with its status. owner is the
+// generation that waits for it (a blocking compaction); without one it is
+// conversation-owned, and background unless it is manual.
+func createCompaction(tx *Tx, cid ConversationID, input compactionInput, owner TaskID) (TaskID, error) {
+	data, err := json.Marshal(input)
+	if err != nil {
+		return 0, err
+	}
+	id, err := tx.CreateTask(cid, compactionTaskDefinition(), data, TaskOptions{Owner: Owner{Task: owner}, Background: owner == 0 && input.Reason != "manual"})
+	if err != nil {
+		return 0, err
+	}
+	return id, updateLive(tx, cid, func(live *LiveState) error {
+		live.Compactions = append(live.Compactions, CompactionStatus{TaskID: id, Trigger: input.Reason, Blocking: owner != 0, Attempt: 1})
+		return nil
+	})
+}
+
+// Compact admits a manual compaction task and returns its ID. It summarizes
+// while the conversation keeps working and places its summary through a write
+// submission: at once when idle, otherwise at the next boundary (§8.7). When
+// the policy finds nothing to compact, it completes without a summary.
 func (c *Conversation) Compact(ctx context.Context, instructions string) (TaskID, error) {
-	state, err := c.h.Snapshot(ctx)
-	if err != nil {
-		return 0, err
-	}
-	rec := state.Conversations[c.id]
-	if rec == nil {
-		return 0, ErrNotFound
-	}
-	entries, err := entriesFromState(state, c.id)
-	if err != nil {
-		return 0, err
-	}
-	cut := rec.Head
-	if rec.Busy != 0 {
-		cut = 0
-		for _, e := range entries {
-			if e.Message != nil && e.Message.Role == "assistant" && len(e.Message.ToolCalls) == 0 && contributesContext(e.Message) {
-				cut = e.ID
-			}
-		}
-	}
-	if cut == 0 {
-		return 0, fmt.Errorf("%w: no completed turn to compact", ErrInvalid)
-	}
-	// Derive exactly the model context at the retained turn boundary.
-	copyRec := *rec
-	copyRec.Head = cut
-	state.Conversations[c.id] = &copyRec
-	messages, err := contextFromState(state, c.id)
-	if err != nil {
-		return 0, err
-	}
-	// Native continuation data is not summary input. In particular, encrypted
-	// thinking/signatures should not be exposed to the summarizing model.
-	for i := range messages {
-		messages[i].ProviderData = nil
-	}
-	transcript, err := json.Marshal(messages)
-	if err != nil {
-		return 0, err
-	}
-	request := ModelRequest{Model: rec.Agent.Model, SessionID: rec.ProviderSessionID, ThinkingLevel: rec.Agent.ThinkingLevel, Messages: []Message{
-		{Role: "system", Content: "Summarize this conversation for another agent to continue. Preserve goals, decisions, unresolved work, exact identifiers, and relevant tool results. Return only the summary. " + instructions},
-		{Role: "user", Content: string(transcript)},
-	}}
-	input, err := json.Marshal(compactionInput{Request: request, Cut: cut})
-	if err != nil {
-		return 0, err
-	}
 	var id TaskID
-	def := compactionTaskDefinition()
-	err = c.h.Commit(ctx, func(tx *Tx) error {
+	err := c.h.Commit(ctx, func(tx *Tx) error {
 		var err error
-		// A manual compaction is conversation-owned and not background, so a
-		// conversation abort aborts it (upstream createCompaction).
-		if id, err = tx.CreateTask(c.id, def, input, TaskOptions{}); err != nil {
-			return err
-		}
-		return updateLive(tx, c.id, func(live *LiveState) error {
-			live.Compactions = append(live.Compactions, CompactionStatus{TaskID: id, Trigger: "manual", Attempt: 1})
-			return nil
-		})
+		id, err = createCompaction(tx, c.id, compactionInput{Reason: "manual", Instructions: instructions}, 0)
+		return err
 	})
 	if err == nil {
 		c.h.Resume()
 	}
 	return id, err
 }
+
 func runCompaction(ctx context.Context, r *TaskRuntime, task TaskRecord) error {
 	var input compactionInput
 	var checkpoint compactionCheckpoint
@@ -152,6 +130,42 @@ func runCompaction(ctx context.Context, r *TaskRuntime, task TaskRecord) error {
 	case "request", "retry", "publish":
 		if cutOffTooOften(task.Restarts, r.h.restartLimit()) {
 			return failCompaction(ctx, r, task, "Compaction was interrupted "+cutOffCount(task.Restarts), reasonRestartLimit)
+		}
+	}
+	switch checkpoint.Phase {
+	case "select", "summarize":
+		if cutOffTooOften(task.Restarts, r.h.restartLimit()) {
+			return failCompaction(ctx, r, task, "Compaction was interrupted "+cutOffCount(task.Restarts), reasonRestartLimit)
+		}
+	}
+	switch checkpoint.Phase {
+	case "select":
+		return selectCompaction(ctx, r, task, input)
+	case "summarize":
+		return summarizeCompaction(ctx, r, task, input, checkpoint)
+	case "retry":
+		if input.Request.Model.ID == "" && input.Request.Messages == nil {
+			// Version 3: back to summarize, with the same pinned range.
+			if checkpoint.Until > r.h.now().UnixMilli() {
+				wake := time.UnixMilli(checkpoint.Until).UTC()
+				return r.Commit(ctx, func(*Tx) (TaskTransition, error) {
+					return TaskTransition{Status: "sleeping", Checkpoint: task.Checkpoint, WakeAt: &wake}, nil
+				})
+			}
+			next := checkpoint
+			next.Phase, next.Attempt, next.Until = "summarize", checkpoint.attempt()+1, 0
+			return r.Commit(ctx, func(tx *Tx) (TaskTransition, error) {
+				if err := updateLive(tx, task.Conversation, func(live *LiveState) error {
+					if status := live.compaction(task.ID); status != nil {
+						status.Attempt, status.Retry = next.Attempt, nil
+					}
+					return nil
+				}); err != nil {
+					return TaskTransition{}, err
+				}
+				data, err := json.Marshal(next)
+				return TaskTransition{Status: "running", Checkpoint: data}, err
+			})
 		}
 	}
 	switch checkpoint.Phase {
@@ -332,4 +346,199 @@ func failCompaction(ctx context.Context, r *TaskRuntime, task TaskRecord, messag
 		}
 		return TaskTransition{Status: "terminal", Outcome: &Outcome{Status: OutcomeFailed, Error: diagnostic(message), ErrorDetail: detail}}, nil
 	})
+}
+
+// selectCompaction selects an old prefix of the model context to summarize,
+// keeping KeepRecentTokens; with nothing to compact, it completes.
+func selectCompaction(ctx context.Context, r *TaskRuntime, task TaskRecord, input compactionInput) error {
+	if r.h.options.Model == nil {
+		return failCompaction(ctx, r, task, "No model is configured", RunNoModel)
+	}
+	state, err := r.h.Snapshot(ctx)
+	if err != nil {
+		return err
+	}
+	conv := state.Conversations[task.Conversation]
+	if conv == nil {
+		return ErrNotFound
+	}
+	policy := resolveCompaction(r.h.options.Settings.Compaction, conv.Agent.Compaction, conv.Agent.Model)
+	view, err := deriveContextView(state, task.Conversation, 0)
+	if err != nil {
+		return err
+	}
+	cut := selectCut(view, policy.keepRecentTokens)
+	if cut < 0 {
+		return completeCompaction(ctx, r, task)
+	}
+	var tail EntryID
+	for _, e := range view.entries {
+		if e.ID > tail {
+			tail = e.ID
+		}
+	}
+	next, err := json.Marshal(compactionCheckpoint{Phase: "summarize", Attempt: 1, Model: conv.Agent.Model, ThinkingLevel: conv.Agent.ThinkingLevel,
+		Tail: tail, FirstKept: view.entries[cut].ID})
+	if err != nil {
+		return err
+	}
+	return r.Commit(ctx, func(*Tx) (TaskTransition, error) {
+		return TaskTransition{Status: "running", Checkpoint: next}, nil
+	})
+}
+
+// completeCompaction removes the status and completes without a summary.
+func completeCompaction(ctx context.Context, r *TaskRuntime, task TaskRecord) error {
+	return r.Commit(ctx, func(tx *Tx) (TaskTransition, error) {
+		if err := updateLive(tx, task.Conversation, func(live *LiveState) error {
+			live.removeCompaction(task.ID)
+			return nil
+		}); err != nil {
+			return TaskTransition{}, err
+		}
+		return TaskTransition{Status: "terminal", Outcome: &Outcome{Status: OutcomeCompleted, Result: json.RawMessage(`{}`)}}, nil
+	})
+}
+
+// summarizeCompaction requests the summary of the pinned range: the context
+// as of Tail, before FirstKept, serialized as a transcript.
+func summarizeCompaction(ctx context.Context, r *TaskRuntime, task TaskRecord, input compactionInput, cp compactionCheckpoint) error {
+	if r.h.options.Model == nil {
+		return failCompaction(ctx, r, task, "No model is configured", RunNoModel)
+	}
+	state, err := r.h.Snapshot(ctx)
+	if err != nil {
+		return err
+	}
+	conv := state.Conversations[task.Conversation]
+	if conv == nil {
+		return ErrNotFound
+	}
+	view, err := deriveContextView(state, task.Conversation, cp.Tail)
+	if err != nil {
+		return err
+	}
+	cut := -1
+	for i, e := range view.entries {
+		if e.ID == cp.FirstKept {
+			cut = i
+			break
+		}
+	}
+	if cut < 0 {
+		return completeCompaction(ctx, r, task) // the range is gone, as after a reset
+	}
+	var summarized []Message
+	for _, messages := range view.contributions[:cut] {
+		summarized = append(summarized, messages...)
+	}
+	summarized = orderToolResults(summarized)
+	request := ModelRequest{Model: cp.Model, SessionID: conv.ProviderSessionID, ThinkingLevel: cp.ThinkingLevel, Messages: []Message{
+		{Role: "system", Content: summarizationSystemPrompt},
+		{Role: "user", Content: summaryPrompt(summarized, input.Instructions)},
+	}}
+	response, err := r.h.options.Model.Generate(ctx, request, func(string) error { return nil })
+	if err != nil {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		text := diagnostic(err.Error())
+		policy := r.h.options.Settings.Retry.resolve()
+		attempt := cp.attempt()
+		if IsRetryableModelError(err) && policy.allows(attempt) {
+			until := retryDeadline(r.h.now(), retryDelayMs(policy, attempt)).UnixMilli()
+			next := cp
+			next.Phase, next.Until = "retry", until
+			wake := time.UnixMilli(until).UTC()
+			return r.Commit(ctx, func(tx *Tx) (TaskTransition, error) {
+				if err := updateLive(tx, task.Conversation, func(live *LiveState) error {
+					if status := live.compaction(task.ID); status != nil {
+						status.Retry = &LiveRetry{At: until, Error: text}
+					}
+					return nil
+				}); err != nil {
+					return TaskTransition{}, err
+				}
+				data, err := json.Marshal(next)
+				return TaskTransition{Status: "sleeping", Checkpoint: data, WakeAt: &wake}, err
+			})
+		}
+		return failCompaction(ctx, r, task, "Summarization failed: "+text, RunModelError)
+	}
+	summary := strings.TrimSpace(response.Content)
+	switch {
+	case response.StopReason == "length":
+		return failCompaction(ctx, r, task, "Summarization hit the token limit; the summary is incomplete", RunModelError)
+	case len(response.ToolCalls) > 0:
+		return failCompaction(ctx, r, task, "Summarization attempted to call a tool", RunModelError)
+	case summary == "":
+		return failCompaction(ctx, r, task, "Summarization produced no text", RunModelError)
+	}
+	return r.Commit(ctx, func(tx *Tx) (TaskTransition, error) {
+		if err := recordModelUsage(tx, task.Conversation, cp.Model, response.Usage); err != nil {
+			return TaskTransition{}, err
+		}
+		return placeSummary(tx, r.h, task, input, cp.FirstKept, summary)
+	})
+}
+
+// placeSummary places the summary entry and completes (§8.7). A blocking
+// compaction, owned by its generation, appends it: the generation holds the
+// run and waits. A conversation-owned one admits it as a write submission,
+// placed at once when idle, otherwise at the next boundary, or settled stale.
+func placeSummary(tx *Tx, h *Harness, task TaskRecord, input compactionInput, firstKept EntryID, summary string) (TaskTransition, error) {
+	cid := task.Conversation
+	if err := updateLive(tx, cid, func(live *LiveState) error {
+		live.removeCompaction(task.ID)
+		live.CompactionFailure = nil
+		return nil
+	}); err != nil {
+		return TaskTransition{}, err
+	}
+	// Go's summary entries keep the entries after their cut: the entry just
+	// before the first kept one.
+	entries, err := entriesFromState(tx.state, cid)
+	if err != nil {
+		return TaskTransition{}, err
+	}
+	var cut EntryID
+	for i, e := range entries {
+		if e.ID == firstKept && i > 0 {
+			cut = entries[i-1].ID
+		}
+	}
+	if cut == 0 {
+		return TaskTransition{Status: "terminal", Outcome: &Outcome{Status: OutcomeCompleted, Result: json.RawMessage(`{}`)}}, nil
+	}
+	data, err := json.Marshal(struct {
+		Summary string  `json:"summary"`
+		Cut     EntryID `json:"cut"`
+		Text    string  `json:"text"`
+		Reason  string  `json:"reason,omitempty"`
+	}{summary, cut, summaryPrefix + summary + summarySuffix, input.Reason})
+	if err != nil {
+		return TaskTransition{}, err
+	}
+	entry := &Entry{Kind: "pi.compaction", Data: data}
+	var result json.RawMessage
+	if task.Owner.Task != 0 {
+		id, err := tx.Append(cid, *entry)
+		if err != nil {
+			return TaskTransition{}, err
+		}
+		result, err = json.Marshal(map[string]EntryID{"entryId": id})
+		if err != nil {
+			return TaskTransition{}, err
+		}
+	} else {
+		id, err := h.admitSubmission(tx, cid, SubmissionRequest{Type: "write", Entry: entry, RequestID: fmt.Sprintf("compaction:%d", task.ID)})
+		if err != nil {
+			return TaskTransition{}, err
+		}
+		result, err = json.Marshal(map[string]SubmissionID{"submissionId": id})
+		if err != nil {
+			return TaskTransition{}, err
+		}
+	}
+	return TaskTransition{Status: "terminal", Outcome: &Outcome{Status: OutcomeCompleted, Result: result}}, nil
 }

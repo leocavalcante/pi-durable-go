@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 )
@@ -297,7 +298,7 @@ func TestContextResetPreservesTranscript(t *testing.T) {
 	}
 }
 func TestCompactionPreservesTranscript(t *testing.T) {
-	h := testHarness(t)
+	h := taskTestHarness(t, HarnessOptions{Model: echoModel{}, Settings: Settings{Compaction: compactEverything}})
 	c := testRoot(t, h)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -334,7 +335,8 @@ func TestCompactionPreservesTranscript(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(messages) != 1 {
+	// The summary replaces the compacted range; the newest entry is kept.
+	if len(messages) != 2 || !strings.HasPrefix(messages[0].Content, summaryPrefix) || messages[1].Role != "assistant" {
 		t.Fatalf("summary context %+v", messages)
 	}
 }

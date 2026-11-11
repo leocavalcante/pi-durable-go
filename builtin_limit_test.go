@@ -238,7 +238,7 @@ func TestCrashLoopCompactionCutOff(t *testing.T) {
 			<-ctx.Done()
 			return ModelResponse{}, ctx.Err()
 		})
-		hosts := newCrashHosts(t, nil, HarnessOptions{Model: model, OnReport: log.add, Settings: Settings{RestartLimit: 1}})
+		hosts := newCrashHosts(t, nil, HarnessOptions{Model: model, OnReport: log.add, Settings: Settings{RestartLimit: 1, Compaction: compactEverything}})
 		h := hosts.open(nil)
 		c, _ := compactionConversation(t, h)
 		id, err := c.Compact(ctx, "")

@@ -70,6 +70,8 @@ type Agent struct {
 	// MaxTurns bounds a run's tool rounds; a run that reaches it ends
 	// unanswered with turn_limit, and a continue resumes it. Zero: no bound.
 	MaxTurns int `json:"maxTurns,omitempty"`
+	// Compaction overrides Settings.Compaction for this conversation.
+	Compaction *CompactionSettings `json:"compaction,omitempty"`
 }
 type ConversationRecord struct {
 	ID                ConversationID `json:"id"`
@@ -407,6 +409,9 @@ type Settings struct {
 	AfterFailedRun string
 	// Progress paces presentation commits (upstream settings.progress).
 	Progress ProgressSettings
+	// Compaction is the Harness-wide compaction policy: threshold and
+	// overflow compaction, and the range a summary keeps.
+	Compaction CompactionSettings
 	// ToolExecution "sequential" runs every tool round one call at a time;
 	// "parallel" (default) starts all calls at once, unless a called tool's
 	// ExecutionMode is sequential.
