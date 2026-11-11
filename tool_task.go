@@ -12,6 +12,9 @@ type toolTaskInput struct {
 	Assistant EntryID  `json:"assistant"`
 	CallID    string   `json:"callId"`
 	Call      ToolCall `json:"call"`
+	// Unoffered marks a call to a tool its request did not offer: it settles
+	// tool_unavailable without resolving the name.
+	Unoffered bool `json:"unoffered,omitempty"`
 }
 
 // toolCheckpoint is pi.tool version 2: phases call and execute. Running
@@ -222,7 +225,7 @@ func runTool(ctx context.Context, r *TaskRuntime, task TaskRecord) error {
 		}
 		runtime.Call.Arguments = cp.Arguments
 	} else if cp.Phase == "call" {
-		if def == nil || def.Execute == nil {
+		if input.Unoffered || def == nil || def.Execute == nil {
 			return reject(harnessError("tool_unavailable", fmt.Sprintf("Tool %s is not available", name)))
 		}
 		if err := validateToolArguments(def.ToolSpec, runtime.Call.Arguments); err != nil {
@@ -375,4 +378,25 @@ func renderDiagnostics(diagnostics []ToolDiagnostic) string {
 	}
 	b.WriteString("\n</harness>")
 	return b.String()
+}
+
+// appendToolResult appends a call's result entry and records its usage; the
+// model sees its diagnostics in a <harness> block after the content.
+func appendToolResult(tx *Tx, cid ConversationID, call ToolCall, result ToolResult) (EntryID, error) {
+	details, err := json.Marshal(result)
+	if err != nil {
+		return 0, err
+	}
+	content := result.Content
+	if len(result.Diagnostics) > 0 {
+		if content != "" {
+			content += "\n"
+		}
+		content += renderDiagnostics(result.Diagnostics)
+	}
+	id, err := tx.Append(cid, Entry{Kind: "pi.tool-result", Message: &Message{Role: "tool", ToolCallID: call.ID, ToolName: call.Name, Content: content, IsError: result.IsError, Usage: result.Usage, DurationMs: result.DurationMs}, Data: details})
+	if err != nil {
+		return 0, err
+	}
+	return id, recordToolUsage(tx, cid, call.Name, result.Usage)
 }

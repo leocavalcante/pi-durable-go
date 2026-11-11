@@ -21,14 +21,16 @@ type generationInput struct {
 // milliseconds), and tools. Attempt is the 1-based model attempt of the turn;
 // zero reads as 1.
 type generationCheckpoint struct {
-	Phase     string       `json:"phase"`
-	Attempt   int          `json:"attempt,omitempty"`
-	Until     int64        `json:"until,omitempty"`
-	Request   ModelRequest `json:"request,omitempty"`
-	Partial   string       `json:"partial,omitempty"`
-	Turns     int          `json:"turns,omitempty"` // version 2 only
-	Children  []TaskID     `json:"children,omitempty"`
-	Assistant EntryID      `json:"assistant,omitempty"`
+	Phase    string       `json:"phase"`
+	Attempt  int          `json:"attempt,omitempty"`
+	Until    int64        `json:"until,omitempty"`
+	Request  ModelRequest `json:"request,omitempty"`
+	Partial  string       `json:"partial,omitempty"`
+	Turns    int          `json:"turns,omitempty"` // version 2 only
+	Children []TaskID     `json:"children,omitempty"`
+	// Pending lists the calls of a sequential round not started yet.
+	Pending   []string `json:"pending,omitempty"`
+	Assistant EntryID  `json:"assistant,omitempty"`
 	// Run is the answered run whose AfterRun hooks the finish phase asks.
 	Run *RunSummary `json:"run,omitempty"`
 }
@@ -431,6 +433,25 @@ func answer(ctx context.Context, r *TaskRuntime, task TaskRecord, cp generationC
 // commit: a tool task per call, owned by the generation, in call order, and a
 // slot per call. The generation then waits in its tools phase.
 func startToolRound(ctx context.Context, r *TaskRuntime, task TaskRecord, cp generationCheckpoint, message Message) error {
+	// Offered tools are those the request carried; a call to another one never
+	// resolves its name.
+	offered := map[string]bool{}
+	for _, tool := range cp.Request.Tools {
+		offered[tool.Name] = true
+	}
+	// Read as the round starts; a tool is resolved as its tool task resolves it.
+	sequential := r.h.options.Settings.ToolExecution == "sequential"
+	if state, err := r.h.Snapshot(ctx); err == nil {
+		if conv := state.Conversations[task.Conversation]; conv != nil {
+			for _, tool := range r.Registry().Tools(conv.Agent) {
+				for _, call := range message.ToolCalls {
+					if call.Name == tool.Name && offered[call.Name] && tool.ExecutionMode == "sequential" {
+						sequential = true
+					}
+				}
+			}
+		}
+	}
 	return r.Commit(ctx, func(tx *Tx) (TaskTransition, error) {
 		cid := task.Conversation
 		live, err := readRunLive(tx, task)
@@ -443,22 +464,25 @@ func startToolRound(ctx context.Context, r *TaskRuntime, task TaskRecord, cp gen
 		}
 		seen := map[string]bool{}
 		var children []TaskID
+		var pending []string
 		var slots []ToolSlot
 		for _, call := range message.ToolCalls {
 			if call.ID == "" || seen[call.ID] {
 				return TaskTransition{}, fmt.Errorf("%w: missing/duplicate tool call ID", ErrInvalid)
 			}
 			seen[call.ID] = true
-			data, err := json.Marshal(toolTaskInput{Assistant: assistant, CallID: call.ID, Call: call})
-			if err != nil {
-				return TaskTransition{}, err
+			unoffered := !offered[call.Name]
+			if sequential && len(children) > 0 {
+				pending = append(pending, call.ID)
+				slots = append(slots, ToolSlot{CallID: call.ID, Name: call.Name, Status: "pending", Unoffered: unoffered})
+				continue
 			}
-			child, err := tx.CreateTask(cid, toolTaskDefinition(), data, TaskOptions{Owner: Owner{Task: task.ID}})
+			child, err := createToolTask(tx, cid, task.ID, assistant, call, unoffered)
 			if err != nil {
 				return TaskTransition{}, err
 			}
 			children = append(children, child)
-			slots = append(slots, ToolSlot{CallID: call.ID, Name: call.Name, Status: "pending", TaskID: child})
+			slots = append(slots, ToolSlot{CallID: call.ID, Name: call.Name, Status: "pending", TaskID: child, Unoffered: unoffered})
 		}
 		live.Generation = nil
 		live.Tools = slots
@@ -474,7 +498,7 @@ func startToolRound(ctx context.Context, r *TaskRuntime, task TaskRecord, cp gen
 		if err := writeLive(tx, cid, live); err != nil {
 			return TaskTransition{}, err
 		}
-		next, err := json.Marshal(generationCheckpoint{Phase: "tools", Children: children, Assistant: assistant})
+		next, err := json.Marshal(generationCheckpoint{Phase: "tools", Children: children, Pending: pending, Assistant: assistant})
 		return TaskTransition{Status: "waiting", Checkpoint: next, WaitOn: children, WaitPolicy: "allSettled"}, err
 	})
 }
@@ -485,6 +509,9 @@ func startToolRound(ctx context.Context, r *TaskRuntime, task TaskRecord, cp gen
 // limit, end it at a queued reset, or hand it to the next generation at the
 // post-tools boundary, in the handoff's new context when there is one (§8.5).
 func finishToolRound(ctx context.Context, r *TaskRuntime, task TaskRecord, cp generationCheckpoint) error {
+	if len(cp.Pending) > 0 {
+		return startNextCall(ctx, r, task, cp)
+	}
 	state, err := r.h.Snapshot(ctx)
 	if err != nil {
 		return err
@@ -825,8 +852,12 @@ func chargeInterruptedRequest(ctx context.Context, r *TaskRuntime, task TaskReco
 }
 
 // settleGenerationAbort is the abort handler: its partial becomes an aborted
-// entry, and the run ends unanswered with reason aborted.
+// entry, calls of a sequential round never started get aborted results
+// (unoffered ones tool_unavailable), and the run ends unanswered with reason
+// aborted.
 func settleGenerationAbort(ctx context.Context, r *TaskRuntime, task TaskRecord) error {
+	var cp generationCheckpoint
+	_ = json.Unmarshal(task.Checkpoint, &cp)
 	return r.Commit(ctx, func(tx *Tx) (TaskTransition, error) {
 		cid := task.Conversation
 		live, err := readRunLive(tx, task)
@@ -835,6 +866,24 @@ func settleGenerationAbort(ctx context.Context, r *TaskRuntime, task TaskRecord)
 		}
 		if err := convertPartial(tx, task); err != nil {
 			return TaskTransition{}, err
+		}
+		if cp.Phase == "tools" && len(cp.Pending) > 0 {
+			if entry, err := tx.Entry(cp.Assistant); err == nil && entry.Message != nil {
+				for _, id := range cp.Pending {
+					for _, call := range entry.Message.ToolCalls {
+						if call.ID != id {
+							continue
+						}
+						result := harnessError("aborted", fmt.Sprintf("Tool %s was aborted", call.Name))
+						if unofferedCall(live, call.ID) {
+							result = harnessError("tool_unavailable", fmt.Sprintf("Tool %s is not available", call.Name))
+						}
+						if _, err := appendToolResult(tx, cid, call, result); err != nil {
+							return TaskTransition{}, err
+						}
+					}
+				}
+			}
 		}
 		if err := endRun(tx, cid, live, task.ID, runEnd{reason: RunAborted}); err != nil {
 			return TaskTransition{}, err
@@ -1156,4 +1205,64 @@ func (p *partialStream) text() string {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return p.partial.String()
+}
+
+// createToolTask creates the tool task of one call, owned by the generation.
+func createToolTask(tx *Tx, cid ConversationID, generation TaskID, assistant EntryID, call ToolCall, unoffered bool) (TaskID, error) {
+	data, err := json.Marshal(toolTaskInput{Assistant: assistant, CallID: call.ID, Call: call, Unoffered: unoffered})
+	if err != nil {
+		return 0, err
+	}
+	return tx.CreateTask(cid, toolTaskDefinition(), data, TaskOptions{Owner: Owner{Task: generation}})
+}
+
+// startNextCall starts the next call of a sequential round and waits for it.
+func startNextCall(ctx context.Context, r *TaskRuntime, task TaskRecord, cp generationCheckpoint) error {
+	return r.Commit(ctx, func(tx *Tx) (TaskTransition, error) {
+		cid := task.Conversation
+		entry, err := tx.Entry(cp.Assistant)
+		if err != nil {
+			return TaskTransition{}, err
+		}
+		var call *ToolCall
+		for i := range entry.Message.ToolCalls {
+			if entry.Message.ToolCalls[i].ID == cp.Pending[0] {
+				call = &entry.Message.ToolCalls[i]
+			}
+		}
+		if call == nil {
+			return TaskTransition{}, fmt.Errorf("%w: pending call %q not in its answer", ErrInvalid, cp.Pending[0])
+		}
+		live, err := readRunLive(tx, task)
+		if err != nil {
+			return TaskTransition{}, err
+		}
+		// The round's slots say which calls their request did not offer.
+		child, err := createToolTask(tx, cid, task.ID, cp.Assistant, *call, unofferedCall(live, call.ID))
+		if err != nil {
+			return TaskTransition{}, err
+		}
+		for i := range live.Tools {
+			if live.Tools[i].CallID == call.ID && live.Tools[i].TaskID == 0 {
+				live.Tools[i].TaskID = child
+			}
+		}
+		if err := writeLive(tx, cid, live); err != nil {
+			return TaskTransition{}, err
+		}
+		next := cp
+		next.Children = append(append([]TaskID(nil), cp.Children...), child)
+		next.Pending = cp.Pending[1:]
+		data, err := json.Marshal(next)
+		return TaskTransition{Status: "waiting", Checkpoint: data, WaitOn: []TaskID{child}, WaitPolicy: "allSettled"}, err
+	})
+}
+
+func unofferedCall(live *LiveState, callID string) bool {
+	for _, slot := range live.Tools {
+		if slot.CallID == callID {
+			return slot.Unoffered
+		}
+	}
+	return false
 }

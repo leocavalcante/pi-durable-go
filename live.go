@@ -86,6 +86,8 @@ type ToolSlot struct {
 	// Entry is the result entry once done; absent when the tool task faulted
 	// or was orphaned.
 	Entry EntryID `json:"entry,omitempty"`
+	// Unoffered marks a call to a tool its request did not offer.
+	Unoffered bool `json:"unoffered,omitempty"`
 }
 
 // CompactionStatus presents one live compaction task.

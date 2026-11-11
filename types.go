@@ -287,7 +287,10 @@ type ToolSpec struct {
 type ToolDefinition struct {
 	ToolSpec
 	ReplaySafe bool
-	Execute    func(context.Context, json.RawMessage, *ToolRuntime) (ToolResult, error)
+	// ExecutionMode "sequential" runs a round containing a call to this tool
+	// one call at a time, in call order; empty runs calls in parallel.
+	ExecutionMode string
+	Execute       func(context.Context, json.RawMessage, *ToolRuntime) (ToolResult, error)
 }
 
 // ToolDiagnostic is a note the Harness or a tool attaches to a result:
@@ -404,6 +407,10 @@ type Settings struct {
 	AfterFailedRun string
 	// Progress paces presentation commits (upstream settings.progress).
 	Progress ProgressSettings
+	// ToolExecution "sequential" runs every tool round one call at a time;
+	// "parallel" (default) starts all calls at once, unless a called tool's
+	// ExecutionMode is sequential.
+	ToolExecution string
 	// RestartLimit ends a task cut off this many times in a row by crashes,
 	// following Pi Durable's restartLimit number setting: values below 1 and NaN
 	// select the default of 5, fractions round down, and math.Inf(1) never ends
