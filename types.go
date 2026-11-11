@@ -160,12 +160,16 @@ type TaskRecord struct {
 	WakeAt         *time.Time      `json:"wakeAt,omitempty"`
 	AbortRequested bool            `json:"abortRequested,omitempty"`
 	// AbortReason is "restart" for abandoned work; empty means an abort request.
-	AbortReason      string                     `json:"abortReason,omitempty"`
-	AbandonOnRestart bool                       `json:"abandonOnRestart,omitempty"`
-	Outcome          *Outcome                   `json:"outcome,omitempty"`
-	Memos            map[string]json.RawMessage `json:"memos,omitempty"`
-	StartedAt        *time.Time                 `json:"startedAt,omitempty"`
-	EndedAt          *time.Time                 `json:"endedAt,omitempty"`
+	AbortReason      string `json:"abortReason,omitempty"`
+	AbandonOnRestart bool   `json:"abandonOnRestart,omitempty"`
+	// Restarts counts consecutive crashes without a task state change. The
+	// scheduler owns it: clean closes do not count, and progress, a new abort
+	// mark, or an outcome resets it. Document and memo writes are not progress.
+	Restarts  int                        `json:"restarts,omitempty"`
+	Outcome   *Outcome                   `json:"outcome,omitempty"`
+	Memos     map[string]json.RawMessage `json:"memos,omitempty"`
+	StartedAt *time.Time                 `json:"startedAt,omitempty"`
+	EndedAt   *time.Time                 `json:"endedAt,omitempty"`
 }
 
 const (

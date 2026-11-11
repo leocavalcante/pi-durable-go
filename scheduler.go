@@ -21,6 +21,7 @@ type Scheduler struct {
 	mu               sync.Mutex // Session line -> mu; never call Session/registry under mu
 	enabled, closing bool
 	invocations      map[TaskID]*taskInvocation
+	stopped          map[TaskID]struct{} // invocations ended after the Session sealed
 	migrations       map[TaskID]migrationFailure
 	wake             chan struct{}
 	done             chan struct{}
@@ -54,7 +55,14 @@ func (s *Scheduler) commitInternal(ctx context.Context, fn func(*Tx) error) (boo
 }
 
 func newScheduler(h *Harness) *Scheduler {
-	return &Scheduler{h: h, invocations: map[TaskID]*taskInvocation{}, migrations: map[TaskID]migrationFailure{}, wake: make(chan struct{}, 1), done: make(chan struct{})}
+	return &Scheduler{
+		h:           h,
+		invocations: map[TaskID]*taskInvocation{},
+		stopped:     map[TaskID]struct{}{},
+		migrations:  map[TaskID]migrationFailure{},
+		wake:        make(chan struct{}, 1),
+		done:        make(chan struct{}),
+	}
 }
 func (s *Scheduler) state() string {
 	s.mu.Lock()
@@ -98,6 +106,35 @@ func (s *Scheduler) close() {
 	}
 	s.kick()
 }
+
+// Called only after done, when every invocation has joined. A clean close is
+// not a crash: stopped tasks still running are released without counting them.
+// The Session fails and reports any write error; Close returns only the backend
+// close error, matching upstream join() swallowing its write-back error.
+func (s *Scheduler) writeBackStopped() {
+	s.mu.Lock()
+	empty := len(s.stopped) == 0
+	s.mu.Unlock()
+	if empty {
+		return
+	}
+	_ = s.h.session.writeAtClose(func(tx *Tx) error {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		changed := false
+		for id := range s.stopped {
+			if task := tx.state.Tasks[id]; task != nil && task.Status == "running" {
+				task.Status = "pending"
+				changed = true
+			}
+		}
+		if !changed {
+			return errNoChange
+		}
+		return nil
+	})
+}
+
 func (s *Scheduler) kick() {
 	select {
 	case s.wake <- struct{}{}:
@@ -130,6 +167,7 @@ func terminalizeTask(tx *Tx, t *TaskRecord, now time.Time) {
 	t.WaitPolicy = ""
 	t.WakeAt = nil
 	t.Memos = nil
+	t.Restarts = 0
 	for key, doc := range tx.state.Documents {
 		if doc.Scope == "task" && doc.ScopeID == uint64(t.ID) {
 			delete(tx.state.Documents, key)
@@ -347,6 +385,11 @@ func (s *Scheduler) finishInvocation(id TaskID, inv *taskInvocation) {
 	inv.runtime.ended.Store(true)
 	inv.cancel()
 	s.mu.Lock()
+	if s.h.Err() != nil {
+		// Capture here, not just in close(): an invocation may finish between
+		// admission sealing and the scheduler's cancellation/join pass.
+		s.stopped[id] = struct{}{}
+	}
 	delete(s.invocations, id)
 	close(inv.done)
 	s.mu.Unlock()
@@ -367,6 +410,7 @@ func (h *Harness) reconcile(ctx context.Context) error {
 			}
 			if t.Status == "running" {
 				t.Status = "pending"
+				t.Restarts++
 			}
 		}
 		return nil

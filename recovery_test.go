@@ -26,6 +26,19 @@ func (m *toolModel) Generate(ctx context.Context, request durable.ModelRequest, 
 	}
 	return durable.ModelResponse{ToolCalls: []durable.ToolCall{{ID: "call-1", Name: "effect", Arguments: json.RawMessage(`{}`)}}}, nil
 }
+func assertCleanCloseRecovery(t *testing.T, ctx context.Context, h *durable.Harness) {
+	t.Helper()
+	state, err := h.Snapshot(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, task := range state.Tasks {
+		if task.Status == "running" || task.Restarts != 0 {
+			t.Fatalf("clean close recovered as a crash: %+v", task)
+		}
+	}
+}
+
 func TestRestartToolReplayProtocol(t *testing.T) {
 	for _, safe := range []bool{false, true} {
 		name := "unsafe"
@@ -88,6 +101,7 @@ func TestRestartToolReplayProtocol(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer h.Close(context.Background())
+			assertCleanCloseRecovery(t, ctx, h)
 			sub, err = h.Submission(ctx, sub.ID())
 			if err != nil {
 				t.Fatal(err)
@@ -180,6 +194,7 @@ func TestRestartPreparedModelRequestAndCommittedPartial(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer h.Close(context.Background())
+	assertCleanCloseRecovery(t, ctx, h)
 	sub, err = h.Submission(ctx, sub.ID())
 	if err != nil {
 		t.Fatal(err)

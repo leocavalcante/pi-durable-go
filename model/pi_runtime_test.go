@@ -14,7 +14,9 @@ import (
 
 func TestPiDurableToolsReopenAndCompaction(t *testing.T) {
 	p := fakePi(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	// This exercises several Node starts plus SQLite reopen under the race
+	// detector; the deadline bounds hangs, not model response latency.
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	path := filepath.Join(t.TempDir(), "session.sqlite")
 	open := func() *durable.Harness {
@@ -38,6 +40,15 @@ func TestPiDurableToolsReopenAndCompaction(t *testing.T) {
 			store.Close()
 			t.Fatal(err)
 		}
+		// Register cleanup before the first submission: a deadline failure
+		// must not leave a scheduler or its Node process alive across repeats.
+		t.Cleanup(func() {
+			cleanup, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if err := h.Close(cleanup); err != nil {
+				t.Error(err)
+			}
+		})
 		return h
 	}
 	h := open()
@@ -63,7 +74,6 @@ func TestPiDurableToolsReopenAndCompaction(t *testing.T) {
 		t.Fatal(err)
 	}
 	h = open()
-	defer h.Close(context.Background())
 	root, err = h.Conversation(ctx, root.ID())
 	if err != nil {
 		t.Fatal(err)

@@ -39,6 +39,7 @@ func Open(ctx context.Context, storage Storage, options HarnessOptions) (*Harnes
 	session.beforeClose = func() {
 		h.scheduler.close()
 		<-h.scheduler.done
+		h.scheduler.writeBackStopped()
 		h.stopRegistry()
 	}
 	if err = h.reconcile(ctx); err != nil {
