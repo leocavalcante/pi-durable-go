@@ -15,22 +15,23 @@ type compactionCheckpoint struct {
 	Summary string `json:"summary,omitempty"`
 }
 
-// CompactionExtension restores the durable compaction task definition. Install
-// it on each reopen before resuming pending compactions. Compact installs it too.
+// CompactionExtension is retained for legacy registration; built-in resolution
+// always wins and does not require an extension install.
+// Deprecated: compaction is a Harness built-in, including after reopen.
 func CompactionExtension() Extension {
-	return Extension{Name: "pi.compaction", Tasks: []TaskDefinition{{
+	return Extension{Name: "pi.compaction", Tasks: []TaskDefinition{compactionTaskDefinition()}}
+}
+func compactionTaskDefinition() TaskDefinition {
+	return TaskDefinition{
 		Kind: "pi.compaction", Version: 1,
 		Initial: func(json.RawMessage) (json.RawMessage, error) { return json.RawMessage(`{"phase":"request"}`), nil },
 		Run:     runCompaction,
 		Abort: func(ctx context.Context, r *TaskRuntime, t TaskRecord) error {
-			return r.Complete(ctx, Outcome{Status: "aborted"})
+			return r.Complete(ctx, Outcome{Status: OutcomeAborted})
 		},
-	}}}
+	}
 }
 func (c *Conversation) Compact(ctx context.Context, instructions string) (TaskID, error) {
-	if err := c.h.registry.Install(CompactionExtension()); err != nil {
-		return 0, err
-	}
 	state, err := c.h.Snapshot(ctx)
 	if err != nil {
 		return 0, err
@@ -81,7 +82,7 @@ func (c *Conversation) Compact(ctx context.Context, instructions string) (TaskID
 		return 0, err
 	}
 	var id TaskID
-	def := CompactionExtension().Tasks[0]
+	def := compactionTaskDefinition()
 	err = c.h.Commit(ctx, func(tx *Tx) error {
 		var err error
 		id, err = tx.CreateTask(c.id, def, input, TaskOptions{Background: true})
@@ -104,11 +105,14 @@ func runCompaction(ctx context.Context, r *TaskRuntime, task TaskRecord) error {
 	switch checkpoint.Phase {
 	case "request":
 		if r.h.options.Model == nil {
-			return fmt.Errorf("durable: no model configured")
+			return r.Complete(ctx, Outcome{Status: OutcomeFailed, Error: "durable: no model configured"})
 		}
 		response, err := r.h.options.Model.Generate(ctx, input.Request, func(string) error { return nil })
 		if err != nil {
-			return err
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			return r.Complete(ctx, Outcome{Status: OutcomeFailed, Error: diagnostic(err.Error())})
 		}
 		next, err := json.Marshal(compactionCheckpoint{Phase: "publish", Summary: response.Content})
 		if err != nil {

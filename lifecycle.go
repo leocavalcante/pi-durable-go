@@ -2,7 +2,8 @@ package durable
 
 import "context"
 
-// SessionFailedError preserves the first uncertain storage failure. It matches
+// SessionFailedError preserves the first fatal Session failure, which may be an
+// uncertain storage failure or a scheduler bookkeeping error. It matches
 // ErrPoisoned with errors.Is and unwraps to the original cause. The triggering
 // operation returns the original error; later operations and pending waits
 // return this wrapper. The message intentionally does not disclose the cause.
@@ -12,12 +13,12 @@ func (e *SessionFailedError) Error() string        { return ErrPoisoned.Error() 
 func (e *SessionFailedError) Unwrap() error        { return e.cause }
 func (e *SessionFailedError) Is(target error) bool { return target == ErrPoisoned }
 
-// SessionEnd is available after shutdown, including backend closure. Reason is
-// "closed" for a clean close or "failed" with the first storage failure in Err.
+// SessionEnd is available after shutdown, including backend closure. Kind is
+// "closed" for a clean close or "failed" with the first fatal failure in Err.
 // Errors may contain private backend details; do not publish them unreviewed.
 type SessionEnd struct {
-	Reason string
-	Err    error
+	Kind string
+	Err  error
 }
 
 // Err reports sealed admission immediately, without waiting for active task
@@ -63,21 +64,44 @@ func (s *Session) closeContext(ctx context.Context) error {
 	}
 }
 
-func (s *Session) startClose() {
-	s.closeOnce.Do(func() {
+func (s *Session) sealAdmission() {
+	s.sealOnce.Do(func() {
 		// Sealing never waits on the mutation mutex. A caller can time out a
 		// Close wait even if admitted storage or task code ignores cancellation.
 		close(s.closing)
-		go s.finishClose()
 	})
+}
+
+func (s *Session) startClose() {
+	s.sealAdmission()
+	s.closeOnce.Do(func() { go s.finishClose() })
+}
+
+// fail records the first fatal failure outside an existing Session transaction.
+func (s *Session) fail(cause error) {
+	if cause == nil {
+		return
+	}
+	s.mu.Lock()
+	s.failLocked(cause)
+	s.mu.Unlock()
 }
 
 // Called under the commit mutex. Never publish the uncertain candidate, and
 // end current watches before cancelling task invocations during shutdown.
 func (s *Session) failLocked(cause error) {
-	s.failure.CompareAndSwap(nil, &SessionFailedError{cause: cause})
+	if cause == nil {
+		return
+	}
+	first := s.failure.CompareAndSwap(nil, &SessionFailedError{cause: cause})
+	s.sealAdmission()
 	s.closeWatchersLocked()
-	s.startClose()
+	if first && s.failureHook != nil {
+		// The hook is internal and enqueue-only. Run it after admission has been
+		// sealed, before finishClose can shut report admission.
+		s.failureHook(cause)
+	}
+	s.closeOnce.Do(func() { go s.finishClose() })
 }
 
 func (s *Session) closeWatchersLocked() {
@@ -101,13 +125,18 @@ func (s *Session) finishClose() {
 		s.beforeClose()
 	}
 	err := s.storage.Close()
-	if err != nil {
-		s.failure.CompareAndSwap(nil, &SessionFailedError{cause: err})
+	if err != nil && s.failure.CompareAndSwap(nil, &SessionFailedError{cause: err}) && s.failureHook != nil {
+		// A backend close failure is also reported, before afterClose closes
+		// report admission. A previous cause always wins.
+		s.failureHook(err)
+	}
+	if s.afterClose != nil {
+		s.afterClose()
 	}
 	s.closeErr = err
-	s.end = SessionEnd{Reason: "closed"}
+	s.end = SessionEnd{Kind: "closed"}
 	if failure := s.failure.Load(); failure != nil {
-		s.end = SessionEnd{Reason: "failed", Err: failure.cause}
+		s.end = SessionEnd{Kind: "failed", Err: failure.cause}
 	}
 	// Fields above are immutable after this publication, for every waiter.
 	close(s.closeDone)

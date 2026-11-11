@@ -142,8 +142,77 @@ func contextFromState(s *State, cid ConversationID) ([]Message, error) {
 			}
 		}
 	}
-	return messages, nil
+	return orderToolResults(messages), nil
 }
+
+// orderToolResults normalizes each assistant's tool round independently. Result
+// messages are moved next to their calls; malformed, duplicate, and orphaned
+// results are omitted from the derived context without changing stored entries.
+func orderToolResults(messages []Message) []Message {
+	if len(messages) == 0 {
+		return messages
+	}
+
+	ordered := make([]Message, 0, len(messages))
+	for start := 0; start < len(messages); {
+		if messages[start].Role != "assistant" {
+			if messages[start].Role != "tool" {
+				ordered = append(ordered, messages[start])
+			}
+			start++
+			continue
+		}
+
+		end := start + 1
+		for end < len(messages) && messages[end].Role != "assistant" {
+			end++
+		}
+
+		assistant := messages[start]
+		ordered = append(ordered, assistant)
+
+		callIDs := make(map[string]struct{}, len(assistant.ToolCalls))
+		for _, call := range assistant.ToolCalls {
+			callIDs[call.ID] = struct{}{}
+		}
+		results := make(map[string]Message, len(callIDs))
+		for i := start + 1; i < end; i++ {
+			result := messages[i]
+			if result.Role != "tool" {
+				continue
+			}
+			if _, matches := callIDs[result.ToolCallID]; !matches {
+				continue
+			}
+			if _, alreadyMatched := results[result.ToolCallID]; !alreadyMatched {
+				results[result.ToolCallID] = result
+			}
+		}
+
+		for _, call := range assistant.ToolCalls {
+			if result, ok := results[call.ID]; ok {
+				ordered = append(ordered, result)
+				continue
+			}
+			ordered = append(ordered, Message{
+				Role:       "tool",
+				ToolCallID: call.ID,
+				ToolName:   call.Name,
+				IsError:    true,
+				Content:    "Tool result unavailable: history ends before this call completed.",
+			})
+		}
+
+		for i := start + 1; i < end; i++ {
+			if messages[i].Role != "tool" {
+				ordered = append(ordered, messages[i])
+			}
+		}
+		start = end
+	}
+	return ordered
+}
+
 func (c *Conversation) Fork(ctx context.Context, at EntryID, opts ConversationOptions) (*Conversation, error) {
 	var id ConversationID
 	err := c.h.Commit(ctx, func(tx *Tx) error {
@@ -335,7 +404,7 @@ func (s *Submission) Record(ctx context.Context) (SubmissionRecord, error) {
 	return *rec, nil
 }
 func (s *Submission) Wait(ctx context.Context) (SubmissionRecord, error) {
-	states, stop, err := s.h.session.Watch(ctx)
+	states, stop, err := s.h.session.watchWait(ctx)
 	if err != nil {
 		return SubmissionRecord{}, err
 	}
@@ -345,6 +414,8 @@ func (s *Submission) Wait(ctx context.Context) (SubmissionRecord, error) {
 		select {
 		case <-ctx.Done():
 			return SubmissionRecord{}, ctx.Err()
+		case <-s.h.session.closing:
+			return SubmissionRecord{}, s.h.Err()
 		case state, ok := <-states:
 			if !ok {
 				if ctx.Err() != nil {
@@ -404,12 +475,16 @@ func (c *Conversation) Abort(ctx context.Context, includeBackground bool) error 
 				sub.Reason = "aborted"
 			}
 		}
+		// Mark the whole selected scope before the first abort enables scheduling.
+		for _, id := range ids {
+			markAbortTree(tx.state, id)
+		}
 		return nil
 	}); err != nil {
 		return err
 	}
 	for _, id := range ids {
-		if err := c.h.AbortTask(ctx, id); err != nil {
+		if _, err := c.h.AbortTask(ctx, id); err != nil {
 			return err
 		}
 	}

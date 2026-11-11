@@ -20,11 +20,19 @@ type Session struct {
 	now       func() time.Time
 	watchers  map[*stateWatcher]struct{}
 	failure   atomic.Pointer[SessionFailedError]
+	sealOnce  sync.Once
 	closeOnce sync.Once
 	closing   chan struct{}
 	closeDone chan struct{}
 	closeErr  error
 	end       SessionEnd
+	// Installed before the Harness can reconcile. failureHook only enqueues a
+	// report; afterClose shuts report admission after Storage.Close settles.
+	failureHook func(error)
+	afterClose  func()
+	// Internal Harness bookkeeping only, after durable adoption and before
+	// publication. This hook must never call user code or Session APIs.
+	afterCommit func(*State)
 	// Installed before the Harness can schedule; called off the commit line.
 	beforeClose func()
 }
@@ -47,19 +55,28 @@ func NewSession(ctx context.Context, storage Storage, now func() time.Time) (*Se
 		return nil, err
 	}
 	if st == nil {
-		st = &State{Version: 1, NextID: 1, Conversations: map[ConversationID]*ConversationRecord{}, Entries: map[EntryID]*Entry{}, Tasks: map[TaskID]*TaskRecord{}, Submissions: map[SubmissionID]*SubmissionRecord{}, Documents: map[string]*DocumentRecord{}}
+		st = &State{Version: 2, NextID: 1, Conversations: map[ConversationID]*ConversationRecord{}, Entries: map[EntryID]*Entry{}, Tasks: map[TaskID]*TaskRecord{}, Submissions: map[SubmissionID]*SubmissionRecord{}, Documents: map[string]*DocumentRecord{}}
 	}
-	if st.Version != 1 || st.NextID == 0 {
+	if (st.Version != 1 && st.Version != 2) || st.NextID == 0 {
 		return nil, fmt.Errorf("%w: unsupported storage version or invalid ID allocator", ErrInvalid)
 	}
 	st, err = cloneState(st)
 	if err != nil {
 		return nil, fmt.Errorf("durable: invalid stored state: %w", err)
 	}
+	// Upgrade only the detached in-memory snapshot. The next successful commit
+	// persists v2; merely opening a v1 store does not write to it.
+	st.Version = 2
 	return &Session{storage: storage, state: st, now: now, watchers: map[*stateWatcher]struct{}{}, closing: make(chan struct{}), closeDone: make(chan struct{})}, nil
 }
 
 func (s *Session) Commit(ctx context.Context, fn func(*Tx) error) error {
+	return s.commit(ctx, fn, false)
+}
+
+// Internal bookkeeping errors seal admission on the line, before another
+// caller can publish a write. Public caller rejections retain rollback semantics.
+func (s *Session) commit(ctx context.Context, fn func(*Tx) error, internal bool) (err error) {
 	if err := s.Err(); err != nil {
 		return err
 	}
@@ -71,6 +88,19 @@ func (s *Session) Commit(ctx context.Context, fn func(*Tx) error) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	callbackNoChange := false
+	defer func() {
+		if !internal || err == nil || callbackNoChange || s.failure.Load() != nil {
+			return
+		}
+		// Uncertain storage errors are failed below even when they wrap a
+		// cancellation. Remaining cancellation errors are pre-storage or a
+		// certified-unapplied write for this cancelled call.
+		if ctx.Err() != nil && (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)) {
+			return
+		}
+		s.failLocked(err)
+	}()
 	candidate, err := cloneState(s.state)
 	if err != nil {
 		return err
@@ -80,6 +110,7 @@ func (s *Session) Commit(ctx context.Context, fn func(*Tx) error) error {
 		defer func() { tx.active = false }()
 		if fn != nil {
 			err = fn(tx)
+			callbackNoChange = internal && errors.Is(err, errNoChange)
 		}
 	}()
 	if err != nil {
@@ -107,6 +138,9 @@ func (s *Session) Commit(ctx context.Context, fn func(*Tx) error) error {
 		return err
 	}
 	s.state = candidate
+	if s.afterCommit != nil {
+		s.afterCommit(candidate)
+	}
 	for w := range s.watchers {
 		s.offer(w, candidate)
 	}
@@ -171,6 +205,36 @@ func (s *Session) Watch(ctx context.Context) (<-chan *State, func(), error) {
 		}
 	}()
 	return w.ch, cancel, nil
+}
+
+// watchWait keeps wait cancellation/sealing independent of an admitted storage
+// call holding the line. The registration goroutine and the watch's own context
+// cleanup finish when that call settles; cancelling a wait never joins them.
+func (s *Session) watchWait(ctx context.Context) (<-chan *State, func(), error) {
+	bound, cancel := context.WithCancel(ctx)
+	type registration struct {
+		states <-chan *State
+		err    error
+	}
+	ready := make(chan registration, 1)
+	go func() {
+		states, _, err := s.Watch(bound)
+		ready <- registration{states: states, err: err}
+	}()
+	select {
+	case <-ctx.Done():
+		cancel()
+		return nil, nil, ctx.Err()
+	case <-s.closing:
+		cancel()
+		return nil, nil, s.Err()
+	case result := <-ready:
+		if result.err != nil {
+			cancel()
+			return nil, nil, result.err
+		}
+		return result.states, cancel, nil
+	}
 }
 
 func (s *Session) offer(w *stateWatcher, state *State) {

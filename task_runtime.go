@@ -9,15 +9,73 @@ import (
 	"time"
 )
 
+// TaskRuntime belongs to one invocation, including its continuing phases. Join
+// phase-owned goroutines before returning if their writes must count before that
+// phase's step. An ending step revokes the runtime on the Session line.
 type TaskRuntime struct {
-	h          *Harness
-	ID         TaskID
-	invocation *taskInvocation
-	aborting   bool // immutable invocation mode
-	ended      atomic.Bool
+	h            *Harness
+	ID           TaskID
+	invocation   *taskInvocation
+	aborting     bool // immutable invocation mode
+	ended        atomic.Bool
+	snapshot     atomic.Pointer[RegistrySnapshot]
+	extension    string // definition installer captured at reservation
+	kind         string
+	conversation ConversationID
 }
 
 func (r *TaskRuntime) Harness() *Harness { return r.h }
+
+// Registry is the immutable snapshot for this phase. A new phase refreshes it;
+// replacing an extension cannot change a phase that is already running.
+func (r *TaskRuntime) Registry() *RegistrySnapshot {
+	if snapshot := r.snapshot.Load(); snapshot != nil {
+		return snapshot
+	}
+	return r.h.registry.Snapshot()
+}
+
+// Report enqueues a best-effort diagnostic without waiting for host code. It
+// is safe in a commit callback, but makes no claim that the writes committed.
+func (r *TaskRuntime) Report(err error) {
+	if err == nil || r.check() != nil {
+		return
+	}
+	r.h.report(r.taskReport(ReportTaskError, err, ""))
+}
+
+func (r *TaskRuntime) taskReport(kind ReportKind, err error, reason string) Report {
+	return Report{Kind: kind, Err: err, Reason: reason, Extension: r.extension,
+		Task: &ReportTask{ID: r.ID, Kind: r.kind, Conversation: r.conversation}}
+}
+
+// Outcomes reads terminal receipts in input order. Records and JSON are detached.
+// Call outside a transaction; a live target is an invalid outcome read.
+func (r *TaskRuntime) Outcomes(ctx context.Context, ids []TaskID) ([]Outcome, error) {
+	if err := r.check(); err != nil {
+		return nil, err
+	}
+	state, err := r.h.Snapshot(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if err := r.check(); err != nil {
+		return nil, err
+	}
+	out := make([]Outcome, 0, len(ids))
+	for _, id := range ids {
+		task := state.Tasks[id]
+		if task == nil {
+			return nil, ErrNotFound
+		}
+		if task.Status != "terminal" || task.Outcome == nil {
+			return nil, fmt.Errorf("%w: task %d is not terminal", ErrInvalid, id)
+		}
+		out = append(out, *task.Outcome)
+	}
+	return out, nil
+}
+
 func (r *TaskRuntime) check() error {
 	if r == nil || r.h == nil || r.ended.Load() {
 		return ErrClosed
@@ -55,6 +113,9 @@ func (r *TaskRuntime) Commit(ctx context.Context, change func(*Tx) (TaskTransiti
 		if err := r.check(); err != nil {
 			return err
 		}
+		if r.aborting && transition.Status != "running" && transition.Status != "terminal" {
+			return fmt.Errorf("%w: abort handlers cannot yield or wait", ErrInvalid)
+		}
 		return applyTransition(tx, current, transition, r.h.now())
 	})
 }
@@ -74,6 +135,9 @@ func (r *TaskRuntime) Memo(ctx context.Context, key string, candidate json.RawMe
 	if candidate == nil {
 		state, err := r.h.Snapshot(ctx)
 		if err != nil {
+			return nil, err
+		}
+		if err := r.check(); err != nil {
 			return nil, err
 		}
 		task := state.Tasks[r.ID]
@@ -143,36 +207,73 @@ func (r *TaskRuntime) AbortOwned(ctx context.Context, id TaskID) error {
 		stop := context.AfterFunc(r.invocation.ctx, cancel)
 		defer stop()
 	}
-	if err := r.h.Commit(bound, func(tx *Tx) error {
+	var reports []Report
+	var childInvocation *taskInvocation
+	var decisionErr error
+	_, err := r.h.scheduler.commitInternal(bound, func(tx *Tx) error {
+		reject := func(err error) error { decisionErr = err; return errNoChange }
 		if err := r.check(); err != nil {
-			return err
+			return reject(err)
 		}
 		current, err := tx.Task(r.ID)
 		if err != nil {
-			return err
+			return reject(err)
 		}
 		if current.Status != "running" {
-			return ErrConflict
+			return reject(ErrConflict)
 		}
 		if !r.aborting && (current.AbortRequested || belowCancellationIntent(tx.state, current)) {
-			return context.Canceled
+			return reject(context.Canceled)
 		}
 		child, err := tx.Task(id)
 		if err != nil {
-			return err
+			return reject(err)
 		}
 		if child.Owner.Task != r.ID {
-			return fmt.Errorf("%w: task %d is not owned by task %d", ErrInvalid, id, r.ID)
+			return reject(fmt.Errorf("%w: task %d is not owned by task %d", ErrInvalid, id, r.ID))
 		}
-		markAbortTreeReason(tx.state, id, child.AbortReason)
-		return nil
-	}); err != nil {
+		if child.Status == "terminal" {
+			return errNoChange
+		}
+		_, childInvocation, err = r.h.scheduler.markAbort(tx, child, true, &reports)
+		return err
+	})
+	r.h.scheduler.enqueueReports(reports)
+	if err != nil {
 		return err
 	}
-	r.h.scheduler.cancelMarked()
+	if decisionErr != nil {
+		return decisionErr
+	}
+	if childInvocation != nil && !childInvocation.aborting {
+		childInvocation.cancel()
+	}
 	r.h.scheduler.kick()
-	_, err := r.h.scheduler.wait(bound, id)
+	_, err = r.h.scheduler.wait(bound, id)
 	return err
+}
+
+func validateTaskOutcome(out Outcome) error {
+	if len(out.Result) > 0 && !json.Valid(out.Result) || len(out.ErrorDetail) > 0 && !json.Valid(out.ErrorDetail) {
+		return fmt.Errorf("%w: outcome JSON", ErrInvalid)
+	}
+	switch out.Status {
+	case OutcomeCompleted:
+		if out.Error != "" || len(out.ErrorDetail) > 0 || out.Reason != "" {
+			return fmt.Errorf("%w: completed outcome diagnostics", ErrInvalid)
+		}
+	case OutcomeFailed:
+		if out.Error == "" || out.Reason != "" {
+			return fmt.Errorf("%w: failed outcome requires an error and no reason", ErrInvalid)
+		}
+	case OutcomeAborted:
+		if out.Error != "" || len(out.ErrorDetail) > 0 {
+			return fmt.Errorf("%w: aborted outcome uses reason, not error", ErrInvalid)
+		}
+	default:
+		return fmt.Errorf("%w: outcome status %q is not task-writable", ErrInvalid, out.Status)
+	}
+	return nil
 }
 
 func applyTransition(tx *Tx, task *TaskRecord, tr TaskTransition, now time.Time) error {
@@ -202,21 +303,18 @@ func applyTransition(tx *Tx, task *TaskRecord, tr TaskTransition, now time.Time)
 		if tr.Outcome == nil {
 			return fmt.Errorf("%w: terminal task requires outcome", ErrInvalid)
 		}
-		switch tr.Outcome.Status {
-		case "completed", "failed", "aborted":
-		default:
-			return fmt.Errorf("%w: outcome status", ErrInvalid)
-		}
-		if len(tr.Outcome.Result) > 0 && !json.Valid(tr.Outcome.Result) {
-			return fmt.Errorf("%w: outcome JSON", ErrInvalid)
+		if err := validateTaskOutcome(*tr.Outcome); err != nil {
+			return err
 		}
 		task.Outcome = tr.Outcome
+		task.Memos = nil
 		if tr.Outcome.Status != "completed" {
 			markOwned(tx.state, task.ID, "")
 		}
 		if len(ownedLive(tx.state, task.ID)) > 0 {
 			task.Status = "completing"
 			task.WaitOn = nil
+			task.WaitPolicy = ""
 			task.WakeAt = nil
 			return nil
 		}

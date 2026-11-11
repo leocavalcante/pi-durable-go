@@ -120,7 +120,7 @@ func TestSessionFailureEndsWatchesAndPreservesFirstCause(t *testing.T) {
 	}
 	release.Do(func() { close(store.closeReleased) })
 	end, err := s.WaitClosed(ctx)
-	if err != nil || end.Reason != "failed" || end.Err != cause {
+	if err != nil || end.Kind != "failed" || end.Err != cause {
 		t.Fatalf("end=%+v error=%v", end, err)
 	}
 	var wg sync.WaitGroup
@@ -160,10 +160,10 @@ func TestSessionCleanCloseAndCloseFailure(t *testing.T) {
 			t.Fatalf("end=%+v error=%v", end, err)
 		}
 		if closeErr == nil {
-			if end.Reason != "closed" || !errors.Is(s.Err(), ErrClosed) {
+			if end.Kind != "closed" || !errors.Is(s.Err(), ErrClosed) {
 				t.Fatalf("end=%+v status=%v", end, s.Err())
 			}
-		} else if end.Reason != "failed" || !errors.Is(s.Err(), closeErr) || !errors.Is(s.Err(), ErrPoisoned) {
+		} else if end.Kind != "failed" || !errors.Is(s.Err(), closeErr) || !errors.Is(s.Err(), ErrPoisoned) {
 			t.Fatalf("end=%+v status=%v", end, s.Err())
 		}
 	}
@@ -309,7 +309,7 @@ func TestHarnessFailureEndsPendingWaitsAndObservers(t *testing.T) {
 		t.Fatal("fatal Session did not signal running model")
 	}
 	end, err := h.WaitClosed(ctx)
-	if err != nil || end.Reason != "failed" || end.Err != cause || store.closes.Load() != 1 {
+	if err != nil || end.Kind != "failed" || end.Err != cause || store.closes.Load() != 1 {
 		t.Fatalf("end=%+v closes=%d error=%v", end, store.closes.Load(), err)
 	}
 	if _, err := sub.Wait(ctx); !errors.Is(err, cause) {
@@ -371,7 +371,7 @@ func TestFailureShutdownJoinsNonCooperativeCode(t *testing.T) {
 	}
 	once.Do(func() { close(model.release) })
 	end, err := h.WaitClosed(ctx)
-	if err != nil || end.Reason != "failed" || end.Err != cause || store.closes.Load() != 1 {
+	if err != nil || end.Kind != "failed" || end.Err != cause || store.closes.Load() != 1 {
 		t.Fatalf("end=%+v closes=%d error=%v", end, store.closes.Load(), err)
 	}
 }
@@ -443,7 +443,7 @@ func TestCloseSealsWithoutWaitingOnAdmittedCommit(t *testing.T) {
 		t.Fatal("admitted commit did not settle")
 	}
 	end, err := h.WaitClosed(ctx)
-	if err != nil || end.Reason != "closed" || end.Err != nil || store.closes.Load() != 1 {
+	if err != nil || end.Kind != "closed" || end.Err != nil || store.closes.Load() != 1 {
 		t.Fatalf("end=%+v closes=%d error=%v", end, store.closes.Load(), err)
 	}
 }

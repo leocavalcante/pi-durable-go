@@ -118,7 +118,7 @@ func TestAbortRunsOwnedChildrenBeforeParent(t *testing.T) {
 	case <-ctx.Done():
 		t.Fatal("child did not start")
 	}
-	if err := h.AbortTask(ctx, id); err != nil {
+	if _, err := h.AbortTask(ctx, id); err != nil {
 		t.Fatal(err)
 	}
 	record, err := h.WaitTask(ctx, id)

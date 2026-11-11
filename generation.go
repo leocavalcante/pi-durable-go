@@ -183,7 +183,7 @@ func runGeneration(ctx context.Context, r *TaskRuntime, task TaskRecord) error {
 		if conv == nil {
 			return ErrNotFound
 		}
-		hooks := r.h.registry.Snapshot().Hooks(conv.Agent, "pi.generation")
+		hooks := r.Registry().Hooks(conv.Agent, "pi.generation")
 		for _, hook := range hooks {
 			if hook.AfterResponse != nil {
 				if e := hook.AfterResponse(ctx, &response, r); e != nil {
@@ -281,7 +281,7 @@ func runGeneration(ctx context.Context, r *TaskRuntime, task TaskRecord) error {
 		if conv == nil {
 			return ErrNotFound
 		}
-		for _, hook := range r.h.registry.Snapshot().Hooks(conv.Agent, "pi.generation") {
+		for _, hook := range r.Registry().Hooks(conv.Agent, "pi.generation") {
 			if hook.AfterTools != nil {
 				if err := hook.AfterTools(ctx, results, r); err != nil {
 					if err = recordHookError(ctx, r, "afterTools", err); err != nil {
@@ -335,7 +335,7 @@ func buildRequest(ctx context.Context, r *TaskRuntime, state *State, c Conversat
 	if err != nil {
 		return ModelRequest{}, err
 	}
-	registry := r.h.registry.Snapshot()
+	registry := r.Registry()
 	var prompt strings.Builder
 	for _, section := range registry.Sections(c.Agent) {
 		if section.Render == nil {
@@ -374,7 +374,7 @@ func recordHookError(ctx context.Context, r *TaskRuntime, phase string, cause er
 		if err != nil {
 			return TaskTransition{}, err
 		}
-		data, err := json.Marshal(map[string]string{"phase": phase, "error": cause.Error()})
+		data, err := json.Marshal(map[string]string{"phase": phase, "error": diagnostic(cause.Error())})
 		if err != nil {
 			return TaskTransition{}, err
 		}
@@ -411,7 +411,11 @@ func settleRun(tx *Tx, task TaskRecord, input generationInput, answer EntryID, r
 		status = "failed"
 	}
 	result, _ := json.Marshal(map[string]EntryID{"entryId": answer})
-	return TaskTransition{Status: "terminal", Outcome: &Outcome{Status: status, Result: result, Error: reason}}, nil
+	outcome := &Outcome{Status: status, Result: result}
+	if status == OutcomeFailed {
+		outcome.Error = diagnostic(reason)
+	}
+	return TaskTransition{Status: "terminal", Outcome: outcome}, nil
 }
 func failGeneration(ctx context.Context, r *TaskRuntime, task TaskRecord, input generationInput, cause error) error {
 	return r.Commit(ctx, func(tx *Tx) (TaskTransition, error) {
@@ -428,7 +432,7 @@ func failGeneration(ctx context.Context, r *TaskRuntime, task TaskRecord, input 
 				return TaskTransition{}, err
 			}
 		}
-		return settleRun(tx, task, input, 0, cause.Error(), false)
+		return settleRun(tx, task, input, 0, diagnostic(cause.Error()), false)
 	})
 }
 func settleGenerationAbort(ctx context.Context, r *TaskRuntime, task TaskRecord) error {
@@ -452,7 +456,8 @@ func settleGenerationAbort(ctx context.Context, r *TaskRuntime, task TaskRecord)
 		}
 		transition, err := settleRun(tx, task, input, 0, "aborted", false)
 		if err == nil {
-			transition.Outcome.Status = "aborted"
+			transition.Outcome.Status = OutcomeAborted
+			transition.Outcome.Error = ""
 		}
 		return transition, err
 	})
@@ -474,7 +479,7 @@ func runTool(ctx context.Context, r *TaskRuntime, task TaskRecord) error {
 	if c == nil {
 		return ErrNotFound
 	}
-	registry := r.h.registry.Snapshot()
+	registry := r.Registry()
 	var def *ToolDefinition
 	for _, tool := range registry.Tools(c.Agent) {
 		if tool.Name == input.Call.Name {
@@ -529,7 +534,7 @@ func runTool(ctx context.Context, r *TaskRuntime, task TaskRecord) error {
 	status := "completed"
 	if executeErr != nil {
 		status = "failed"
-		result = ToolResult{Content: executeErr.Error(), IsError: true}
+		result = ToolResult{Content: diagnostic(executeErr.Error()), IsError: true}
 	}
 	result.DurationMs = &durationMs
 	for _, hook := range hooks {
@@ -607,7 +612,11 @@ func finishTool(ctx context.Context, r *TaskRuntime, task TaskRecord, result Too
 		if err != nil {
 			return TaskTransition{}, err
 		}
-		return TaskTransition{Status: "terminal", Outcome: &Outcome{Status: status, Result: data}}, nil
+		outcome := &Outcome{Status: status, Result: data}
+		if status == OutcomeFailed {
+			outcome.Error = diagnostic(result.Content)
+		}
+		return TaskTransition{Status: "terminal", Outcome: outcome}, nil
 	})
 }
 func queuedSubmissions(tx *Tx, cid ConversationID) []*SubmissionRecord {

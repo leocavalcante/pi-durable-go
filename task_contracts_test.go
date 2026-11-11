@@ -72,11 +72,11 @@ func TestTaskMigrationBeforeRun(t *testing.T) {
 	}
 	newer := old
 	newer.Version = 2
-	newer.Migrate = func(version int, data json.RawMessage) (json.RawMessage, error) {
+	newer.Migrate = func(version int, input, data json.RawMessage) (MigratedTask, error) {
 		if version != 1 {
 			t.Errorf("version %d", version)
 		}
-		return json.RawMessage(`{"new":true}`), nil
+		return MigratedTask{Input: input, Checkpoint: json.RawMessage(`{"new":true}`)}, nil
 	}
 	newer.Run = func(ctx context.Context, r *TaskRuntime, task TaskRecord) error {
 		if task.Version != 2 || string(task.Checkpoint) != `{"new":true}` {

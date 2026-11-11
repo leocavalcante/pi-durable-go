@@ -10,16 +10,24 @@ var sectionNamePattern = regexp.MustCompile(`^[a-z][a-z0-9_-]*$`)
 
 // Registry is a process-local, dynamically replaceable extension registry.
 type Registry struct {
-	mu         sync.RWMutex
-	extensions []Extension
-	listeners  map[uint64]func()
-	next       uint64
+	mu           sync.RWMutex
+	extensions   []Extension
+	identities   map[string]uint64
+	listeners    map[uint64]func()
+	next         uint64
+	nextIdentity uint64
 }
 
 // RegistrySnapshot is an immutable ordered view of installed extensions.
 type RegistrySnapshot struct {
 	extensions []Extension
-	tasks      map[string]TaskDefinition
+	tasks      map[string]resolvedTask
+}
+
+type resolvedTask struct {
+	Definition TaskDefinition
+	Identity   uint64
+	Extension  string
 }
 
 func NewRegistry() *Registry { return &Registry{listeners: make(map[uint64]func())} }
@@ -46,11 +54,23 @@ func (r *Registry) Install(ext Extension) error {
 	} else {
 		next[index] = ext
 	}
-	if _, err := snapshotOf(next); err != nil {
+	if r.nextIdentity == ^uint64(0) {
+		r.mu.Unlock()
+		return fmt.Errorf("%w: task definition identity exhausted", ErrInvalid)
+	}
+	identity := r.nextIdentity + 1
+	identities := make(map[string]uint64, len(r.identities)+1)
+	for name, installedIdentity := range r.identities {
+		identities[name] = installedIdentity
+	}
+	identities[ext.Name] = identity
+	if _, err := snapshotOf(next, identities); err != nil {
 		r.mu.Unlock()
 		return err
 	}
 	r.extensions = next
+	r.identities = identities
+	r.nextIdentity = identity
 	listeners := make([]func(), 0, len(r.listeners))
 	for _, fn := range r.listeners {
 		listeners = append(listeners, fn)
@@ -78,6 +98,7 @@ func (r *Registry) Uninstall(name string) {
 		return
 	}
 	r.extensions = next
+	delete(r.identities, name)
 	listeners := make([]func(), 0, len(r.listeners))
 	for _, fn := range r.listeners {
 		listeners = append(listeners, fn)
@@ -102,27 +123,31 @@ func (r *Registry) Subscribe(fn func()) func() {
 
 func (r *Registry) Snapshot() *RegistrySnapshot {
 	if r == nil {
-		s, _ := snapshotOf(nil)
+		s, _ := snapshotOf(nil, nil)
 		return s
 	}
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	s, _ := snapshotOf(r.extensions)
+	s, _ := snapshotOf(r.extensions, r.identities)
 	return s
 }
 
-func snapshotOf(extensions []Extension) (*RegistrySnapshot, error) {
+func snapshotOf(extensions []Extension, identities map[string]uint64) (*RegistrySnapshot, error) {
 	exts := make([]Extension, len(extensions))
 	for i, ext := range extensions {
 		exts[i] = cloneExtension(ext)
 	}
-	tasks := make(map[string]TaskDefinition)
+	tasks := make(map[string]resolvedTask)
 	for _, ext := range exts {
+		identity := identities[ext.Name]
 		for _, task := range ext.Tasks {
-			if task.Kind == "" || tasks[task.Kind].Kind != "" {
+			if task.Kind == "" {
 				return nil, fmt.Errorf("%w: duplicate or empty task kind %q", ErrInvalid, task.Kind)
 			}
-			tasks[task.Kind] = task
+			if _, exists := tasks[task.Kind]; exists {
+				return nil, fmt.Errorf("%w: duplicate or empty task kind %q", ErrInvalid, task.Kind)
+			}
+			tasks[task.Kind] = resolvedTask{Definition: task, Identity: identity, Extension: ext.Name}
 		}
 	}
 	return &RegistrySnapshot{extensions: exts, tasks: tasks}, nil
@@ -161,11 +186,19 @@ func (s *RegistrySnapshot) Extensions() []Extension {
 	return result
 }
 func (s *RegistrySnapshot) Task(kind string) (TaskDefinition, bool) {
-	if s == nil {
+	task, ok := s.resolved(kind)
+	if !ok {
 		return TaskDefinition{}, false
 	}
-	t, ok := s.tasks[kind]
-	return t, ok
+	return task.Definition, true
+}
+
+func (s *RegistrySnapshot) resolved(kind string) (resolvedTask, bool) {
+	if s == nil {
+		return resolvedTask{}, false
+	}
+	task, ok := s.tasks[kind]
+	return task, ok
 }
 func (s *RegistrySnapshot) Tools(agent Agent) []ToolDefinition {
 	if s == nil {
@@ -176,6 +209,7 @@ func (s *RegistrySnapshot) Tools(agent Agent) []ToolDefinition {
 	positions := map[string]int{}
 	for _, ext := range selected {
 		for _, tool := range ext.Tools {
+			tool.Parameters = append([]byte(nil), tool.Parameters...)
 			if i, ok := positions[tool.Name]; ok {
 				tools[i] = tool
 			} else {

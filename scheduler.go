@@ -2,9 +2,7 @@ package durable
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"fmt"
 	"sort"
 	"sync"
 	"time"
@@ -15,33 +13,55 @@ type taskInvocation struct {
 	cancel   context.CancelFunc
 	done     chan struct{}
 	aborting bool // immutable invocation mode, fixed before publication
+	runtime  *TaskRuntime
 }
+
 type Scheduler struct {
 	h                *Harness
-	mu               sync.Mutex
+	mu               sync.Mutex // Session line -> mu; never call Session/registry under mu
 	enabled, closing bool
 	invocations      map[TaskID]*taskInvocation
+	migrations       map[TaskID]migrationFailure
 	wake             chan struct{}
 	done             chan struct{}
-	// Captured at open; consumed by the first scheduling pass, not by inspection.
+	// Captured at open; consumed by the first scheduling pass, not inspection.
 	abandoned map[TaskID]struct{}
 }
-type TaskInspection struct {
-	Record  TaskRecord
-	Ready   bool
-	Blocked string
-}
-type HarnessInspection struct {
-	Scheduling string
-	Tasks      []TaskInspection
+
+var errNoChange = errors.New("durable: no scheduler write")
+
+// commitInternal distinguishes read-only decisions from writes. Bookkeeping
+// cannot safely be retried after a real error, even a certified rejection.
+func (s *Scheduler) commitInternal(ctx context.Context, fn func(*Tx) error) (bool, error) {
+	noChange := false
+	err := s.h.commit(ctx, func(tx *Tx) error {
+		if fn == nil {
+			return nil
+		}
+		err := fn(tx)
+		noChange = errors.Is(err, errNoChange)
+		return err
+	}, true)
+	if noChange {
+		return false, nil
+	}
+	if err == nil {
+		return true, nil
+	}
+	// Session.commit classifies errors and seals fatal failures while still
+	// holding the line. Sealed admission and caller cancellation stay nonfatal.
+	return false, err
 }
 
 func newScheduler(h *Harness) *Scheduler {
-	return &Scheduler{h: h, invocations: map[TaskID]*taskInvocation{}, wake: make(chan struct{}, 1), done: make(chan struct{})}
+	return &Scheduler{h: h, invocations: map[TaskID]*taskInvocation{}, migrations: map[TaskID]migrationFailure{}, wake: make(chan struct{}, 1), done: make(chan struct{})}
 }
 func (s *Scheduler) state() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return s.stateLocked()
+}
+func (s *Scheduler) stateLocked() string {
 	if s.closing {
 		return "closing"
 	}
@@ -121,181 +141,129 @@ func (s *Scheduler) dispatch() {
 	if err != nil {
 		return
 	}
-	// No reservations share the abandonment pass. All old work and its ordinary
-	// subtree carry their durable marks before any handler can run again.
+	// No reservations share the abandonment pass. The complete ordinary tree
+	// carries its durable marks before any handler is replayed.
 	if len(s.abandoned) > 0 {
-		if err := s.h.Commit(context.Background(), func(tx *Tx) error {
+		if committed, _ := s.commitInternal(context.Background(), func(tx *Tx) error {
 			for id := range s.abandoned {
 				markAbortTreeReason(tx.state, id, "restart")
 			}
 			return nil
-		}); err == nil {
+		}); committed {
 			s.abandoned = nil
 			s.kick()
 		}
 		return
 	}
-	// Repair cancellation cascades left by a crash or a newly created task in
-	// an owned conversation. Reservation also checks the owner chain on-line.
 	if cascadeCancellation(state) {
-		if err := s.h.Commit(context.Background(), func(tx *Tx) error {
-			cascadeCancellation(tx.state)
+		if committed, _ := s.commitInternal(context.Background(), func(tx *Tx) error {
+			if !cascadeCancellation(tx.state) {
+				return errNoChange
+			}
 			return nil
-		}); err == nil {
+		}); committed {
 			s.cancelMarked()
 			s.kick()
 		}
 		return
 	}
-	var ids []TaskID
+	ids := sortedTaskIDs(state)
+	for _, id := range ids {
+		task := state.Tasks[id]
+		s.mu.Lock()
+		inv, closing := s.invocations[id], s.closing
+		if task.Status == "terminal" {
+			delete(s.migrations, id)
+		}
+		s.mu.Unlock()
+		if closing || s.h.Err() != nil {
+			return
+		}
+		if task.Status == "terminal" {
+			continue
+		}
+		if inv != nil {
+			if task.AbortRequested && !inv.aborting {
+				inv.cancel()
+			}
+			continue
+		}
+		if task.Status == "completing" {
+			_, err := s.commitInternal(context.Background(), func(tx *Tx) error {
+				t := tx.state.Tasks[id]
+				if t == nil || t.Status != "completing" || len(ownedLive(tx.state, id)) != 0 || s.active(id) != nil {
+					return errNoChange
+				}
+				return s.settleTerminal(tx, t)
+			})
+			if err != nil {
+				return
+			}
+			continue
+		}
+		if task.Status == "waiting" && !task.AbortRequested && task.WaitPolicy == "failFast" && waitFailed(state, task) {
+			_, err := s.commitInternal(context.Background(), func(tx *Tx) error {
+				t := tx.state.Tasks[id]
+				if t == nil || t.Status != "waiting" || t.WaitPolicy != "failFast" || !waitFailed(tx.state, t) {
+					return errNoChange
+				}
+				changed := false
+				for _, childID := range t.WaitOn {
+					child := tx.state.Tasks[childID]
+					if child != nil && child.Owner.Task == id && child.Status != "terminal" && (!child.AbortRequested || child.AbortReason != "") {
+						markAbortTree(tx.state, childID)
+						changed = true
+					}
+				}
+				if !changed {
+					return errNoChange
+				}
+				return nil
+			})
+			if err != nil {
+				return
+			}
+			s.cancelMarked()
+		}
+		if err := s.reserve(id); err != nil {
+			return
+		}
+	}
+}
+
+func sortedTaskIDs(state *State) []TaskID {
+	ids := make([]TaskID, 0, len(state.Tasks))
 	for id := range state.Tasks {
 		ids = append(ids, id)
 	}
 	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
-	for _, id := range ids {
-		task := state.Tasks[id]
-		if task.Status == "terminal" {
-			continue
-		}
-		s.mu.Lock()
-		inv := s.invocations[id]
-		aborting := inv != nil && inv.aborting
-		closing := s.closing
-		s.mu.Unlock()
-		if closing {
-			return
-		}
-		if task.AbortRequested {
-			// The cascade pass above marks descendants before any ancestor abort.
-			descendants := ownedLive(state, id)
-			if inv != nil {
-				if !aborting {
-					inv.cancel()
-				}
-				continue
-			}
-			if len(descendants) > 0 {
-				continue
-			}
-			if task.Status != "pending" && task.Status != "completing" {
-				_ = s.h.Commit(context.Background(), func(tx *Tx) error {
-					t, err := tx.Task(id)
-					if err != nil {
-						return err
-					}
-					if t.Status != "terminal" {
-						t.Status = "pending"
-						t.WaitOn = nil
-						t.WakeAt = nil
-					}
-					return nil
-				})
-				continue
-			}
-		} else if inv != nil {
-			continue
-		}
-		if task.Status == "completing" {
-			if len(ownedLive(state, id)) == 0 {
-				_ = s.h.Commit(context.Background(), func(tx *Tx) error {
-					t, err := tx.Task(id)
-					if err != nil {
-						return err
-					}
-					if t.Status == "completing" && len(ownedLive(tx.state, id)) == 0 {
-						terminalizeTask(tx, t, s.h.now())
-					}
-					return nil
-				})
-			}
-			continue
-		}
-		if task.Status == "waiting" {
-			all, failed := true, false
-			for _, childID := range task.WaitOn {
-				child := state.Tasks[childID]
-				if child == nil || child.Status != "terminal" {
-					all = false
-					continue
-				}
-				if child.Outcome == nil || child.Outcome.Status != "completed" {
-					failed = true
-				}
-			}
-			if failed && task.WaitPolicy == "failFast" {
-				needsMark := false
-				for _, childID := range task.WaitOn {
-					child := state.Tasks[childID]
-					if child != nil && child.Owner.Task == id && child.Status != "terminal" && !child.AbortRequested {
-						needsMark = true
-					}
-				}
-				if needsMark {
-					_ = s.h.Commit(context.Background(), func(tx *Tx) error {
-						for _, childID := range task.WaitOn {
-							child := tx.state.Tasks[childID]
-							if child != nil && child.Owner.Task == id {
-								markAbortTree(tx.state, childID)
-							}
-						}
-						return nil
-					})
-					s.cancelMarked()
-				}
-			}
-			if !all || task.WakeAt != nil && s.h.now().Before(*task.WakeAt) {
-				continue
-			}
-			_ = s.h.Commit(context.Background(), func(tx *Tx) error {
-				t, err := tx.Task(id)
-				if err != nil {
-					return err
-				}
-				if t.Status == "waiting" {
-					t.Status = "pending"
-					t.WaitOn = nil
-					t.WakeAt = nil
-				}
-				return nil
-			})
-			continue
-		}
-		if task.Status != "pending" {
-			continue
-		}
-		if !task.AbortRequested && task.WakeAt != nil && s.h.now().Before(*task.WakeAt) {
-			continue
-		}
-		def, ok := s.h.registry.resolve(task.Kind)
-		if !ok || task.Version > def.Version {
-			continue
-		}
-		if task.Version < def.Version {
-			if def.Migrate == nil {
-				continue
-			}
-			checkpoint, err := def.Migrate(task.Version, append(json.RawMessage(nil), task.Checkpoint...))
-			if err != nil {
-				continue
-			}
-			if !json.Valid(checkpoint) {
-				continue
-			}
-			_ = s.h.Commit(context.Background(), func(tx *Tx) error {
-				t, err := tx.Task(id)
-				if err != nil {
-					return err
-				}
-				if t.Version == task.Version && t.Status == "pending" {
-					t.Version = def.Version
-					t.Checkpoint = checkpoint
-				}
-				return nil
-			})
-			continue
-		}
-		s.start(*task, def)
+	return ids
+}
+func liveWaits(state *State, task *TaskRecord) []TaskID {
+	if task.AbortRequested {
+		return ownedLive(state, task.ID)
 	}
+	var live []TaskID
+	for _, id := range task.WaitOn {
+		if child := state.Tasks[id]; child == nil || child.Status != "terminal" {
+			live = append(live, id)
+		}
+	}
+	return live
+}
+func waitFailed(state *State, task *TaskRecord) bool {
+	for _, id := range task.WaitOn {
+		child := state.Tasks[id]
+		if child != nil && child.Status == "terminal" && (child.Outcome == nil || child.Outcome.Status != OutcomeCompleted) {
+			return true
+		}
+	}
+	return false
+}
+func (s *Scheduler) active(id TaskID) *taskInvocation {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.invocations[id]
 }
 func (s *Scheduler) cancelMarked() {
 	state, err := s.h.Snapshot(context.Background())
@@ -310,169 +278,89 @@ func (s *Scheduler) cancelMarked() {
 		}
 	}
 }
-func (s *Scheduler) start(task TaskRecord, def TaskDefinition) {
-	ctx, cancel := context.WithCancel(context.Background())
-	inv := &taskInvocation{ctx: ctx, cancel: cancel, done: make(chan struct{}), aborting: task.AbortRequested}
-	s.mu.Lock()
-	if s.closing || s.invocations[task.ID] != nil {
+
+func (s *Scheduler) reserve(id TaskID) error {
+	var inv *taskInvocation
+	var resolved resolvedTask
+	var snapshot *RegistrySnapshot
+	var reports []Report
+	committed, err := s.commitInternal(context.Background(), func(tx *Tx) error {
+		t := tx.state.Tasks[id]
+		if t == nil || t.Status == "terminal" || t.Status == "completing" {
+			return errNoChange
+		}
+		s.mu.Lock()
+		unavailable := s.closing || s.invocations[id] != nil
 		s.mu.Unlock()
-		cancel()
-		return
-	}
-	s.invocations[task.ID] = inv
-	s.mu.Unlock()
-	go func() {
-		defer func() {
-			if ctx.Err() != nil {
-				s.mu.Lock()
-				closing := s.closing
-				s.mu.Unlock()
-				if !closing {
-					_ = s.h.Commit(context.Background(), func(tx *Tx) error {
-						t, e := tx.Task(task.ID)
-						if e != nil {
-							return e
-						}
-						if t.Status == "running" {
-							t.Status = "pending"
-						}
-						return nil
-					})
-				}
+		if unavailable || s.h.Err() != nil {
+			return errNoChange
+		}
+		if t.AbortRequested {
+			if len(ownedLive(tx.state, id)) != 0 {
+				return errNoChange
 			}
-			cancel()
-			s.mu.Lock()
-			delete(s.invocations, task.ID)
-			close(inv.done)
-			s.mu.Unlock()
-			s.kick()
-		}()
-		err := s.h.Commit(context.Background(), func(tx *Tx) error {
-			t, err := tx.Task(task.ID)
-			if err != nil {
-				return err
+		} else if (t.Status != "pending" && t.Status != "waiting") || len(liveWaits(tx.state, t)) != 0 || t.WakeAt != nil && s.h.now().Before(*t.WakeAt) || belowCancellationIntent(tx.state, t) {
+			return errNoChange
+		}
+		snapshot = s.h.registry.Snapshot()
+		var migrated *MigratedTask
+		var blocked string
+		resolved, migrated, blocked = s.resolveForStart(t, snapshot, &reports)
+		if blocked != "" {
+			if t.AbortRequested && t.AbortReason != "restart" {
+				t.Outcome = &Outcome{Status: OutcomeOrphaned, Reason: blocked}
+				return s.settleTerminal(tx, t)
 			}
-			if t.Status != "pending" || t.AbortRequested != inv.aborting {
-				return ErrConflict
-			}
-			if t.AbortRequested && len(ownedLive(tx.state, t.ID)) > 0 || !t.AbortRequested && belowCancellationIntent(tx.state, t) {
-				return ErrConflict
-			}
-			t.Status = "running"
-			t.WakeAt = nil
-			if t.StartedAt == nil {
-				now := s.h.now()
-				t.StartedAt = &now
-			}
-			return nil
-		})
-		if err != nil {
-			return
+			return errNoChange
 		}
-		current, err := s.h.Task(context.Background(), task.ID)
-		if err != nil {
-			return
+		if migrated != nil {
+			t.Version = resolved.Definition.Version
+			t.Input, t.Checkpoint = migrated.Input, migrated.Checkpoint
 		}
-		if current.AbortRequested != inv.aborting {
-			cancel()
-			return
+		t.Status = "running"
+		t.WaitOn, t.WaitPolicy, t.WakeAt = nil, "", nil
+		if t.StartedAt == nil {
+			now := s.h.now()
+			t.StartedAt = &now
 		}
-		r := &TaskRuntime{h: s.h, ID: task.ID, invocation: inv, aborting: inv.aborting}
-		defer r.ended.Store(true)
-		if ctx.Err() != nil {
-			return
-		}
-		if current.AbortRequested {
-			if def.Abort != nil {
-				err = def.Abort(ctx, r, current)
-			} else {
-				err = r.Complete(ctx, Outcome{Status: "aborted"})
-			}
-		} else if def.Run == nil {
-			err = fmt.Errorf("task has no Run handler")
-		} else {
-			err = def.Run(ctx, r, current)
-		}
-		if ctx.Err() != nil {
-			// Close leaves work pending, not durably cancelled. The next host can reopen.
-			// An explicit abort needs a fresh invocation context for compensation.
-			s.mu.Lock()
-			closing := s.closing
-			s.mu.Unlock()
-			if !closing {
-				_ = s.h.Commit(context.Background(), func(tx *Tx) error {
-					t, e := tx.Task(task.ID)
-					if e != nil {
-						return e
-					}
-					if t.Status == "running" {
-						t.Status = "pending"
-					}
-					return nil
-				})
-			}
-			return
-		}
-		if err != nil {
-			_ = r.Complete(context.Background(), Outcome{Status: "failed", Error: err.Error()})
-			return
-		}
-		latest, e := s.h.Task(context.Background(), task.ID)
-		if e == nil && latest.Status == "running" {
-			_ = r.Complete(context.Background(), Outcome{Status: "failed", Error: "task handler returned without a durable transition"})
-		}
-	}()
-}
-func (s *Scheduler) abort(ctx context.Context, id TaskID) error {
-	err := s.h.Commit(ctx, func(tx *Tx) error {
-		if _, err := tx.Task(id); err != nil {
-			return err
-		}
-		markAbortTree(tx.state, id)
+		ctx, cancel := context.WithCancel(context.Background())
+		inv = &taskInvocation{ctx: ctx, cancel: cancel, done: make(chan struct{}), aborting: t.AbortRequested}
+		r := &TaskRuntime{h: s.h, ID: id, invocation: inv, aborting: inv.aborting, extension: resolved.Extension, kind: t.Kind, conversation: t.Conversation}
+		r.snapshot.Store(snapshot)
+		inv.runtime = r
+		s.mu.Lock()
+		s.invocations[id] = inv
+		s.mu.Unlock()
 		return nil
 	})
-	if err != nil {
-		return err
-	}
-	s.cancelMarked()
-	s.resume()
-	s.kick()
-	return nil
-}
-func (s *Scheduler) wait(ctx context.Context, id TaskID) (TaskRecord, error) {
-	states, stop, err := s.h.session.Watch(ctx)
-	if err != nil {
-		return TaskRecord{}, err
-	}
-	defer stop()
-	s.resume()
-	for {
-		select {
-		case <-ctx.Done():
-			return TaskRecord{}, ctx.Err()
-		case state, ok := <-states:
-			if !ok {
-				if ctx.Err() != nil {
-					return TaskRecord{}, ctx.Err()
-				}
-				return TaskRecord{}, s.h.Err()
-			}
-			if err := s.h.Err(); err != nil {
-				return TaskRecord{}, err
-			}
-			t := state.Tasks[id]
-			if t == nil {
-				return TaskRecord{}, ErrNotFound
-			}
-			if t.Status == "terminal" {
-				return *t, nil
-			}
+	s.enqueueReports(reports)
+	if inv != nil {
+		if committed {
+			go s.runInvocation(id, inv, resolved, snapshot)
+		} else {
+			s.finishInvocation(id, inv)
 		}
 	}
+	return err
 }
+func (s *Scheduler) finishInvocation(id TaskID, inv *taskInvocation) {
+	inv.runtime.ended.Store(true)
+	inv.cancel()
+	s.mu.Lock()
+	delete(s.invocations, id)
+	close(inv.done)
+	s.mu.Unlock()
+	s.kick()
+}
+func (s *Scheduler) enqueueReports(reports []Report) {
+	for _, report := range reports {
+		s.h.report(report)
+	}
+}
+
 func (h *Harness) reconcile(ctx context.Context) error {
 	abandoned := make(map[TaskID]struct{})
-	err := h.Commit(ctx, func(tx *Tx) error {
+	_, err := h.scheduler.commitInternal(ctx, func(tx *Tx) error {
 		for _, t := range tx.state.Tasks {
 			if t.AbandonOnRestart && t.Status != "terminal" {
 				abandoned[t.ID] = struct{}{}
@@ -488,17 +376,3 @@ func (h *Harness) reconcile(ctx context.Context) error {
 	}
 	return err
 }
-func (r *Registry) resolve(kind string) (TaskDefinition, bool) {
-	if kind == "pi.generation" {
-		return generationTaskDefinition(), true
-	}
-	if kind == "pi.tool" {
-		return toolTaskDefinition(), true
-	}
-	return r.Snapshot().Task(kind)
-}
-func contextCanceled(err error) bool {
-	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
-}
-func encodeTaskCheckpoint(value any) json.RawMessage           { data, _ := json.Marshal(value); return data }
-func requireTaskRecord(tx *Tx, id TaskID) (*TaskRecord, error) { return tx.Task(id) }

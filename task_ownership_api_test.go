@@ -130,23 +130,10 @@ func TestAbortInvocationModeIsPublishedBeforeReservation(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	task, err := h.Task(ctx, id)
-	if err != nil {
+	// Reservation now publishes the fixed-mode invocation on the Session line,
+	// atomically with running. No independent pre-reservation start is exposed.
+	if err := h.scheduler.reserve(id); err != nil {
 		t.Fatal(err)
-	}
-	// Hold admission so the invocation cannot yet reserve/read its record.
-	// A concurrent cascade must already know it is an abort invocation, or
-	// cancelMarked/dispatch can repeatedly cancel it before cleanup starts.
-	h.session.mu.Lock()
-	h.Resume()
-	h.scheduler.start(task, def)
-	h.scheduler.mu.Lock()
-	inv := h.scheduler.invocations[id]
-	mode := inv != nil && inv.aborting
-	h.scheduler.mu.Unlock()
-	h.session.mu.Unlock()
-	if !mode {
-		t.Fatal("abort invocation published as a run invocation")
 	}
 	if _, err := h.WaitTask(ctx, id); err != nil {
 		t.Fatal(err)
@@ -228,7 +215,7 @@ func TestOwnedTasksAndAbortOwned(t *testing.T) {
 		}
 		// A task in an owned conversation is ordinary owned work, but not a
 		// direct task child accepted by AbortOwned.
-		if err := h.AbortTask(ctx, inConversation); err != nil {
+		if _, err := h.AbortTask(ctx, inConversation); err != nil {
 			return err
 		}
 		if _, err := h.WaitTask(ctx, inConversation); err != nil {

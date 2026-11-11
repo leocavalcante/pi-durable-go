@@ -26,6 +26,8 @@ var (
 
 // RejectedError certifies a storage write was not applied. Other write errors
 // are uncertain and poison the Session; implementations must not misclassify them.
+// Scheduler bookkeeping fails the Session even on certified rejection, except
+// for a caller-cancelled, certified-unapplied write.
 type RejectedError struct{ Err error }
 
 func (e *RejectedError) Error() string { return e.Err.Error() }
@@ -139,6 +141,7 @@ type SubmissionRecord struct {
 	Status       string            `json:"status"` // queued, running, done, unanswered
 	Answer       EntryID           `json:"answer,omitempty"`
 	Reason       string            `json:"reason,omitempty"`
+	Detail       json.RawMessage   `json:"detail,omitempty"`
 	CreatedAt    time.Time         `json:"createdAt"`
 }
 
@@ -164,11 +167,32 @@ type TaskRecord struct {
 	StartedAt        *time.Time                 `json:"startedAt,omitempty"`
 	EndedAt          *time.Time                 `json:"endedAt,omitempty"`
 }
+
+const (
+	OutcomeCompleted = "completed"
+	OutcomeFailed    = "failed"
+	OutcomeAborted   = "aborted"
+	OutcomeOrphaned  = "orphaned" // scheduler only
+	OutcomeFaulted   = "faulted"  // scheduler only
+)
+
+// Outcome distinguishes application decisions from scheduler failures. Error is
+// the failed/faulted message; ErrorDetail is optional JSON, never a stack trace.
 type Outcome struct {
-	Status string          `json:"status"` // completed, failed, aborted
-	Result json.RawMessage `json:"result,omitempty"`
-	Error  string          `json:"error,omitempty"`
+	Status      string          `json:"status"`
+	Result      json.RawMessage `json:"result,omitempty"`
+	Error       string          `json:"error,omitempty"`
+	ErrorDetail json.RawMessage `json:"errorDetail,omitempty"`
+	Reason      string          `json:"reason,omitempty"`
 }
+
+type AbortResult string
+
+const (
+	AbortMarked   AbortResult = "marked"
+	AbortTerminal AbortResult = "terminal"
+)
+
 type TaskOptions struct {
 	Owner      Owner
 	Background bool
@@ -191,7 +215,15 @@ type TaskDefinition struct {
 	Initial func(json.RawMessage) (json.RawMessage, error)
 	Run     func(context.Context, *TaskRuntime, TaskRecord) error
 	Abort   func(context.Context, *TaskRuntime, TaskRecord) error
-	Migrate func(int, json.RawMessage) (json.RawMessage, error)
+	// Migrate runs on the Session line. It must be pure, bounded, and must not
+	// call Session/registry APIs or perform external effects. Reinstall retries
+	// a failed migration; a successful abort eligibility probe may run again.
+	Migrate func(fromVersion int, input, checkpoint json.RawMessage) (MigratedTask, error)
+}
+
+type MigratedTask struct {
+	Input      json.RawMessage
+	Checkpoint json.RawMessage
 }
 
 type DocumentDefinition struct {
@@ -292,6 +324,9 @@ type HarnessOptions struct {
 	Environment         func(ConversationRecord) (ExecutionEnv, error)
 	ConversationCreated func(*Tx, ConversationID) error
 	Now                 func() time.Time
+	// OnReport receives best-effort FIFO diagnostics on an independent worker.
+	// Shutdown does not join delivery. Handlers should return promptly.
+	OnReport func(Report)
 }
 type ExecutionEnv interface {
 	ReadFile(context.Context, string) ([]byte, error)

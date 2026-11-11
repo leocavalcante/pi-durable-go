@@ -55,9 +55,6 @@ func main() {
 		log.Fatal(err)
 	}
 	registry := durable.NewRegistry()
-	if err := registry.Install(durable.CompactionExtension()); err != nil {
-		log.Fatal(err)
-	}
 	opts := durable.HarnessOptions{Model: generator, Registry: registry}
 	if *coding {
 		if err := registry.Install(tools.Coding()); err != nil {

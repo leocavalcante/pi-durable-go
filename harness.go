@@ -3,7 +3,6 @@ package durable
 import (
 	"context"
 	"fmt"
-	"sort"
 	"time"
 )
 
@@ -14,6 +13,7 @@ type Harness struct {
 	options      HarnessOptions
 	scheduler    *Scheduler
 	stopRegistry func()
+	reports      *reportQueue
 }
 
 func Open(ctx context.Context, storage Storage, options HarnessOptions) (*Harness, error) {
@@ -26,32 +26,37 @@ func Open(ctx context.Context, storage Storage, options HarnessOptions) (*Harnes
 	if options.Now == nil {
 		options.Now = time.Now
 	}
-	if err := options.Registry.Install(CompactionExtension()); err != nil {
-		return nil, err
-	}
 	session, err := NewSession(ctx, storage, options.Now)
 	if err != nil {
 		return nil, err
 	}
-	h := &Harness{session: session, registry: options.Registry, options: options}
+	h := &Harness{session: session, registry: options.Registry, options: options, reports: newReportQueue(options.OnReport)}
 	h.scheduler = newScheduler(h)
 	h.stopRegistry = h.registry.Subscribe(h.scheduler.kick)
+	session.failureHook = func(cause error) { h.report(Report{Kind: ReportStorageFailed, Err: cause}) }
+	session.afterClose = h.reports.closeAdmission
+	session.afterCommit = h.scheduler.clearSettledMigrations
 	session.beforeClose = func() {
 		h.scheduler.close()
 		<-h.scheduler.done
 		h.stopRegistry()
 	}
 	if err = h.reconcile(ctx); err != nil {
-		_ = session.Close()
+		// Cleanup continues after a cancelled Open without forcing that caller
+		// to join a backend that ignores cancellation.
+		_ = session.closeContext(ctx)
 		return nil, err
 	}
 	return h, nil
 }
 func (h *Harness) Commit(ctx context.Context, change func(*Tx) error) error {
+	return h.commit(ctx, change, false)
+}
+func (h *Harness) commit(ctx context.Context, change func(*Tx) error, internal bool) error {
 	if h == nil || h.session == nil {
 		return ErrClosed
 	}
-	return h.session.Commit(ctx, func(tx *Tx) error {
+	return h.session.commit(ctx, func(tx *Tx) error {
 		tx.created = func(tx *Tx, id ConversationID) error {
 			if h.options.ConversationCreated != nil {
 				return h.options.ConversationCreated(tx, id)
@@ -62,7 +67,7 @@ func (h *Harness) Commit(ctx context.Context, change func(*Tx) error) error {
 			return nil
 		}
 		return change(tx)
-	})
+	}, internal)
 }
 func (h *Harness) now() time.Time { return h.options.Now().UTC() }
 
@@ -82,8 +87,11 @@ func (h *Harness) Close(ctx context.Context) error {
 	}
 	return h.session.closeContext(ctx)
 }
-func (h *Harness) AbortTask(ctx context.Context, id TaskID) error {
-	h.Resume()
+
+// AbortTask marks before enabling scheduling and joins only the captured run,
+// not its compensation. Caller cancellation stops the join, never the mark.
+// A handler must not synchronously abort itself or a scope containing itself.
+func (h *Harness) AbortTask(ctx context.Context, id TaskID) (AbortResult, error) {
 	return h.scheduler.abort(ctx, id)
 }
 func (h *Harness) WaitTask(ctx context.Context, id TaskID) (TaskRecord, error) {
@@ -100,30 +108,4 @@ func (h *Harness) Task(ctx context.Context, id TaskID) (TaskRecord, error) {
 		return TaskRecord{}, ErrNotFound
 	}
 	return *r, nil
-}
-func (h *Harness) Inspect(ctx context.Context) (HarnessInspection, error) {
-	s, err := h.Snapshot(ctx)
-	if err != nil {
-		return HarnessInspection{}, err
-	}
-	out := HarnessInspection{Scheduling: h.scheduler.state()}
-	for _, task := range s.Tasks {
-		if task.Status == "terminal" {
-			continue
-		}
-		d, ok := h.registry.resolve(task.Kind)
-		item := TaskInspection{Record: *task}
-		if !ok {
-			item.Blocked = "missing_task"
-		} else if task.Version > d.Version {
-			item.Blocked = "host_definition_too_old"
-		} else if task.Version < d.Version && d.Migrate == nil {
-			item.Blocked = "missing_migration"
-		} else {
-			item.Ready = true
-		}
-		out.Tasks = append(out.Tasks, item)
-	}
-	sort.Slice(out.Tasks, func(i, j int) bool { return out.Tasks[i].Record.ID < out.Tasks[j].Record.ID })
-	return out, nil
 }

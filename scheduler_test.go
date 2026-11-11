@@ -126,7 +126,7 @@ func TestAbortTaskRunsAbortHandlerAfterCooperativeCancellation(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	if err := h.AbortTask(ctx, id); err != nil {
+	if _, err := h.AbortTask(ctx, id); err != nil {
 		t.Fatal(err)
 	}
 	record, err := h.WaitTask(ctx, id)
