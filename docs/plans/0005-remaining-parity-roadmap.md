@@ -24,7 +24,7 @@
 
 ## 2. Remaining work, in proposed order
 
-1. **Remaining telemetry events.** `pi.durable.submission`, `pi.durable.report`, and `pi.durable.replay`. (Spans, entry and checkpoint events, and both metrics are done.)
+1. **Report span events.** `pi.durable.report` on the span of the context that raised a report; Go reports are queued without one. (Spans, the other events, and both metrics are done.)
 2. **I: storage.** Indexed records instead of whole snapshots, group commit, and deferred commits (`persistWithinMs`). This is the largest change: whole-snapshot commits cost grows with history.
 3. **Environment parity.** The `env` package's bounded binary and directory readers, file watching, and PowerShell, in `tools`.
 

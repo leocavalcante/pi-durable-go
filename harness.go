@@ -79,8 +79,18 @@ func (h *Harness) commit(ctx context.Context, change func(*Tx) error, internal b
 		return ErrClosed
 	}
 	sp := spanOf(ctx)
-	var appended []map[string]any
+	var appended, settled []map[string]any
 	err := h.session.commit(ctx, func(tx *Tx) error {
+		// Submissions settled by this commit: open before it, or new in it.
+		var settledBefore map[SubmissionID]bool
+		if sp != nil {
+			settledBefore = map[SubmissionID]bool{}
+			for id, sub := range tx.state.Submissions {
+				if sub.Status == "done" || sub.Status == "unanswered" {
+					settledBefore[id] = true
+				}
+			}
+		}
 		tx.created = func(tx *Tx, id ConversationID) error {
 			if h.options.ConversationCreated != nil {
 				return h.options.ConversationCreated(tx, id)
@@ -93,6 +103,16 @@ func (h *Harness) commit(ctx context.Context, change func(*Tx) error, internal b
 			}
 		}
 		if sp != nil {
+			settled = settled[:0]
+			for id, sub := range tx.state.Submissions {
+				if !settledBefore[id] && (sub.Status == "done" || sub.Status == "unanswered") {
+					attributes := map[string]any{"submission.id": uint64(id), "status": sub.Status}
+					if sub.Answer != 0 {
+						attributes["answer.entry_id"] = uint64(sub.Answer)
+					}
+					settled = append(settled, attributes)
+				}
+			}
 			appended = appended[:0]
 			for _, e := range tx.state.Entries {
 				if e.Sequence == tx.state.Sequence+1 {
@@ -110,6 +130,12 @@ func (h *Harness) commit(ctx context.Context, change func(*Tx) error, internal b
 		sort.Slice(appended, func(i, j int) bool { return appended[i]["entry.id"].(uint64) < appended[j]["entry.id"].(uint64) })
 		for _, attributes := range appended {
 			sp.event("pi.durable.entry", attributes)
+		}
+		sort.Slice(settled, func(i, j int) bool {
+			return settled[i]["submission.id"].(uint64) < settled[j]["submission.id"].(uint64)
+		})
+		for _, attributes := range settled {
+			sp.event("pi.durable.submission", attributes)
 		}
 	}
 	return err

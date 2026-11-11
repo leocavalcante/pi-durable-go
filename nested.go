@@ -89,7 +89,9 @@ func (r *ToolRuntime) ExecuteTool(ctx context.Context, name string, args json.Ra
 	}
 	call := ToolCall{ID: r.Call.ID + "/" + key, Name: name, Arguments: append(json.RawMessage(nil), args...)}
 	var id TaskID
+	replayed := false
 	err := r.Commit(ctx, func(tx *Tx) (TaskTransition, error) {
+		replayed = false
 		current, err := tx.Task(r.ID)
 		if err != nil {
 			return TaskTransition{}, err
@@ -107,6 +109,9 @@ func (r *ToolRuntime) ExecuteTool(ctx context.Context, name string, args json.Ra
 				return TaskTransition{}, fmt.Errorf("%w: nested call %s was already made with another tool or other arguments", ErrInvalid, call.ID)
 			}
 			id = existing.TaskID
+			if task, err := tx.Task(existing.TaskID); err == nil && task.Status == "terminal" {
+				replayed = true // answered from its stored result
+			}
 			return TaskTransition{Status: "running", Checkpoint: current.Checkpoint}, nil
 		}
 		var cp toolCheckpoint
@@ -135,6 +140,9 @@ func (r *ToolRuntime) ExecuteTool(ctx context.Context, name string, args json.Ra
 	})
 	if err != nil {
 		return NestedToolResult{}, err
+	}
+	if replayed {
+		spanOf(ctx).event("pi.durable.replay", map[string]any{"tool.name": name})
 	}
 	wait := ctx
 	if r.invocation != nil {

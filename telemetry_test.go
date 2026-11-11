@@ -71,6 +71,8 @@ func (s *recordingSpan) AddEvent(name string, attributes map[string]any) {
 	switch name {
 	case "pi.durable.entry":
 		s.span.events = append(s.span.events, name+":"+attributes["entry.kind"].(string))
+	case "pi.durable.submission":
+		s.span.events = append(s.span.events, name+":"+attributes["status"].(string))
 	case "pi.durable.checkpoint":
 		s.span.events = append(s.span.events, name+":"+attributes["phase"].(string))
 	}
@@ -113,6 +115,15 @@ func TestTelemetrySpansForSubmissionsAndPhases(t *testing.T) {
 	}
 	if len(submitSpan.events) == 0 || submitSpan.events[0] != "pi.durable.entry:pi.user" {
 		t.Fatalf("submit events=%v", submitSpan.events)
+	}
+	var settledEvent bool
+	for _, span := range telemetry.spans {
+		for _, event := range span.events {
+			settledEvent = settledEvent || event == "pi.durable.submission:done"
+		}
+	}
+	if !settledEvent {
+		t.Fatal("no pi.durable.submission event")
 	}
 	if telemetry.phases == 0 {
 		t.Fatal("no phase durations")
