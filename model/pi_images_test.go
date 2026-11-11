@@ -1,0 +1,39 @@
+package model
+
+import (
+	"encoding/json"
+	"testing"
+
+	durable "github.com/leocavalcante/pi-durable-go"
+)
+
+func TestPiBridgeSendsImageBlocksAndReadsImageInput(t *testing.T) {
+	p := fakePi(t)
+	png := durable.ImageContent{MimeType: "image/png", Data: "iVBORw0KGgo="}
+	req := piRequest("inspect")
+	req.Messages = []durable.Message{
+		{Role: "user", Content: "what is this?", Images: []durable.ImageContent{png}},
+		{Role: "tool", ToolCallID: "call-1", ToolName: "read", Images: []durable.ImageContent{png}},
+	}
+	inspect := inspectPi(t, p, req)
+	messages := inspect.Context.Messages
+	if len(messages) != 2 {
+		t.Fatalf("messages=%+v", messages)
+	}
+	var user, tool []map[string]any
+	if err := json.Unmarshal(messages[0].Content, &user); err != nil {
+		t.Fatalf("user content=%s: %v", messages[0].Content, err)
+	}
+	if err := json.Unmarshal(messages[1].Content, &tool); err != nil {
+		t.Fatalf("tool content=%s: %v", messages[1].Content, err)
+	}
+	if len(user) != 2 || user[0]["text"] != "what is this?" || user[1]["type"] != "image" || user[1]["data"] != png.Data || user[1]["mimeType"] != png.MimeType {
+		t.Fatalf("user blocks=%v", user)
+	}
+	if len(tool) != 1 || tool[0]["type"] != "image" {
+		t.Fatalf("tool blocks=%v", tool)
+	}
+	if !p.AcceptsImages(durable.ModelRef{Provider: "fake", ID: "vision"}) || p.AcceptsImages(durable.ModelRef{Provider: "fake", ID: "text-only"}) {
+		t.Fatal("image input not read from the catalog")
+	}
+}

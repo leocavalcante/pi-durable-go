@@ -33,6 +33,13 @@ type ContextWindowModel interface {
 	ContextWindow(ModelRef) int
 }
 
+// ImageInputModel is optionally implemented by a Model that knows which
+// models take images (pi-ai's model input). Without it, every model is taken
+// to accept them, as upstream assumes for a model it cannot resolve.
+type ImageInputModel interface {
+	AcceptsImages(ModelRef) bool
+}
+
 // resolveCompaction resolves the policy for a model in a conversation, field
 // by field: the conversation's model override, the Harness's model override,
 // the conversation's own fields, then the Harness-wide policy over the
@@ -180,8 +187,11 @@ func compactionSummary(e Entry) (Message, EntryID, error) {
 }
 
 // estimateMessageTokens ports pi-ai's estimate: 3.5 characters per token.
+// estimatedImageChars is what pi-ai counts for an image (ESTIMATED_IMAGE_CHARS).
+const estimatedImageChars = 4800
+
 func estimateMessageTokens(m Message) int {
-	chars := len([]rune(m.Content))
+	chars := len([]rune(m.Content)) + estimatedImageChars*len(m.Images)
 	if m.Role == "assistant" {
 		chars += len([]rune(m.Thinking))
 		for _, call := range m.ToolCalls {

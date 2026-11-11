@@ -1,0 +1,60 @@
+package model
+
+import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+
+	durable "github.com/leocavalcante/pi-durable-go"
+)
+
+// imagePayload sends req through an OpenAI adapter and returns the messages
+// the endpoint received.
+func imagePayload(t *testing.T, adapter OpenAI, req durable.ModelRequest) []map[string]any {
+	t.Helper()
+	var messages []map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Messages []map[string]any `json:"messages"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Error(err)
+		}
+		messages = body.Messages
+		_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"ok\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n"))
+	}))
+	defer server.Close()
+	adapter.BaseURL = server.URL
+	if _, err := adapter.Generate(context.Background(), req, nil); err != nil {
+		t.Fatal(err)
+	}
+	return messages
+}
+
+func TestOpenAISendsImagesLikePiAI(t *testing.T) {
+	png := durable.ImageContent{MimeType: "image/png", Data: "iVBORw0KGgo="}
+	req := durable.ModelRequest{Model: durable.ModelRef{ID: "m"}, Messages: []durable.Message{
+		{Role: "user", Content: "what is this?", Images: []durable.ImageContent{png}},
+		{Role: "assistant", ToolCalls: []durable.ToolCall{{ID: "c1", Name: "read", Arguments: json.RawMessage(`{}`)}, {ID: "c2", Name: "read", Arguments: json.RawMessage(`{}`)}}},
+		{Role: "tool", ToolCallID: "c1", Images: []durable.ImageContent{png}},
+		{Role: "tool", ToolCallID: "c2"},
+	}}
+	got, _ := json.Marshal(imagePayload(t, OpenAI{}, req))
+	want := `[{"content":[{"text":"what is this?","type":"text"},{"image_url":{"url":"data:image/png;base64,iVBORw0KGgo="},"type":"image_url"}],"role":"user"},` +
+		`{"role":"assistant","tool_calls":[{"function":{"arguments":"{}","name":"read"},"id":"c1","type":"function"},{"function":{"arguments":"{}","name":"read"},"id":"c2","type":"function"}]},` +
+		`{"content":"(see attached image)","role":"tool","tool_call_id":"c1"},{"content":"(no tool output)","role":"tool","tool_call_id":"c2"},` +
+		`{"content":[{"text":"Attached image(s) from tool result:","type":"text"},{"image_url":{"url":"data:image/png;base64,iVBORw0KGgo="},"type":"image_url"}],"role":"user"}]`
+	if string(got) != want {
+		t.Fatalf("messages:\n%s\nwant\n%s", got, want)
+	}
+
+	got, _ = json.Marshal(imagePayload(t, OpenAI{NoImages: true}, req))
+	want = `[{"content":[{"text":"what is this?","type":"text"},{"text":"(image omitted: model does not support images)","type":"text"}],"role":"user"},` +
+		`{"role":"assistant","tool_calls":[{"function":{"arguments":"{}","name":"read"},"id":"c1","type":"function"},{"function":{"arguments":"{}","name":"read"},"id":"c2","type":"function"}]},` +
+		`{"content":"(tool image omitted: model does not support images)","role":"tool","tool_call_id":"c1"},{"content":"(no tool output)","role":"tool","tool_call_id":"c2"}]`
+	if string(got) != want {
+		t.Fatalf("placeholder messages:\n%s\nwant\n%s", got, want)
+	}
+}

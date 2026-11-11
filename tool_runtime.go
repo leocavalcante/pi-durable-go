@@ -259,6 +259,25 @@ func (r *ToolRuntime) Env() (ExecutionEnv, error) {
 
 // DeferredTools are the enabled, model-callable deferred tools this call's
 // conversation does not offer yet: what a tool search loads.
+// AcceptsImages reports whether the conversation's model takes images
+// (ImageInputModel); true when unknown. Tools that return images say when the
+// model will see a placeholder instead.
+func (r *ToolRuntime) AcceptsImages(ctx context.Context) bool {
+	model, ok := r.h.options.Model.(ImageInputModel)
+	if !ok {
+		return true
+	}
+	state, err := r.h.read(ctx)
+	if err != nil {
+		return true
+	}
+	conv := state.Conversations[r.ConversationID]
+	if conv == nil {
+		return true
+	}
+	return model.AcceptsImages(conv.Agent.Model)
+}
+
 func (r *ToolRuntime) DeferredTools(ctx context.Context) ([]ToolDefinition, error) {
 	if err := r.check(); err != nil {
 		return nil, err

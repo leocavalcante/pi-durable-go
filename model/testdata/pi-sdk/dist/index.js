@@ -16,7 +16,8 @@ export class ModelRuntime {
   constructor(options) { this.options = options; }
   getError() { return undefined; }
   getModel(provider, id) {
-    return id === "unknown" ? undefined : { provider, id, api: "fake-api", contextWindow: id === "small-window" ? 4096 : 128000 };
+    return id === "unknown" ? undefined : { provider, id, api: "fake-api", contextWindow: id === "small-window" ? 4096 : 128000,
+      input: id === "text-only" ? ["text"] : ["text", "image"] };
   }
   async *streamSimple(model, context, options) {
     const result = { role: "assistant", api: model.api, provider: model.provider, model: model.id,

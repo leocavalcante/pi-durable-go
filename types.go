@@ -144,6 +144,15 @@ type Message struct {
 	// ProviderData is adapter-owned assistant replay data (for example signed
 	// thinking blocks). Persist it with the message; never put credentials here.
 	ProviderData json.RawMessage `json:"providerData,omitempty"`
+	// Images of a user or tool-result message, after its text.
+	Images []ImageContent `json:"images,omitempty"`
+}
+
+// ImageContent is an image in a message: base64 data and its MIME type,
+// such as image/png. A model that takes no images sees a placeholder.
+type ImageContent struct {
+	MimeType string `json:"mimeType"`
+	Data     string `json:"data"`
 }
 type ToolCall struct {
 	ID        string          `json:"id"`
@@ -166,10 +175,12 @@ type UsageState struct {
 // input that may start a run, a passive entry write, or a continue, which
 // starts a run on the context as it is, without a new user message.
 type SubmissionRequest struct {
-	Type      string `json:"type"` // input, write, or continue
-	Content   string `json:"content,omitempty"`
-	Entry     *Entry `json:"entry,omitempty"`
-	RequestID string `json:"requestId,omitempty"`
+	Type    string `json:"type"` // input, write, or continue
+	Content string `json:"content,omitempty"`
+	// Images of an input, after its content.
+	Images    []ImageContent `json:"images,omitempty"`
+	Entry     *Entry         `json:"entry,omitempty"`
+	RequestID string         `json:"requestId,omitempty"`
 	// WhenBusy (input only): followUp (default) queues for the next run, steer
 	// joins the current run at its next boundary, reject fails with ErrBusy.
 	WhenBusy string `json:"whenBusy,omitempty"`
@@ -348,6 +359,8 @@ type ToolDiagnostic struct {
 
 type ToolResult struct {
 	Content string `json:"content"`
+	// Images follow the content in the tool-result message.
+	Images []ImageContent `json:"images,omitempty"`
 	// Diagnostics follow the content for the model. The Harness's own error
 	// results carry one error diagnostic with a code: tool_unavailable,
 	// invalid_arguments, blocked, interrupted, restart_limit, aborted, or

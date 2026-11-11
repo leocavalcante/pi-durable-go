@@ -48,30 +48,50 @@ type Pi struct {
 var (
 	_ durable.Model              = Pi{}
 	_ durable.ContextWindowModel = Pi{}
+	_ durable.ImageInputModel    = Pi{}
 )
 
-// contextWindows caches catalog context windows per installation and model.
-var contextWindows sync.Map
+// catalogEntry is what the bridge reads of a model from Pi's catalog.
+type catalogEntry struct {
+	window int
+	images bool
+}
 
-// ContextWindow reports the model's context window from Pi's catalog, read
-// once per package, agent directory, and model through the bridge without a
-// provider call; 0 when unknown, which disables threshold compaction.
-func (p Pi) ContextWindow(ref durable.ModelRef) int {
+// catalog caches catalog entries per installation and model.
+var catalog sync.Map
+
+// entry reads the model's catalog entry once per package, agent directory,
+// and model through the bridge, without a provider call.
+func (p Pi) entry(ref durable.ModelRef) (catalogEntry, bool) {
 	key := p.packageDir() + "\x00" + p.AgentDir + "\x00" + ref.Provider + "\x00" + ref.ID
-	if cached, ok := contextWindows.Load(key); ok {
-		return cached.(int)
+	if cached, ok := catalog.Load(key); ok {
+		return cached.(catalogEntry), true
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	window, err := p.describe(ctx, ref)
+	entry, err := p.describe(ctx, ref)
 	if err != nil {
-		return 0 // not cached: a later call may succeed
+		return catalogEntry{}, false // not cached: a later call may succeed
 	}
-	contextWindows.Store(key, window)
-	return window
+	catalog.Store(key, entry)
+	return entry, true
 }
 
-func (p Pi) describe(ctx context.Context, ref durable.ModelRef) (int, error) {
+// ContextWindow reports the model's context window from Pi's catalog; 0 when
+// unknown, which disables threshold compaction.
+func (p Pi) ContextWindow(ref durable.ModelRef) int {
+	entry, _ := p.entry(ref)
+	return entry.window
+}
+
+// AcceptsImages reports whether Pi's catalog lists image input for the
+// model; true when unknown, as upstream assumes.
+func (p Pi) AcceptsImages(ref durable.ModelRef) bool {
+	entry, ok := p.entry(ref)
+	return !ok || entry.images
+}
+
+func (p Pi) describe(ctx context.Context, ref durable.ModelRef) (catalogEntry, error) {
 	body, err := json.Marshal(struct {
 		Request    durable.ModelRequest `json:"request"`
 		PackageDir string               `json:"packageDir,omitempty"`
@@ -79,23 +99,24 @@ func (p Pi) describe(ctx context.Context, ref durable.ModelRef) (int, error) {
 		Describe   bool                 `json:"describe"`
 	}{durable.ModelRequest{Model: ref}, p.packageDir(), p.AgentDir, true})
 	if err != nil {
-		return 0, err
+		return catalogEntry{}, err
 	}
 	cmd := exec.CommandContext(ctx, p.nodePath(), "--input-type=module", "--eval", piBridge)
 	cmd.Stdin = bytes.NewReader(append(body, '\n'))
 	cmd.Stderr = io.Discard
 	out, err := cmd.Output()
 	if err != nil {
-		return 0, err
+		return catalogEntry{}, err
 	}
 	var event struct {
 		Type          string `json:"type"`
 		ContextWindow int    `json:"contextWindow"`
+		Images        *bool  `json:"images"`
 	}
 	if err := json.Unmarshal(bytes.TrimSpace(out), &event); err != nil || event.Type != "model" {
-		return 0, errors.New("pi: cannot describe model")
+		return catalogEntry{}, errors.New("pi: cannot describe model")
 	}
-	return event.ContextWindow, nil
+	return catalogEntry{window: event.ContextWindow, images: event.Images == nil || *event.Images}, nil
 }
 
 func (p Pi) Generate(ctx context.Context, req durable.ModelRequest, onDelta func(string) error) (durable.ModelResponse, error) {

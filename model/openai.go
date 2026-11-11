@@ -30,9 +30,28 @@ type OpenAI struct {
 	// Window is the model's context window in tokens, for threshold
 	// compaction; zero (unknown) disables it.
 	Window int
+	// NoImages marks a model that takes no images: they are sent as
+	// pi-ai's placeholders instead.
+	NoImages bool
 }
 
-var _ durable.ContextWindowModel = OpenAI{}
+var (
+	_ durable.ContextWindowModel = OpenAI{}
+	_ durable.ImageInputModel    = OpenAI{}
+)
+
+// AcceptsImages reports whether images reach the model.
+func (o OpenAI) AcceptsImages(durable.ModelRef) bool { return !o.NoImages }
+
+// pi-ai's placeholders for images a model cannot take.
+const (
+	userImagePlaceholder = "(image omitted: model does not support images)"
+	toolImagePlaceholder = "(tool image omitted: model does not support images)"
+)
+
+func imageURL(image durable.ImageContent) openAIContentPart {
+	return openAIContentPart{Type: "image_url", ImageURL: &openAIImageURL{URL: "data:" + image.MimeType + ";base64," + image.Data}}
+}
 
 // ContextWindow reports Window for every model.
 func (o OpenAI) ContextWindow(durable.ModelRef) int { return o.Window }
@@ -43,6 +62,16 @@ func (o OpenAI) Generate(ctx context.Context, req durable.ModelRequest, onDelta 
 		return durable.ModelResponse{}, err
 	}
 	payload := openAIRequest{Model: req.Model.ID, Messages: make([]openAIMessage, 0, len(req.Messages)), Stream: true, StreamOptions: &streamOptions{IncludeUsage: true}}
+	// Images a run of tool results returned, sent after it in a user
+	// message: Chat Completions tool messages take only text (pi-ai).
+	var toolImages []openAIContentPart
+	flushToolImages := func() {
+		if len(toolImages) > 0 {
+			parts := append([]openAIContentPart{{Type: "text", Text: "Attached image(s) from tool result:"}}, toolImages...)
+			payload.Messages = append(payload.Messages, openAIMessage{Role: "user", Content: parts})
+			toolImages = nil
+		}
+	}
 	for _, m := range req.Messages {
 		role := m.Role
 		switch role {
@@ -50,9 +79,49 @@ func (o OpenAI) Generate(ctx context.Context, req durable.ModelRequest, onDelta 
 		default:
 			return durable.ModelResponse{}, sanitizedError(fmt.Sprintf("unsupported message role %q", role), false)
 		}
-		msg := openAIMessage{Role: role, Content: m.Content}
-		if role == "tool" {
+		if role != "tool" {
+			flushToolImages()
+		}
+		msg := openAIMessage{Role: role}
+		if m.Content != "" {
+			msg.Content = m.Content
+		}
+		switch {
+		case role == "user" && len(m.Images) > 0:
+			var parts []openAIContentPart
+			if m.Content != "" {
+				parts = append(parts, openAIContentPart{Type: "text", Text: m.Content})
+			}
+			if o.NoImages {
+				parts = append(parts, openAIContentPart{Type: "text", Text: userImagePlaceholder})
+			} else {
+				for _, image := range m.Images {
+					parts = append(parts, imageURL(image))
+				}
+			}
+			msg.Content = parts
+		case role == "tool":
 			msg.ToolCallID = m.ToolCallID
+			text := m.Content
+			if len(m.Images) > 0 && o.NoImages {
+				if text != "" {
+					text += "\n"
+				}
+				text += toolImagePlaceholder
+			}
+			switch {
+			case strings.TrimSpace(text) != "":
+			case len(m.Images) > 0:
+				text = "(see attached image)"
+			default:
+				text = "(no tool output)"
+			}
+			msg.Content = text
+			if !o.NoImages {
+				for _, image := range m.Images {
+					toolImages = append(toolImages, imageURL(image))
+				}
+			}
 		}
 		for _, call := range m.ToolCalls {
 			args := call.Arguments
@@ -63,6 +132,7 @@ func (o OpenAI) Generate(ctx context.Context, req durable.ModelRequest, onDelta 
 		}
 		payload.Messages = append(payload.Messages, msg)
 	}
+	flushToolImages()
 	if len(req.Tools) > 0 {
 		payload.Tools = make([]openAITool, 0, len(req.Tools))
 		for _, tool := range req.Tools {
@@ -134,10 +204,19 @@ type streamOptions struct {
 	IncludeUsage bool `json:"include_usage"`
 }
 type openAIMessage struct {
-	Role       string           `json:"role"`
-	Content    string           `json:"content,omitempty"`
+	Role string `json:"role"`
+	// Content is text, or content parts for a user message with images.
+	Content    any              `json:"content,omitempty"`
 	ToolCallID string           `json:"tool_call_id,omitempty"`
 	ToolCalls  []openAIToolCall `json:"tool_calls,omitempty"`
+}
+type openAIContentPart struct {
+	Type     string          `json:"type"`
+	Text     string          `json:"text,omitempty"`
+	ImageURL *openAIImageURL `json:"image_url,omitempty"`
+}
+type openAIImageURL struct {
+	URL string `json:"url"`
 }
 type openAITool struct {
 	Type     string                   `json:"type"`

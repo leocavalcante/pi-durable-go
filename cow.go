@@ -219,6 +219,9 @@ func (m Message) detached() Message {
 		out.DurationMs = &d
 	}
 	out.ProviderData = cloneRaw(m.ProviderData)
+	if m.Images != nil {
+		out.Images = append([]ImageContent{}, m.Images...)
+	}
 	return out
 }
 

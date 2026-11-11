@@ -423,7 +423,7 @@ func finishToolEnding(ctx context.Context, r *TaskRuntime, task TaskRecord, resu
 			}
 			content += renderDiagnostics(result.Diagnostics)
 		}
-		id, err := tx.Append(task.Conversation, Entry{Kind: "pi.tool-result", Message: &Message{Role: "tool", ToolCallID: input.Call.ID, ToolName: input.Call.Name, Content: content, IsError: result.IsError, Usage: result.Usage, DurationMs: result.DurationMs}, Data: details})
+		id, err := tx.Append(task.Conversation, Entry{Kind: "pi.tool-result", Message: &Message{Role: "tool", ToolCallID: input.Call.ID, ToolName: input.Call.Name, Content: content, Images: result.Images, IsError: result.IsError, Usage: result.Usage, DurationMs: result.DurationMs}, Data: details})
 		if err != nil {
 			return TaskTransition{}, err
 		}
@@ -483,7 +483,7 @@ func appendToolResult(tx *Tx, cid ConversationID, call ToolCall, result ToolResu
 		}
 		content += renderDiagnostics(result.Diagnostics)
 	}
-	id, err := tx.Append(cid, Entry{Kind: "pi.tool-result", Message: &Message{Role: "tool", ToolCallID: call.ID, ToolName: call.Name, Content: content, IsError: result.IsError, Usage: result.Usage, DurationMs: result.DurationMs}, Data: details})
+	id, err := tx.Append(cid, Entry{Kind: "pi.tool-result", Message: &Message{Role: "tool", ToolCallID: call.ID, ToolName: call.Name, Content: content, Images: result.Images, IsError: result.IsError, Usage: result.Usage, DurationMs: result.DurationMs}, Data: details})
 	if err != nil {
 		return 0, err
 	}

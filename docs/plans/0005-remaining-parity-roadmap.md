@@ -25,8 +25,8 @@
 
 ## 2. Remaining work, in proposed order
 
-1. **I: storage.** Indexed records instead of whole snapshots, and group commit. This is the largest change: commit cost grows with history because every commit clones and stores the whole State. It needs copy-on-write transactions (every record mutation through a cloning accessor), a delta-aware `Storage` interface, and record tables in SQLite; group commit also needs batch failure semantics in the Session. It should get its own plan.
-2. **Multimodal content.** Images in messages and tool results (upstream's read tool returns images), across `Message`, the adapters, and the bridge.
+1. **Group commit.** Deferred in [plan 0006](0006-incremental-commits-and-record-storage.md), which made commits incremental (copy-on-write transactions, `DeltaStorage`, SQLite record rows, JSONL delta lines).
+2. **Image processing.** Resizing, conversion, and EXIF orientation for read-tool images (upstream's optional Photon processor); images inside text order. (Images in messages, submissions, tool results, both adapters, estimates, and read-tool images within the limits are done.)
 3. **Environment parity.** The `env` package's bounded binary and directory readers and file watching. Hosts can use the Go standard library directly; tools need none of them today.
 
 ## 3. Not planned

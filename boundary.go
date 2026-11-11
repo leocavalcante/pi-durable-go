@@ -247,6 +247,14 @@ func (h *Harness) admitSubmission(tx *Tx, cid ConversationID, request Submission
 	if err != nil {
 		return 0, err
 	}
+	if len(request.Images) > 0 && request.Type != "input" {
+		return 0, fmt.Errorf("%w: only an input carries images", ErrInvalid)
+	}
+	for _, image := range request.Images {
+		if image.MimeType == "" || image.Data == "" {
+			return 0, fmt.Errorf("%w: an image needs a MIME type and data", ErrInvalid)
+		}
+	}
 	if request.RequestID != "" {
 		for _, existing := range tx.state.Submissions {
 			if existing.Conversation == cid && existing.Request.RequestID == request.RequestID {

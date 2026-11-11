@@ -14,7 +14,7 @@ func inputEntry(request SubmissionRequest) Entry {
 		kind = request.Entry.Kind
 		data = request.Entry.Data
 	}
-	return Entry{Kind: kind, Message: &Message{Role: "user", Content: request.Content}, Data: data}
+	return Entry{Kind: kind, Message: &Message{Role: "user", Content: request.Content, Images: request.Images}, Data: data}
 }
 
 // isDisplayOnlyWrite: a write that changes nothing the model sees (no
@@ -95,10 +95,11 @@ func sortSubmissions(items []*SubmissionRecord) {
 // (mode steer or followUp, with its content and the entry it is placed as
 // when not pi.user), or an entry write (mode write).
 type InboxItem struct {
-	ID      SubmissionID `json:"id"`
-	Mode    string       `json:"mode"`
-	Content string       `json:"content,omitempty"`
-	Entry   *Entry       `json:"entry,omitempty"`
+	ID      SubmissionID   `json:"id"`
+	Mode    string         `json:"mode"`
+	Content string         `json:"content,omitempty"`
+	Images  []ImageContent `json:"images,omitempty"`
+	Entry   *Entry         `json:"entry,omitempty"`
 }
 
 // InboxState is the built-in pi.inbox document: one conversation's
@@ -142,7 +143,7 @@ func syncInboxes(tx *Tx) error {
 			case "write":
 				item.Mode, item.Entry = "write", sub.Request.Entry
 			default:
-				item.Mode, item.Content = queueMode(sub.Request), sub.Request.Content
+				item.Mode, item.Content, item.Images = queueMode(sub.Request), sub.Request.Content, sub.Request.Images
 				if sub.Request.Entry != nil {
 					item.Entry = &Entry{Kind: sub.Request.Entry.Kind, Data: sub.Request.Entry.Data}
 				}

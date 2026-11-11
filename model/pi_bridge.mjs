@@ -54,6 +54,16 @@ function project(message) {
   return { content, thinking, toolCalls };
 }
 
+// Text, then images, as pi-ai content blocks; pi-ai downgrades them for a
+// model without image input.
+function withImages(message) {
+  const blocks = message.content ? [{ type: "text", text: message.content }] : [];
+  for (const image of message.images) {
+    blocks.push({ type: "image", data: String(image.data ?? ""), mimeType: String(image.mimeType ?? "") });
+  }
+  return blocks;
+}
+
 function toMessage(message, model) {
   const timestamp = 0; // Root messages do not carry provider timestamps.
   switch (message.role) {
@@ -61,10 +71,14 @@ function toMessage(message, model) {
     case "developer":
       return { role: "system", content: message.content, timestamp };
     case "user":
+      if (Array.isArray(message.images) && message.images.length > 0) {
+        return { role: "user", content: withImages(message), timestamp };
+      }
       return { role: "user", content: message.content, timestamp };
     case "tool":
       return { role: "toolResult", toolCallId: message.toolCallId, toolName: message.toolName ?? "",
-        content: [{ type: "text", text: message.content }], isError: message.isError === true, timestamp };
+        content: Array.isArray(message.images) && message.images.length > 0 ? withImages(message) : [{ type: "text", text: message.content }],
+        isError: message.isError === true, timestamp };
     case "assistant": {
       // Retain signed/encrypted thinking and provider-native text/tool IDs across
       // tool rounds, forks, and restarts. Never let stale data override a hook or
@@ -167,7 +181,8 @@ async function main() {
     // A describe request reads the catalog entry only; no provider call.
     if (config.describe) {
       const window = Number.isFinite(model.contextWindow) && model.contextWindow > 0 ? Math.floor(model.contextWindow) : 0;
-      return { type: "model", contextWindow: window };
+      const images = Array.isArray(model.input) ? model.input.includes("image") : true;
+      return { type: "model", contextWindow: window, images };
     }
     let context;
     try {
