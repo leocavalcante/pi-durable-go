@@ -77,7 +77,7 @@ if err != nil { store.Close(); return err }
 h.Resume()
 ```
 
-`HarnessOptions.ReadOnly` opens a viewer of a session another process drives: it recovers nothing, never schedules, and refuses commits with writes with `ErrReadOnly`. Import `github.com/leocavalcante/pi-durable-go/storage`. Reinstall application extensions on each reopen; `Open` restores built-in definitions. `Resume`, submission, or a task/submission wait starts scheduling; opening alone does not.
+Storage writes only what each commit changed (`DeltaStorage`); `storage.OpenJSONLReadOnly` opens a log another process writes without locking or repairing it, and `Harness.ObserveCommits` streams each commit's changes in order, for replicas. `HarnessOptions.ReadOnly` opens a viewer of a session another process drives: it recovers nothing, never schedules, and refuses commits with writes with `ErrReadOnly`. Import `github.com/leocavalcante/pi-durable-go/storage`. Reinstall application extensions on each reopen; `Open` restores built-in definitions. `Resume`, submission, or a task/submission wait starts scheduling; opening alone does not.
 
 Submissions follow upstream's admission rules. An `input` starts a run in an idle conversation or, while one runs, queues as a follow-up (default), joins the run at its next tool boundary (`WhenBusy: "steer"`), or is refused (`"reject"`, `ErrBusy`); `WhenIdle: "reject"` refuses input to an idle conversation (`ErrIdle`). A `write` appends an entry, at once or at the next boundary. A `continue` starts a run on the context as it is, for example after a failed run; a busy conversation refuses it. Statuses are `queued`, `placed` (with its `Entry`), `done` (with its `Answer`), and `unanswered` (with a `Reason` code and optional JSON `Detail`). Boundaries place queued items one at a time or all at once (`Settings.SteeringMode`, `FollowUpMode`).
 
@@ -119,11 +119,12 @@ A generation retries a failed model attempt only when the error is transient and
 
 ## Tools and models
 
-- `tools.Coding()` supplies `read`, `write`, `edit`, and `bash`; `tools.ToolSearch()` supplies `tool_search`, which loads deferred tools that match a query.
+- `tools.Coding()` supplies `read`, `write`, `edit`, and `bash` with upstream's results: streaming reads with continuation notes and images, fuzzy edits with diffs, and shell output with timeouts, spill files, and exit codes. `tools.CodingWith(CodingOptions{Images: tools.StdImages()})` also resizes, rotates, and converts images; `tools.PowerShell()` adds `powershell`; `tools.ToolSearch()` supplies `tool_search`, which loads deferred tools that match a query.
 - `tools.NewLocalEnv(cwd)` supplies local filesystem and process execution. **A working directory is not a sandbox.**
 - `model.Pi` reuses an installed Pi coding-agent SDK's authentication and provider transports, including existing `/login` OAuth credentials and refresh. Requires Node.js 22.19+ and the tested Pi SDK 1.5.2 baseline; no Pi agent/tool loop is started.
 - `model.OpenAI` supplies a pure-Go streaming OpenAI-compatible Chat Completions adapter with an explicit API key.
-- Implement `durable.Model` for other integrations. Multimodal APIs and a native Go provider/OAuth catalog are not implemented. See [model/README.md](model/README.md) for setup, credential discovery, and limits.
+- Messages, inputs (`SubmissionRequest.Images`), and tool results carry images; both adapters send them, and a model without image input sees pi-ai's placeholders. `HarnessOptions.Identity` (pi-ai's `ClientIdentity`) is set on every model request, including those tools make through `ToolRuntime.Model`.
+- Implement `durable.Model` for other integrations. A native Go provider/OAuth catalog is not implemented. See [model/README.md](model/README.md) for setup, credential discovery, and limits.
 
 The [chat example](examples/chat/main.go) wires these together with SQLite and defaults to Pi authentication:
 
@@ -139,6 +140,8 @@ It makes real model requests only when you run it. Review tools and isolate the 
 ## Runtime model
 
 A Harness owns one Session and scheduler. A conversation is a transcript, not a goroutine. Entries, tasks, submissions, and JSON documents change on one serialized atomic commit line. Storage succeeds before snapshots or progress are published.
+
+Clients read state through views: `Conversation.WatchWindow` keeps a window over a conversation's history with its built-in documents (`pi.live`, `pi.inbox`, …), `ConversationTranscript` merges its values into the client's whole transcript with gaps to fill, `Conversation.ScanEntries` pages raw history, and `Harness.TaskGraph`/`WatchTaskGraph` show live tasks. `HarnessOptions.Telemetry` receives upstream's content-free spans, events, and metrics.
 
 Tasks are checkpointed state machines, not persisted Go stacks. Define their initial checkpoint, phase handler, and optional abort/migration handlers. Task records include start/end times; assistant and tool-result messages include per-attempt durations. Owned child tasks and conversations support cancellation trees. `TaskRuntime.OwnedTasks(ctx)` lists live direct task children, including those from earlier invocations; `AbortOwned(ctx, id)` durably marks a direct child and waits for it to settle. These calls belong outside commit callbacks. Background work can outlive an ordinary conversation abort.
 
