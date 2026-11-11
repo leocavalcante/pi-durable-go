@@ -71,12 +71,29 @@ type toolTaskInput struct {
 	CallID    string   `json:"callId"`
 	Call      ToolCall `json:"call"`
 }
+
+// toolCheckpoint is pi.tool version 2: phases call and execute. Running
+// output lives in the call's pi.live slot; Output is only read from version-1
+// records, which stored it here.
 type toolCheckpoint struct {
 	Phase      string          `json:"phase"`
 	Arguments  json.RawMessage `json:"arguments,omitempty"`
 	ReplaySafe bool            `json:"replaySafe,omitempty"`
-	Output     string          `json:"output,omitempty"`
+	Output     string          `json:"output,omitempty"` // legacy version 1 only
 }
+
+// toolVersion is Go's own numbering of pi.tool's stored form. Version 2 moved
+// output to the pi.live slot only; a version-1 Harness would drop committed
+// output from interrupted and aborted results, so it leaves version 2 blocked.
+const toolVersion = 2
+
+func migrateTool(from int, input, checkpoint json.RawMessage) (MigratedTask, error) {
+	if from != 1 {
+		return MigratedTask{}, fmt.Errorf("pi.tool has no migration from version %d", from)
+	}
+	return MigratedTask{Input: input, Checkpoint: checkpoint}, nil
+}
+
 type toolTaskResult struct {
 	EntryID EntryID    `json:"entryId"`
 	Result  ToolResult `json:"result"`
@@ -95,9 +112,9 @@ func generationTaskDefinition() TaskDefinition {
 	}, Run: runGeneration, Abort: settleGenerationAbort, Migrate: migrateGeneration}
 }
 func toolTaskDefinition() TaskDefinition {
-	return TaskDefinition{Kind: "pi.tool", Version: 1, Initial: func(json.RawMessage) (json.RawMessage, error) { return json.Marshal(toolCheckpoint{Phase: "call"}) }, Run: runTool, Abort: func(ctx context.Context, r *TaskRuntime, t TaskRecord) error {
+	return TaskDefinition{Kind: "pi.tool", Version: toolVersion, Initial: func(json.RawMessage) (json.RawMessage, error) { return json.Marshal(toolCheckpoint{Phase: "call"}) }, Run: runTool, Abort: func(ctx context.Context, r *TaskRuntime, t TaskRecord) error {
 		return finishTool(ctx, r, t, ToolResult{Content: "aborted", IsError: true}, "aborted")
-	}}
+	}, Migrate: migrateTool}
 }
 
 func runGeneration(ctx context.Context, r *TaskRuntime, task TaskRecord) error {
@@ -560,8 +577,28 @@ func runTool(ctx context.Context, r *TaskRuntime, task TaskRecord) error {
 	runtime := &ToolRuntime{TaskRuntime: r, ConversationID: task.Conversation, Call: input.Call}
 	hooks := registry.Hooks(c.Agent, "pi.tool")
 	if cp.Phase == "execute" {
+		// Recovery after intent: rerun only when the stored and the current
+		// policy both say safe.
 		if !cp.ReplaySafe || def == nil || !def.ReplaySafe || def.Execute == nil {
-			return finishTool(ctx, r, task, ToolResult{Content: "interrupted; external effect may have happened", IsError: true}, "failed")
+			return finishTool(ctx, r, task, ToolResult{Content: fmt.Sprintf("Tool %s was interrupted and may have partially run", input.Call.Name), IsError: true}, "failed")
+		}
+		// The rerun reports from scratch: clear what the interrupted attempt
+		// published. A version-1 record's checkpoint output goes too.
+		if err := r.Commit(ctx, func(tx *Tx) (TaskTransition, error) {
+			if err := runtime.clearProgress(tx); err != nil {
+				return TaskTransition{}, err
+			}
+			checkpoint := task.Checkpoint
+			if cp.Output != "" {
+				cleared := toolCheckpoint{Phase: cp.Phase, Arguments: cp.Arguments, ReplaySafe: cp.ReplaySafe}
+				var err error
+				if checkpoint, err = json.Marshal(cleared); err != nil {
+					return TaskTransition{}, err
+				}
+			}
+			return TaskTransition{Status: "running", Checkpoint: checkpoint}, nil
+		}); err != nil {
+			return err
 		}
 		runtime.Call.Arguments = cp.Arguments
 	} else if cp.Phase == "call" {
@@ -632,9 +669,9 @@ func finishTool(ctx context.Context, r *TaskRuntime, task TaskRecord, result Too
 		if err := json.Unmarshal(current.Checkpoint, &cp); err != nil {
 			return TaskTransition{}, err
 		}
-		if result.Content == "" {
-			result.Content = cp.Output
-		}
+		// Committed output is the slot's; a version-1 record kept it in its
+		// checkpoint instead.
+		committed := cp.Output
 		if doc := tx.state.Documents[documentKey(liveDocument, uint64(task.Conversation))]; doc != nil {
 			var live map[string]any
 			if err := json.Unmarshal(doc.Value, &live); err != nil {
@@ -642,8 +679,11 @@ func finishTool(ctx context.Context, r *TaskRuntime, task TaskRecord, result Too
 			}
 			if tools, ok := live["tools"].(map[string]any); ok {
 				key := fmt.Sprintf("%d", task.ID)
-				if slot, ok := tools[key].(map[string]any); ok && len(result.Details) == 0 {
-					if details, ok := slot["details"]; ok {
+				if slot, ok := tools[key].(map[string]any); ok {
+					if output, ok := slot["output"].(string); ok {
+						committed = output
+					}
+					if details, ok := slot["details"]; ok && len(result.Details) == 0 {
 						result.Details, err = json.Marshal(details)
 						if err != nil {
 							return TaskTransition{}, err
@@ -660,8 +700,11 @@ func finishTool(ctx context.Context, r *TaskRuntime, task TaskRecord, result Too
 				return TaskTransition{}, err
 			}
 		}
-		if (status == "aborted" || status == "failed") && cp.Output != "" && result.Content != cp.Output {
-			result.Content += "\nCommitted output:\n" + cp.Output
+		if result.Content == "" {
+			result.Content = committed
+		}
+		if (status == "aborted" || status == "failed") && committed != "" && result.Content != committed {
+			result.Content += "\nCommitted output:\n" + committed
 		}
 		if len(result.Content) > 50*1024 {
 			result.Content = "[truncated]\n" + result.Content[len(result.Content)-50*1024:]

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"unicode/utf8"
 )
 
 type ToolRuntime struct {
@@ -14,25 +15,46 @@ type ToolRuntime struct {
 
 var liveDocument = DocumentDefinition{Kind: "pi.live", Version: 1, Scope: "conversation", History: "latest", Fork: "initial", Initial: func() any { return map[string]any{} }}
 
+// maxToolOutputBytes bounds a running tool's committed output, keeping the tail.
+const maxToolOutputBytes = 50 * 1024
+
+// Output appends committed progress to the call's pi.live slot, keeping the
+// trailing 50 KiB. It is presentation, not task progress: the checkpoint is
+// unchanged, so output does not reset the task's crash count.
 func (r *ToolRuntime) Output(ctx context.Context, text string) error {
 	return r.Commit(ctx, func(tx *Tx) (TaskTransition, error) {
 		task, err := tx.Task(r.ID)
 		if err != nil {
 			return TaskTransition{}, err
 		}
-		var cp toolCheckpoint
-		if err := json.Unmarshal(task.Checkpoint, &cp); err != nil {
+		if err := r.updateLive(tx, func(slot map[string]any) {
+			output, _ := slot["output"].(string)
+			slot["output"] = tailBytes(output+text, maxToolOutputBytes)
+		}); err != nil {
 			return TaskTransition{}, err
 		}
-		cp.Output += text
-		if len(cp.Output) > 50*1024 {
-			cp.Output = cp.Output[len(cp.Output)-50*1024:]
-		}
-		if err := r.updateLive(tx, func(slot map[string]any) { slot["output"] = cp.Output }); err != nil {
-			return TaskTransition{}, err
-		}
-		data, err := json.Marshal(cp)
-		return TaskTransition{Status: "running", Checkpoint: data}, err
+		return TaskTransition{Status: "running", Checkpoint: task.Checkpoint}, nil
+	})
+}
+
+// tailBytes keeps at most max trailing bytes of s, starting at a rune boundary.
+func tailBytes(s string, max int) string {
+	if len(s) <= max {
+		return s
+	}
+	cut := len(s) - max
+	for cut < len(s) && !utf8.RuneStart(s[cut]) {
+		cut++
+	}
+	return s[cut:]
+}
+
+// clearProgress removes what an interrupted attempt published, before a
+// safe rerun reports from scratch.
+func (r *ToolRuntime) clearProgress(tx *Tx) error {
+	return r.updateLive(tx, func(slot map[string]any) {
+		delete(slot, "output")
+		delete(slot, "details")
 	})
 }
 func (r *ToolRuntime) Details(ctx context.Context, value json.RawMessage) error {
