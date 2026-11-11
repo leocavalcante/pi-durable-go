@@ -371,6 +371,36 @@ func selectCompaction(ctx context.Context, r *TaskRuntime, task TaskRecord, inpu
 	if cut < 0 {
 		return completeCompaction(ctx, r, task)
 	}
+	request := CompactionRequest{Reason: input.Reason, Entries: append([]Entry(nil), view.entries[:cut]...), FirstKept: view.entries[cut].ID, Instructions: input.Instructions}
+	for _, messages := range view.contributions[:cut] {
+		request.Messages = append(request.Messages, messages...)
+	}
+	request.Messages = orderToolResults(request.Messages)
+	for _, hook := range r.Registry().hooks(conv.Agent) {
+		if hook.BeforeCompact == nil {
+			continue
+		}
+		var decision CompactionDecision
+		if err := containPanic(func() error {
+			var err error
+			decision, err = hook.BeforeCompact(ctx, request, r)
+			return err
+		}); err != nil {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			r.reportExtension(err, hook.extension)
+			continue
+		}
+		if decision.Decline {
+			return completeCompaction(ctx, r, task)
+		}
+		if strings.TrimSpace(decision.Summary) != "" {
+			return r.Commit(ctx, func(tx *Tx) (TaskTransition, error) {
+				return placeSummary(tx, r.h, task, input, request.FirstKept, strings.TrimSpace(decision.Summary))
+			})
+		}
+	}
 	var tail EntryID
 	for _, e := range view.entries {
 		if e.ID > tail {

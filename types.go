@@ -397,6 +397,27 @@ type Hooks struct {
 	// was created yet. A failing hook or rejected request is reported as
 	// extension_error and skipped.
 	AfterRun func(context.Context, RunSummary, *TaskRuntime) ([]RunEndTask, error)
+	// BeforeCompact runs when a compaction selected its range, before the
+	// summary request. The first hook that decides wins: Decline completes
+	// the compaction without a summary, and a Summary is placed instead of
+	// requesting one. A failing hook is reported as extension_error.
+	BeforeCompact func(context.Context, CompactionRequest, *TaskRuntime) (CompactionDecision, error)
+}
+
+// CompactionRequest is what a compaction is about to summarize.
+type CompactionRequest struct {
+	Reason       string // manual, threshold, or overflow
+	Entries      []Entry
+	Messages     []Message
+	FirstKept    EntryID
+	Instructions string
+}
+
+// CompactionDecision is a BeforeCompact hook's answer; the zero value
+// decides nothing.
+type CompactionDecision struct {
+	Decline bool
+	Summary string
 }
 
 // RunSummary says how a run ended, for AfterRun hooks. Read its history from
