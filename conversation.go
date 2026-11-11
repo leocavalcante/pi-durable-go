@@ -366,6 +366,7 @@ func (c *Conversation) Submit(ctx context.Context, request SubmissionRequest) (*
 	}
 	// Submitting asks for progress: the run it starts needs scheduling.
 	c.h.Resume()
+	ctx, sp := c.h.span(ctx, "pi.durable.submit", map[string]any{"submission.type": request.Type, "conversation.id": uint64(c.id)})
 	var id SubmissionID
 	err := c.h.Commit(ctx, func(tx *Tx) error {
 		var err error
@@ -373,8 +374,17 @@ func (c *Conversation) Submit(ctx context.Context, request SubmissionRequest) (*
 		return err
 	})
 	if err != nil {
+		sp.end(err)
 		return nil, err
 	}
+	if state, serr := c.h.Snapshot(ctx); serr == nil && state.Submissions[id] != nil {
+		result := state.Submissions[id].Status
+		if result == "unanswered" {
+			result = "done"
+		}
+		sp.set(map[string]any{"submission.id": uint64(id), "result": result})
+	}
+	sp.end(nil)
 	return &Submission{h: c.h, id: id}, nil
 }
 func (s *Submission) Record(ctx context.Context) (SubmissionRecord, error) {

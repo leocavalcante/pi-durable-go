@@ -526,6 +526,8 @@ type HarnessOptions struct {
 	// Resume when it fires. It must not block; a panic is reported as
 	// host_error and the value is offered again at the next change.
 	OnWake func(Wake)
+	// Telemetry receives content-free spans; see Telemetry.
+	Telemetry Telemetry
 	// ReadOnly opens for reading only, as a viewer of a session another
 	// process drives. Open recovers nothing: a running task stays as committed.
 	// Every commit with writes fails with ErrReadOnly before it reaches

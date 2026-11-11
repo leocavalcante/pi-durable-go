@@ -24,7 +24,7 @@
 ## 2. Remaining work, in proposed order
 
 1. **Transcript reads.** Conversation view windows and `ConversationTranscript`. (`Conversation.ScanEntries` pages raw history; `Harness.TaskGraph` and `WatchTaskGraph` show live tasks.)
-2. **Telemetry.** Spans and events through an optional host adapter, with `host_error` reports for a failing adapter.
+2. **Telemetry events and metrics.** Upstream's events and metrics on top of the submit and phase spans `HarnessOptions.Telemetry` receives.
 3. **I: storage.** Indexed records instead of whole snapshots, group commit, and deferred commits (`persistWithinMs`). This is the largest change: whole-snapshot commits cost grows with history.
 4. **Environment parity.** The `env` package's bounded binary and directory readers, file watching, and PowerShell, in `tools`.
 

@@ -116,6 +116,16 @@ func (s *Scheduler) runInvocation(id TaskID, inv *taskInvocation, resolved resol
 		}
 		r.snapshot.Store(snapshot)
 		previousCheckpoint = append(json.RawMessage(nil), record.Checkpoint...)
+		phase, attempt := checkpointPhase(record.Checkpoint)
+		kind := "run"
+		if inv.aborting {
+			kind = "abort"
+		}
+		attributes := map[string]any{"task.id": uint64(id), "task.name": record.Kind, "phase": phase, "kind": kind, "resumed": first && record.Restarts > 0}
+		if attempt > 0 {
+			attributes["attempt"] = attempt
+		}
+		_, sp := s.h.span(inv.ctx, "pi.durable.phase", attributes)
 		phaseErr = containPanic(func() error {
 			if inv.aborting {
 				if resolved.Definition.Abort == nil {
@@ -128,6 +138,21 @@ func (s *Scheduler) runInvocation(id TaskID, inv *taskInvocation, resolved resol
 			}
 			return resolved.Definition.Run(inv.ctx, r, record)
 		})
+		if after, err := s.h.Task(context.Background(), id); err == nil {
+			outcome := after.Status
+			switch after.Status {
+			case "running":
+				next, _ := checkpointPhase(after.Checkpoint)
+				outcome = "next=" + next
+			case "terminal", "completing":
+				outcome = "done"
+				if after.Outcome != nil && (after.Outcome.Status == OutcomeFaulted || after.Outcome.Status == OutcomeAborted) {
+					outcome = after.Outcome.Status
+				}
+			}
+			sp.set(map[string]any{"outcome": outcome})
+		}
+		sp.end(phaseErr)
 		first = false
 	}
 }
