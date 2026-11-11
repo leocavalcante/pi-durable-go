@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -234,4 +235,54 @@ func TestCodingEditLikeUpstream(t *testing.T) {
 			t.Fatalf("%s: %+v", tc.args, result)
 		}
 	}
+}
+
+func TestPowerShellToolTriesProgramsInOrder(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("uses a POSIX script as the fake PowerShell")
+	}
+	dir := t.TempDir()
+	fake := filepath.Join(dir, "fake-pwsh")
+	// Print the arguments PowerShell would get, one per line.
+	if err := os.WriteFile(fake, []byte("#!/bin/sh\nfor a in \"$@\"; do echo \"[$a]\"; done\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	registry := durable.NewRegistry()
+	if err := registry.Install(PowerShell(filepath.Join(dir, "missing"), fake)); err != nil {
+		t.Fatal(err)
+	}
+	h, err := durable.Open(ctx, durable.NewMemoryStorage(), durable.HarnessOptions{Registry: registry,
+		Model:       codingModel{name: "powershell", args: json.RawMessage(`{"command":"Get-Date"}`)},
+		Environment: func(c durable.ConversationRecord) (durable.ExecutionEnv, error) { return NewLocalEnv(c.Agent.Cwd) }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer h.Close(context.Background())
+	root, err := h.Root(ctx, durable.ConversationOptions{Agent: durable.Agent{Cwd: dir}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sub, err := root.Submit(ctx, durable.SubmissionRequest{Content: "run"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := sub.Wait(ctx); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := root.Entries(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if e.Message != nil && e.Message.Role == "tool" {
+			want := "[-NoProfile]\n[-NonInteractive]\n[-ExecutionPolicy]\n[Bypass]\n[-Command]\n[" + utf8Output + "\nGet-Date]\n"
+			if e.Message.Content != want {
+				t.Fatalf("result=%q", e.Message.Content)
+			}
+			return
+		}
+	}
+	t.Fatal("no tool result")
 }

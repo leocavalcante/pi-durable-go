@@ -141,7 +141,35 @@ func (e *LocalEnv) Exec(ctx context.Context, command string, onOutput func(strin
 	if bash, err := exec.LookPath("bash"); err == nil {
 		shell = bash
 	}
-	cmd := exec.CommandContext(runCtx, shell, "-c", command)
+	return e.run(ctx, runCtx, cancel, []string{shell, "-c", command}, onOutput)
+}
+
+// ExecArgv runs a program directly with its arguments, so no shell parses
+// them (ArgvExecutor). A program that cannot start fails with
+// ErrSpawn.
+func (e *LocalEnv) ExecArgv(ctx context.Context, argv []string, onOutput func(string) error) (durable.ExecResult, error) {
+	if err := ctx.Err(); err != nil {
+		return durable.ExecResult{}, err
+	}
+	if len(argv) == 0 {
+		return durable.ExecResult{}, errors.New("tools: command must not be empty")
+	}
+	runCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	return e.run(ctx, runCtx, cancel, argv, onOutput)
+}
+
+// ArgvExecutor is optionally implemented by an ExecutionEnv to run a program
+// directly, as the powershell tool does.
+type ArgvExecutor interface {
+	ExecArgv(ctx context.Context, argv []string, onOutput func(string) error) (durable.ExecResult, error)
+}
+
+// ErrSpawn marks a program that could not start.
+var ErrSpawn = errors.New("tools: program could not start")
+
+func (e *LocalEnv) run(ctx, runCtx context.Context, cancel context.CancelFunc, argv []string, onOutput func(string) error) (durable.ExecResult, error) {
+	cmd := exec.CommandContext(runCtx, argv[0], argv[1:]...)
 	cmd.Dir = e.cwd
 	configureProcess(cmd)
 	var output tailBuffer
@@ -166,7 +194,7 @@ func (e *LocalEnv) Exec(ctx context.Context, command string, onOutput func(strin
 	cmd.Stdout = writerFunc(writer)
 	cmd.Stderr = writerFunc(writer)
 	if err := cmd.Start(); err != nil {
-		return durable.ExecResult{}, err
+		return durable.ExecResult{}, fmt.Errorf("%w: %v", ErrSpawn, err)
 	}
 	err := cmd.Wait()
 	callbackMu.Lock()

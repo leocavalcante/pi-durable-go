@@ -21,10 +21,23 @@ const maxReadLines = 2000
 
 // Coding returns read, write, edit, and bash tools. They are not replay-safe:
 // interrupted operations may have had effects and are never silently retried.
+// PowerShell returns the powershell tool: like bash, through PowerShell
+// instead of the environment's shell, trying programs in order (default pwsh,
+// then powershell); a program that cannot start is skipped. The environment
+// must implement ArgvExecutor, as LocalEnv does.
+func PowerShell(programs ...string) durable.Extension {
+	if len(programs) == 0 {
+		programs = []string{"pwsh", "powershell"}
+	}
+	return durable.Extension{Name: "powershell-tool", Tools: []durable.ToolDefinition{
+		{ToolSpec: durable.ToolSpec{Name: "powershell", Description: "Execute a PowerShell command in the current working directory. Returns combined stdout and stderr. Output is truncated to last 2000 lines or 50KB (whichever is hit first). If truncated, full output is saved to a temp file. Optionally provide a timeout in seconds.", Parameters: schema(`{"type":"object","required":["command"],"properties":{"command":{"type":"string","minLength":1,"description":"PowerShell command to execute"},"timeout":{"type":"number","description":"Timeout in seconds (optional, no default timeout)"}},"additionalProperties":false}`)}, Execute: powershellTool(programs)},
+	}}
+}
+
 func Coding() durable.Extension {
 	return durable.Extension{Name: "coding-tools", Tools: []durable.ToolDefinition{
 		{ToolSpec: durable.ToolSpec{Name: "read", Description: "Read the contents of a file. For text files, output is truncated to 2000 lines or 50KB (whichever is hit first). Use offset/limit for large files. When you need the full file, continue with offset until complete.", Parameters: schema(`{"type":"object","required":["path"],"properties":{"path":{"type":"string","description":"Path to the file to read (relative or absolute)"},"offset":{"type":"integer","minimum":1,"description":"Line number to start reading from (1-indexed)"},"limit":{"type":"integer","minimum":0,"description":"Maximum number of lines to read"}},"additionalProperties":false}`)}, Execute: readTool},
-		{ToolSpec: durable.ToolSpec{Name: "write", Description: "Write content to a file, creating parent directories and atomically replacing the destination.", Parameters: schema(`{"type":"object","required":["path","content"],"properties":{"path":{"type":"string"},"content":{"type":"string"}},"additionalProperties":false}`)}, Execute: writeTool},
+		{ToolSpec: durable.ToolSpec{Name: "write", Description: "Write content to a file. Creates the file if it doesn't exist, overwrites if it does. Automatically creates parent directories.", Parameters: schema(`{"type":"object","required":["path","content"],"properties":{"path":{"type":"string"},"content":{"type":"string"}},"additionalProperties":false}`)}, Execute: writeTool},
 		{ToolSpec: durable.ToolSpec{Name: "edit", Description: "Edit a single file using exact text replacement. Every edits[].oldText must match a unique, non-overlapping region of the original file. If two changes affect the same block or nearby lines, merge them into one edit instead of emitting overlapping edits. Do not include large unchanged regions just to connect distant changes.", Parameters: schema(`{"type":"object","required":["path","edits"],"properties":{"path":{"type":"string"},"edits":{"type":"array","minItems":1,"items":{"type":"object","required":["oldText","newText"],"properties":{"oldText":{"type":"string","minLength":1},"newText":{"type":"string"}},"additionalProperties":false}}},"additionalProperties":false}`)}, Execute: editTool},
 		{ToolSpec: durable.ToolSpec{Name: "bash", Description: "Execute a bash command in the current working directory. Returns combined stdout and stderr. Output is truncated to last 2000 lines or 50KB (whichever is hit first). If truncated, full output is saved to a temp file. Optionally provide a timeout in seconds.", Parameters: schema(`{"type":"object","required":["command"],"properties":{"command":{"type":"string","minLength":1,"description":"Bash command to execute"},"timeout":{"type":"number","description":"Timeout in seconds (optional, no default timeout)"}},"additionalProperties":false}`)}, Execute: bashTool},
 	}}
@@ -200,6 +213,42 @@ func editTool(ctx context.Context, raw json.RawMessage, rt *durable.ToolRuntime)
 }
 
 func bashTool(ctx context.Context, raw json.RawMessage, rt *durable.ToolRuntime) (durable.ToolResult, error) {
+	return shellTool(ctx, raw, rt, func(ctx context.Context, e durable.ExecutionEnv, command string, onOutput func(string) error) (durable.ExecResult, error) {
+		return e.Exec(ctx, command, onOutput)
+	})
+}
+
+// utf8Output makes PowerShell write UTF-8 whatever the console code page.
+const utf8Output = "try { [Console]::OutputEncoding=[System.Text.Encoding]::UTF8 } catch {}"
+
+var powershellArgs = []string{"-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command"}
+
+// powershellTool runs the command through pwsh, else Windows PowerShell,
+// started directly with the script as an argument.
+func powershellTool(programs []string) func(context.Context, json.RawMessage, *durable.ToolRuntime) (durable.ToolResult, error) {
+	return func(ctx context.Context, raw json.RawMessage, rt *durable.ToolRuntime) (durable.ToolResult, error) {
+		return shellTool(ctx, raw, rt, func(ctx context.Context, e durable.ExecutionEnv, command string, onOutput func(string) error) (durable.ExecResult, error) {
+			runner, ok := e.(ArgvExecutor)
+			if !ok {
+				return durable.ExecResult{}, errors.New("the execution environment cannot run programs directly")
+			}
+			var lastErr error
+			for _, program := range programs {
+				argv := append(append([]string{program}, powershellArgs...), utf8Output+"\n"+command)
+				result, err := runner.ExecArgv(ctx, argv, onOutput)
+				if errors.Is(err, ErrSpawn) {
+					lastErr = err // the next program may start
+					continue
+				}
+				return result, err
+			}
+			return durable.ExecResult{}, lastErr
+		})
+	}
+}
+
+// shellTool validates a shell call and shapes its result like upstream.
+func shellTool(ctx context.Context, raw json.RawMessage, rt *durable.ToolRuntime, run func(context.Context, durable.ExecutionEnv, string, func(string) error) (durable.ExecResult, error)) (durable.ToolResult, error) {
 	var a bashArgs
 	if err := decodeArgs(raw, &a); err != nil {
 		return durable.ToolResult{}, err
@@ -228,7 +277,7 @@ func bashTool(ctx context.Context, raw json.RawMessage, rt *durable.ToolRuntime)
 	_, local := e.(*LocalEnv)
 	spill := &outputSpill{enabled: local}
 	defer spill.close()
-	res, err := e.Exec(runCtx, a.Command, func(text string) error {
+	res, err := run(runCtx, e, a.Command, func(text string) error {
 		spill.write(text)
 		return rt.Output(ctx, text)
 	})
