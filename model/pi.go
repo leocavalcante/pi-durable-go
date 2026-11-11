@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	durable "github.com/leocavalcante/pi-durable-go"
@@ -44,7 +45,58 @@ type Pi struct {
 	MaxResponseBytes int64
 }
 
-var _ durable.Model = Pi{}
+var (
+	_ durable.Model              = Pi{}
+	_ durable.ContextWindowModel = Pi{}
+)
+
+// contextWindows caches catalog context windows per installation and model.
+var contextWindows sync.Map
+
+// ContextWindow reports the model's context window from Pi's catalog, read
+// once per package, agent directory, and model through the bridge without a
+// provider call; 0 when unknown, which disables threshold compaction.
+func (p Pi) ContextWindow(ref durable.ModelRef) int {
+	key := p.packageDir() + "\x00" + p.AgentDir + "\x00" + ref.Provider + "\x00" + ref.ID
+	if cached, ok := contextWindows.Load(key); ok {
+		return cached.(int)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	window, err := p.describe(ctx, ref)
+	if err != nil {
+		return 0 // not cached: a later call may succeed
+	}
+	contextWindows.Store(key, window)
+	return window
+}
+
+func (p Pi) describe(ctx context.Context, ref durable.ModelRef) (int, error) {
+	body, err := json.Marshal(struct {
+		Request    durable.ModelRequest `json:"request"`
+		PackageDir string               `json:"packageDir,omitempty"`
+		AgentDir   string               `json:"agentDir,omitempty"`
+		Describe   bool                 `json:"describe"`
+	}{durable.ModelRequest{Model: ref}, p.packageDir(), p.AgentDir, true})
+	if err != nil {
+		return 0, err
+	}
+	cmd := exec.CommandContext(ctx, p.nodePath(), "--input-type=module", "--eval", piBridge)
+	cmd.Stdin = bytes.NewReader(append(body, '\n'))
+	cmd.Stderr = io.Discard
+	out, err := cmd.Output()
+	if err != nil {
+		return 0, err
+	}
+	var event struct {
+		Type          string `json:"type"`
+		ContextWindow int    `json:"contextWindow"`
+	}
+	if err := json.Unmarshal(bytes.TrimSpace(out), &event); err != nil || event.Type != "model" {
+		return 0, errors.New("pi: cannot describe model")
+	}
+	return event.ContextWindow, nil
+}
 
 func (p Pi) Generate(ctx context.Context, req durable.ModelRequest, onDelta func(string) error) (durable.ModelResponse, error) {
 	if err := ctx.Err(); err != nil {

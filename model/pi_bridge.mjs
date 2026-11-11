@@ -164,6 +164,11 @@ async function main() {
     const request = config.request;
     const model = runtime.getModel(request.model.provider, request.model.id);
     if (!model) return { type: "error", code: "model" };
+    // A describe request reads the catalog entry only; no provider call.
+    if (config.describe) {
+      const window = Number.isFinite(model.contextWindow) && model.contextWindow > 0 ? Math.floor(model.contextWindow) : 0;
+      return { type: "model", contextWindow: window };
+    }
     let context;
     try {
       const reasoning = request.thinkingLevel;

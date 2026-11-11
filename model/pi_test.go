@@ -302,3 +302,13 @@ func TestPiForcedCancellation(t *testing.T) {
 		t.Fatal("cancellation exceeded grace period")
 	}
 }
+
+func TestPiContextWindowFromCatalog(t *testing.T) {
+	p := fakePi(t)
+	if got := p.ContextWindow(durable.ModelRef{Provider: "fake", ID: "small-window"}); got != 4096 {
+		t.Fatalf("context window=%d", got)
+	}
+	if got := p.ContextWindow(durable.ModelRef{Provider: "fake", ID: "unknown"}); got != 0 {
+		t.Fatalf("unknown model window=%d", got)
+	}
+}

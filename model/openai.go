@@ -27,7 +27,15 @@ type OpenAI struct {
 	APIKey           string
 	HTTPClient       *http.Client
 	MaxResponseBytes int64
+	// Window is the model's context window in tokens, for threshold
+	// compaction; zero (unknown) disables it.
+	Window int
 }
+
+var _ durable.ContextWindowModel = OpenAI{}
+
+// ContextWindow reports Window for every model.
+func (o OpenAI) ContextWindow(durable.ModelRef) int { return o.Window }
 
 func (o OpenAI) Generate(ctx context.Context, req durable.ModelRequest, onDelta func(string) error) (durable.ModelResponse, error) {
 	endpoint, err := completionsURL(o.BaseURL)
