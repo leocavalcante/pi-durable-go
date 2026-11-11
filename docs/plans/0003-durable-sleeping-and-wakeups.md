@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Status | In progress |
+| Status | Implemented on `main` |
 | Date | 2026-11-11 |
 | Compatibility target | Pi Durable **v1.5.2** (tag `v1.5.2`, commit `b4afdddf44e059c67ccf5097e5317d913521b470`) |
 | Depends on | [Plan 0002](0002-crash-loop-guard-and-interrupted-requests.md), implemented on `main` |
@@ -44,3 +44,11 @@ Port upstream's `sleeping` task state and its wakeups, replacing Go's 20 ms poll
 3. **Documentation.** README, COMPATIBILITY appendix row, and this plan's record.
 
 Each milestone passes `make check` and the repeated race suite before it is pushed to `main`.
+
+## Implementation record
+
+- **M1** (`b7ec96e`): `sleeping` status, `SleepUntil`, `Now`, compatibility forms, built-in retry sleeps. `sleep_test.go`.
+- **M2**: `wake.go` (`Wake`, `Harness.Wake`, the waker goroutine, `armTimer`, `OnWake` with panics reported as `host_error`), `HarnessOptions.SetTimer`/`OnWake`, `Resume` always kicking, commit kicks through `Session.afterCommit`, invocation-bound `TaskRuntime.SetTimer`, and removal of the 20 ms ticker. `ReportHostError` and `Report.Callback` were added for the `onWake` callback. Tests that move a fake clock now call `Resume`, as upstream hosts do; `wake_test.go` covers fake timers, early fires, `OnWake` hosts, wake values, and pacing timers. The whole root package passed 10 race runs without polling.
+- **M3**: README runtime paragraph, COMPATIBILITY rows.
+
+Differences: Go keeps its `pending` yield; `wakeFor` scans the whole snapshot rather than upstream's in-memory indexes; `HarnessOptions.SetTimer` has no separate background/foreground timers (Go has no idle-memory timers to unreference).

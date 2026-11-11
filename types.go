@@ -333,7 +333,21 @@ type HarnessOptions struct {
 	Settings            Settings
 	Environment         func(ConversationRecord) (ExecutionEnv, error)
 	ConversationCreated func(*Tx, ConversationID) error
-	Now                 func() time.Time
+	// Now is the Harness clock. Sleeping tasks store deadlines on it, so every
+	// process that opens the same storage must use the same clock.
+	Now func() time.Time
+	// SetTimer arms the scheduler's timer for the earliest sleep and the
+	// timers of TaskRuntime.SetTimer: call callback once, about delay from
+	// now, and return a function that disarms it. Default time.AfterFunc.
+	// Tests can pass fake timers.
+	SetTimer func(callback func(), delay time.Duration) (stop func())
+	// OnWake wakes the process for sleeping tasks instead of a SetTimer
+	// timer. With it, the Harness arms no timer for sleeps: it offers Wake
+	// after open and whenever Harness.Wake changes, from a goroutine that never
+	// holds the Session line, and the host arms its own wakeup and calls
+	// Resume when it fires. It must not block; a panic is reported as
+	// host_error and the value is offered again at the next change.
+	OnWake func(Wake)
 	// OnReport receives best-effort FIFO diagnostics on an independent worker.
 	// Shutdown does not join delivery. Handlers should return promptly.
 	OnReport func(Report)

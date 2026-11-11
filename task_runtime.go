@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"slices"
 	"sort"
+	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -186,6 +187,60 @@ func (r *TaskRuntime) SleepUntil(ctx context.Context, until time.Time, checkpoin
 
 // Now reads the Harness clock, which sleeping tasks store deadlines on.
 func (r *TaskRuntime) Now() time.Time { return r.h.now() }
+
+// SetTimer calls callback once after about delay on the Harness's timer
+// (HarnessOptions.SetTimer), for pacing work inside a phase such as throttled
+// progress commits. It is not durable: the invocation's end disarms it, and
+// after the end nothing is armed. It returns a function that disarms it. Wait
+// for time between phases with SleepUntil instead.
+func (r *TaskRuntime) SetTimer(callback func(), delay time.Duration) (stop func()) {
+	inv := r.invocation
+	if inv == nil || r.check() != nil || callback == nil {
+		return func() {}
+	}
+	key := new(int)
+	var once sync.Once
+	var disarm func()
+	fire := func() {
+		inv.timersMu.Lock()
+		_, armed := inv.timers[key]
+		delete(inv.timers, key)
+		inv.timersMu.Unlock()
+		if armed {
+			callback()
+		}
+	}
+	inv.timersMu.Lock()
+	if inv.ended {
+		inv.timersMu.Unlock()
+		return func() {}
+	}
+	if inv.timers == nil {
+		inv.timers = map[*int]func(){}
+	}
+	inv.timers[key] = func() {}
+	inv.timersMu.Unlock()
+	cancel := r.h.setTimer(fire, delay)
+	disarm = func() {
+		once.Do(func() {
+			inv.timersMu.Lock()
+			delete(inv.timers, key)
+			inv.timersMu.Unlock()
+			cancel()
+		})
+	}
+	inv.timersMu.Lock()
+	if _, armed := inv.timers[key]; armed {
+		inv.timers[key] = disarm
+		inv.timersMu.Unlock()
+	} else {
+		inv.timersMu.Unlock()
+		if inv.ended {
+			cancel()
+		}
+	}
+	return disarm
+}
 
 func (r *TaskRuntime) Complete(ctx context.Context, outcome Outcome) error {
 	return r.Commit(ctx, func(*Tx) (TaskTransition, error) { return TaskTransition{Status: "terminal", Outcome: &outcome}, nil })

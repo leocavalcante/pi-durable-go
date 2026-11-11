@@ -15,6 +15,21 @@ type taskInvocation struct {
 	done     chan struct{}
 	aborting bool // immutable invocation mode, fixed before publication
 	runtime  *TaskRuntime
+	// Pacing timers of TaskRuntime.SetTimer; the invocation's end disarms them.
+	timersMu sync.Mutex
+	timers   map[*int]func()
+	ended    bool
+}
+
+// disarmTimers stops every pacing timer; later SetTimer calls arm nothing.
+func (inv *taskInvocation) disarmTimers() {
+	inv.timersMu.Lock()
+	timers := inv.timers
+	inv.timers, inv.ended = nil, true
+	inv.timersMu.Unlock()
+	for _, stop := range timers {
+		stop()
+	}
 }
 
 type Scheduler struct {
@@ -28,6 +43,13 @@ type Scheduler struct {
 	done             chan struct{}
 	// Captured at open; consumed by the first scheduling pass, not inspection.
 	abandoned map[TaskID]struct{}
+	// The waker recomputes Wake after changes: it arms the timer for the
+	// earliest sleep, or offers the value to HarnessOptions.OnWake.
+	wakeDirty  chan struct{}
+	wakerDone  chan struct{}
+	timer      *wakeTimer // guarded by mu
+	lastWake   *Wake      // last value OnWake accepted; waker goroutine only
+	wakeClosed chan struct{}
 }
 
 var errNoChange = errors.New("durable: no scheduler write")
@@ -63,6 +85,9 @@ func newScheduler(h *Harness) *Scheduler {
 		migrations:  map[TaskID]migrationFailure{},
 		wake:        make(chan struct{}, 1),
 		done:        make(chan struct{}),
+		wakeDirty:   make(chan struct{}, 1),
+		wakerDone:   make(chan struct{}),
+		wakeClosed:  make(chan struct{}),
 	}
 }
 func (s *Scheduler) state() string {
@@ -79,15 +104,21 @@ func (s *Scheduler) stateLocked() string {
 	}
 	return "paused"
 }
+
+// resume enables scheduling and always starts a pass, so a host woken by its
+// own alarm (HarnessOptions.OnWake) resumes due sleeps by calling Resume.
 func (s *Scheduler) resume() {
 	s.mu.Lock()
-	if s.enabled || s.closing {
+	if s.closing {
 		s.mu.Unlock()
 		return
 	}
+	start := !s.enabled
 	s.enabled = true
 	s.mu.Unlock()
-	go s.loop()
+	if start {
+		go s.loop()
+	}
 	s.kick()
 }
 func (s *Scheduler) close() {
@@ -101,7 +132,12 @@ func (s *Scheduler) close() {
 		inv.cancel()
 	}
 	enabled := s.enabled
+	if s.timer != nil {
+		s.timer.stop()
+		s.timer = nil
+	}
 	s.mu.Unlock()
+	close(s.wakeClosed)
 	if !enabled {
 		close(s.done)
 	}
@@ -136,16 +172,25 @@ func (s *Scheduler) writeBackStopped() {
 	})
 }
 
+// kick starts a scheduling pass and a wake recomputation. It never blocks:
+// callers include the commit line and timer callbacks.
 func (s *Scheduler) kick() {
 	select {
 	case s.wake <- struct{}{}:
 	default:
 	}
+	select {
+	case s.wakeDirty <- struct{}{}:
+	default:
+	}
 }
+
+// loop runs passes on kicks only: every commit, invocation end, registry
+// change, Resume, and the wake timer kick it. A pass makes every sleep whose
+// time has come runnable, so a pass started by any change may be the first
+// after a deadline.
 func (s *Scheduler) loop() {
 	defer close(s.done)
-	ticker := time.NewTicker(20 * time.Millisecond)
-	defer ticker.Stop()
 	for {
 		s.dispatch()
 		s.mu.Lock()
@@ -154,10 +199,7 @@ func (s *Scheduler) loop() {
 		if done {
 			return
 		}
-		select {
-		case <-s.wake:
-		case <-ticker.C:
-		}
+		<-s.wake
 	}
 }
 func terminalizeTask(tx *Tx, t *TaskRecord, now time.Time) {
@@ -182,14 +224,19 @@ func (s *Scheduler) dispatch() {
 	}
 	// No reservations share the abandonment pass. The complete ordinary tree
 	// carries its durable marks before any handler is replayed.
-	if len(s.abandoned) > 0 {
+	s.mu.Lock()
+	abandoned := s.abandoned
+	s.mu.Unlock()
+	if len(abandoned) > 0 {
 		if committed, _ := s.commitInternal(context.Background(), func(tx *Tx) error {
-			for id := range s.abandoned {
+			for id := range abandoned {
 				markAbortTreeReason(tx.state, id, "restart")
 			}
 			return nil
 		}); committed {
+			s.mu.Lock()
 			s.abandoned = nil
+			s.mu.Unlock()
 			s.kick()
 		}
 		return
@@ -405,6 +452,7 @@ func (s *Scheduler) reserve(id TaskID) error {
 func (s *Scheduler) finishInvocation(id TaskID, inv *taskInvocation) {
 	inv.runtime.ended.Store(true)
 	inv.cancel()
+	inv.disarmTimers()
 	s.mu.Lock()
 	if s.h.Err() != nil {
 		// Capture here, not just in close(): an invocation may finish between
@@ -437,7 +485,9 @@ func (h *Harness) reconcile(ctx context.Context) error {
 		return nil
 	})
 	if err == nil {
+		h.scheduler.mu.Lock()
 		h.scheduler.abandoned = abandoned
+		h.scheduler.mu.Unlock()
 	}
 	return err
 }

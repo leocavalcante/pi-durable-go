@@ -35,19 +35,25 @@ func Open(ctx context.Context, storage Storage, options HarnessOptions) (*Harnes
 	h.stopRegistry = h.registry.Subscribe(h.scheduler.kick)
 	session.failureHook = func(cause error) { h.report(Report{Kind: ReportStorageFailed, Err: cause}) }
 	session.afterClose = h.reports.closeAdmission
-	session.afterCommit = h.scheduler.clearSettledMigrations
+	session.afterCommit = func(state *State) {
+		h.scheduler.clearSettledMigrations(state)
+		// Every adopted commit may make work runnable or change the wake.
+		h.scheduler.kick()
+	}
 	session.beforeClose = func() {
 		h.scheduler.close()
 		<-h.scheduler.done
 		h.scheduler.writeBackStopped()
 		h.stopRegistry()
 	}
+	go h.scheduler.wakeLoop()
 	if err = h.reconcile(ctx); err != nil {
 		// Cleanup continues after a cancelled Open without forcing that caller
 		// to join a backend that ignores cancellation.
 		_ = session.closeContext(ctx)
 		return nil, err
 	}
+	h.scheduler.kick() // offer the first Wake after open
 	return h, nil
 }
 func (h *Harness) Commit(ctx context.Context, change func(*Tx) error) error {

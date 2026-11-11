@@ -112,6 +112,7 @@ func TestInterruptedRequestChargedAndRetried(t *testing.T) {
 		t.Fatal("the interrupted request was resent")
 	}
 	clock.advance(2 * time.Second)
+	h.Resume() // a fake clock needs a kick; timers run on real time
 	settled, err := (&Submission{h: h, id: submission.ID()}).Wait(ctx)
 	if err != nil || settled.Status != "done" {
 		t.Fatalf("submission=%+v error=%v", settled, err)
@@ -151,6 +152,7 @@ func TestInterruptedRequestEndsWhenNoRetryLeft(t *testing.T) {
 	h.Resume()
 	waitForTask(t, h, id, func(task TaskRecord) bool { return generationPhase(task).Phase == "retry" })
 	clock.advance(time.Minute)
+	h.Resume() // a fake clock needs a kick; timers run on real time
 	if n := model.waitStreamed(t, ctx); n != 2 {
 		t.Fatalf("second attempt is call %d", n)
 	}
@@ -229,6 +231,7 @@ func TestInterruptedRequestChargedOnceAcrossCleanClose(t *testing.T) {
 	h.Resume()
 	waitForTask(t, h, id, func(task TaskRecord) bool { return generationPhase(task).Phase == "retry" })
 	clock.advance(time.Minute)
+	h.Resume() // a fake clock needs a kick; timers run on real time
 	if settled, err := (&Submission{h: h, id: submission.ID()}).Wait(ctx); err != nil || settled.Status != "done" {
 		t.Fatalf("submission=%+v error=%v", settled, err)
 	}
@@ -260,6 +263,7 @@ func TestInterruptedRequestNotChargedWhileBackingOffOrWaiting(t *testing.T) {
 			t.Fatalf("a backing-off generation was counted: %+v error=%v", task, err)
 		}
 		clock.advance(time.Minute)
+		h.Resume() // a fake clock needs a kick; timers run on real time
 		if settled, err := (&Submission{h: h, id: submission.ID()}).Wait(ctx); err != nil || settled.Status != "done" {
 			t.Fatalf("submission=%+v error=%v", settled, err)
 		}

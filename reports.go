@@ -15,6 +15,8 @@ const (
 	// ReportTaskInterrupted: a task committed a failed outcome whose ErrorDetail
 	// reason is restart_limit or interrupted, so crashes ended it.
 	ReportTaskInterrupted ReportKind = "task_interrupted"
+	// ReportHostError: a host callback (Report.Callback) failed, such as OnWake.
+	ReportHostError ReportKind = "host_error"
 )
 
 type ReportTask struct {
@@ -32,6 +34,9 @@ type Report struct {
 	// Restarts is the task's restart count before the commit that ended it
 	// (task_interrupted only).
 	Restarts int
+	// Callback names the failed host callback (host_error only): "onWake",
+	// "setTimer", "env", or "now".
+	Callback string
 }
 
 // reportQueue delivers best-effort diagnostics serially without coupling

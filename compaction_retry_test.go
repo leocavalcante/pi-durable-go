@@ -68,6 +68,7 @@ func TestRetryPolicyCompactionRetriesTransientError(t *testing.T) {
 		t.Fatal("compaction retried before its deadline")
 	}
 	clock.advance(2 * time.Second)
+	h.Resume() // a fake clock needs a kick; timers run on real time
 	record, err := h.WaitTask(ctx, id)
 	if err != nil || record.Outcome == nil || record.Outcome.Status != OutcomeCompleted {
 		t.Fatalf("record=%+v error=%v", record, err)
@@ -128,6 +129,7 @@ func TestRetryPolicyCompactionEndings(t *testing.T) {
 					break loop
 				case <-time.After(5 * time.Millisecond):
 					clock.advance(time.Minute)
+					h.Resume() // a fake clock needs a kick; timers run on real time
 				case <-ctx.Done():
 					t.Fatal(ctx.Err())
 				}

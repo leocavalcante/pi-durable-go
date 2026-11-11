@@ -36,6 +36,9 @@ func TestSleepResumesAtDeadline(t *testing.T) {
 	h.Resume()
 	<-slept
 	sleeping := waitForTask(t, h, id, func(task TaskRecord) bool { return task.Status == "sleeping" })
+	for h.scheduler.active(id) != nil { // the sleep commits before its invocation ends
+		time.Sleep(time.Millisecond)
+	}
 	if sleeping.WakeAt == nil || !sleeping.WakeAt.Equal(clock.Now().Add(time.Hour)) {
 		t.Fatalf("sleeping=%+v", sleeping)
 	}

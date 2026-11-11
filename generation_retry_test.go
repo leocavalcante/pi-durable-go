@@ -159,6 +159,7 @@ func TestRetryPolicyGenerationRetriesTransientErrorAndPreparesAgain(t *testing.T
 		t.Fatalf("retried before the deadline: %d calls", len(calls))
 	}
 	clock.advance(2 * time.Second)
+	h.Resume() // a fake clock needs a kick; timers run on real time
 	settled, err := submission.Wait(ctx)
 	if err != nil || settled.Status != "done" {
 		t.Fatalf("submission=%+v error=%v", settled, err)
@@ -223,6 +224,7 @@ func TestRetryPolicyGenerationEndings(t *testing.T) {
 				case <-time.After(5 * time.Millisecond):
 					if task, err := h.Task(ctx, id); err == nil && generationPhase(task).Phase == "retry" {
 						clock.advance(time.Minute)
+						h.Resume() // a fake clock needs a kick; timers run on real time
 					}
 				case <-ctx.Done():
 					t.Fatal(ctx.Err())
@@ -296,6 +298,7 @@ func TestRetryPolicyGenerationRetryBeforeUntilBacksOffAgain(t *testing.T) {
 		t.Fatal("an early retry phase sent a request")
 	}
 	clock.advance(time.Hour)
+	h.Resume() // a fake clock needs a kick; timers run on real time
 	settled, err := (&Submission{h: h, id: sub}).Wait(ctx)
 	if err != nil || settled.Status != "done" || len(model.calls()) != 1 {
 		t.Fatalf("submission=%+v calls=%d error=%v", settled, len(model.calls()), err)
