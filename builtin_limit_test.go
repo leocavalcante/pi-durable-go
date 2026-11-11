@@ -101,14 +101,14 @@ func TestCrashLoopGenerationCutOffInEveryPhase(t *testing.T) {
 			h := taskTestHarness(t, HarnessOptions{Model: model, OnReport: log.add, Settings: Settings{RestartLimit: tc.limit}})
 			root := testRoot(t, h)
 			id, sub := seedGeneration(t, h, root.ID(), generationVersion, tc.checkpoint, nil)
+			if err := h.Commit(context.Background(), func(tx *Tx) error { tx.state.Tasks[id].Restarts = tc.restarts; return nil }); err != nil {
+				t.Fatal(err)
+			}
+			// Submit resumes scheduling, so it follows the seeded count.
 			queued, err := root.Submit(context.Background(), SubmissionRequest{Content: "queued"})
 			if err != nil {
 				t.Fatal(err)
 			}
-			if err := h.Commit(context.Background(), func(tx *Tx) error { tx.state.Tasks[id].Restarts = tc.restarts; return nil }); err != nil {
-				t.Fatal(err)
-			}
-			h.Resume()
 			assertRestartLimitRun(t, h, sub, id, tc.text)
 			if len(model.calls()) != 0 {
 				t.Fatal("a cut-off generation sent a request")
