@@ -174,3 +174,31 @@ func (r *ToolRuntime) Env() (ExecutionEnv, error) {
 	}
 	return env, err
 }
+
+// DeferredTools are the enabled, model-callable deferred tools this call's
+// conversation does not offer yet: what a tool search loads.
+func (r *ToolRuntime) DeferredTools(ctx context.Context) ([]ToolDefinition, error) {
+	if err := r.check(); err != nil {
+		return nil, err
+	}
+	state, err := r.h.Snapshot(ctx)
+	if err != nil {
+		return nil, err
+	}
+	conv := state.Conversations[r.ConversationID]
+	if conv == nil {
+		return nil, ErrNotFound
+	}
+	tools := r.Registry().Tools(conv.Agent)
+	offered := map[string]bool{}
+	for _, tool := range offeredTools(tools, conv.Agent.ModelTools) {
+		offered[tool.Name] = true
+	}
+	var deferred []ToolDefinition
+	for _, tool := range tools {
+		if tool.Deferred && callableBy(tool, "model") && !offered[tool.Name] {
+			deferred = append(deferred, tool)
+		}
+	}
+	return deferred, nil
+}

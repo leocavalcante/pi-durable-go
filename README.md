@@ -119,7 +119,7 @@ A generation retries a failed model attempt only when the error is transient and
 
 ## Tools and models
 
-- `tools.Coding()` supplies `read`, `write`, `edit`, and `bash`.
+- `tools.Coding()` supplies `read`, `write`, `edit`, and `bash`; `tools.ToolSearch()` supplies `tool_search`, which loads deferred tools that match a query.
 - `tools.NewLocalEnv(cwd)` supplies local filesystem and process execution. **A working directory is not a sandbox.**
 - `model.Pi` reuses an installed Pi coding-agent SDK's authentication and provider transports, including existing `/login` OAuth credentials and refresh. Requires Node.js 22.19+ and the tested Pi SDK 1.5.2 baseline; no Pi agent/tool loop is started.
 - `model.OpenAI` supplies a pure-Go streaming OpenAI-compatible Chat Completions adapter with an explicit API key.

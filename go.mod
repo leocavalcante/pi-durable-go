@@ -4,7 +4,7 @@ go 1.24.0
 
 require modernc.org/sqlite v1.36.3
 
-require golang.org/x/text v0.14.0 // indirect
+require golang.org/x/text v0.14.0
 
 require (
 	github.com/dustin/go-humanize v1.0.1 // indirect
