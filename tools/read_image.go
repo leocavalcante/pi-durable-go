@@ -193,7 +193,26 @@ func imageError(message string) (durable.ToolResult, error) {
 
 // readImage reads an image the head identified, as upstream does without an
 // image processor; vision says whether the model takes images.
-func readImage(r io.Reader, size int64, path, mimeType string, vision bool) (durable.ToolResult, error) {
+func readImage(r io.Reader, size int64, path, mimeType string, vision bool, processor ImageProcessor) (durable.ToolResult, error) {
+	if processor != nil {
+		data, err := io.ReadAll(r)
+		if err != nil {
+			return durable.ToolResult{}, err
+		}
+		prepared := processor.Prepare(data, mimeType, DefaultImageLimits)
+		if prepared == nil {
+			return imageError(fmt.Sprintf("%s is an image (%s) that cannot be prepared for the model", path, mimeType))
+		}
+		var notes []string
+		if prepared.ConvertedFrom != "" {
+			notes = append(notes, fmt.Sprintf("Converted from %s to %s.", prepared.ConvertedFrom, prepared.MimeType))
+		}
+		if r := prepared.Resized; r != nil {
+			notes = append(notes, fmt.Sprintf("Resized from %dx%d to %dx%d. Multiply coordinates by %.2f to map them to the original.",
+				r.FromWidth, r.FromHeight, r.ToWidth, r.ToHeight, float64(r.FromWidth)/float64(r.ToWidth)))
+		}
+		return imageResult(durable.ImageContent{MimeType: prepared.MimeType, Data: prepared.Data}, vision, notes)
+	}
 	if !inlineImageType(mimeType) {
 		return imageError(fmt.Sprintf("%s is an image (%s) that needs converting, and no image processor is configured", path, mimeType))
 	}
@@ -212,11 +231,19 @@ func readImage(r io.Reader, size int64, path, mimeType string, vision bool) (dur
 	if width > maxImageWidth || height > maxImageHeight {
 		return imageError(fmt.Sprintf("%s is an image (%s) of %dx%d, larger than %dx%d, %s", path, mimeType, width, height, maxImageWidth, maxImageHeight, unshrinkable))
 	}
-	note := fmt.Sprintf("Read image file [%s].", mimeType)
+	return imageResult(durable.ImageContent{MimeType: mimeType, Data: base64.StdEncoding.EncodeToString(data)}, vision, nil)
+}
+
+// imageResult is the read tool's image result: the image, its structured
+// form, and an info diagnostic with what happened to it.
+func imageResult(image durable.ImageContent, vision bool, notes []string) (durable.ToolResult, error) {
+	note := fmt.Sprintf("Read image file [%s].", image.MimeType)
+	for _, n := range notes {
+		note += " " + n
+	}
 	if !vision {
 		note += " The current model does not support images; it sees a placeholder instead."
 	}
-	image := durable.ImageContent{MimeType: mimeType, Data: base64.StdEncoding.EncodeToString(data)}
 	structured, err := json.Marshal(map[string]string{"type": "image", "data": image.Data, "mimeType": image.MimeType})
 	if err != nil {
 		return durable.ToolResult{}, err

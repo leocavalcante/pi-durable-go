@@ -10,6 +10,8 @@ checksums are recorded in `go.mod` and `go.sum`.
 |---|---|---|
 | [`modernc.org/sqlite`](https://pkg.go.dev/modernc.org/sqlite) | BSD-3-Clause | Pure-Go SQLite driver; SQLite itself is public domain |
 | [`github.com/santhosh-tekuri/jsonschema/v6`](https://github.com/santhosh-tekuri/jsonschema) | Apache-2.0 | Local JSON Schema validation for tool arguments |
+| [`golang.org/x/text`](https://pkg.go.dev/golang.org/x/text) | BSD-3-Clause | Unicode normalization and segmentation for `tool_search` and edit matching |
+| [`golang.org/x/image`](https://pkg.go.dev/golang.org/x/image) | BSD-3-Clause | WebP and BMP decoding and image scaling for `tools.StdImages` |
 
 ## Optional Pi SDK runtime
 
@@ -18,7 +20,7 @@ checksums are recorded in `go.mod` and `go.sum`.
 ## Runtime transitive dependencies
 
 - MIT: `github.com/dustin/go-humanize`, `github.com/mattn/go-isatty`, `github.com/ncruces/go-strftime`.
-- BSD-3-Clause: `github.com/google/uuid`, `github.com/remyoudompheng/bigfft`, `golang.org/x/exp`, `golang.org/x/sys`, `golang.org/x/text`, `modernc.org/libc`, `modernc.org/mathutil`, `modernc.org/memory`.
+- BSD-3-Clause: `github.com/google/uuid`, `github.com/remyoudompheng/bigfft`, `golang.org/x/exp`, `golang.org/x/sys`, `modernc.org/libc`, `modernc.org/mathutil`, `modernc.org/memory`.
 
 Additional test/build dependencies may appear in the module graph. Use
 `go list -m all` for the exact graph and consult each downloaded module's

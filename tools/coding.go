@@ -43,9 +43,26 @@ var readOutputSchema = schema(`{"anyOf":[{"type":"string"},{"type":"object","req
 // shellStructuredOutputSchema).
 var shellOutputSchema = schema(`{"type":"object","required":["output","truncated","exitCode"],"properties":{"output":{"type":"string","description":"Combined stdout and stderr: the retained tail, as the model sees it"},"truncated":{"type":"boolean","description":"Whether earlier output was dropped"},"fullOutputPath":{"type":"string","description":"File with the complete output, when it was spilled"},"exitCode":{"type":"number"}}}`)
 
-func Coding() durable.Extension {
+// CodingOptions configure the coding tools (upstream createCodingTools).
+type CodingOptions struct {
+	// Images prepares images the read tool returns: resized, converted, and
+	// turned upright (StdImages). Without it, images in an inline format
+	// within the default limits pass through as they are.
+	Images ImageProcessor
+}
+
+// Coding returns the coding tools (read, write, edit, bash) without an image
+// processor.
+func Coding() durable.Extension { return CodingWith(CodingOptions{}) }
+
+// CodingWith returns the coding tools with options.
+func CodingWith(options CodingOptions) durable.Extension {
+	formats := "jpg, png, gif, webp"
+	if options.Images != nil {
+		formats += ", bmp"
+	}
 	return durable.Extension{Name: "coding-tools", Tools: []durable.ToolDefinition{
-		{ToolSpec: durable.ToolSpec{Name: "read", Description: "Read the contents of a file. Supports text files and images (jpg, png, gif, webp). Images are sent as attachments. For text files, output is truncated to 2000 lines or 50KB (whichever is hit first). Use offset/limit for large files. When you need the full file, continue with offset until complete.", Parameters: schema(`{"type":"object","required":["path"],"properties":{"path":{"type":"string","description":"Path to the file to read (relative or absolute)"},"offset":{"type":"integer","minimum":1,"description":"Line number to start reading from (1-indexed)"},"limit":{"type":"integer","minimum":0,"description":"Maximum number of lines to read"}},"additionalProperties":false}`)}, StructuredOutputSchema: readOutputSchema, Execute: readTool},
+		{ToolSpec: durable.ToolSpec{Name: "read", Description: "Read the contents of a file. Supports text files and images (" + formats + "). Images are sent as attachments. For text files, output is truncated to 2000 lines or 50KB (whichever is hit first). Use offset/limit for large files. When you need the full file, continue with offset until complete.", Parameters: schema(`{"type":"object","required":["path"],"properties":{"path":{"type":"string","description":"Path to the file to read (relative or absolute)"},"offset":{"type":"integer","minimum":1,"description":"Line number to start reading from (1-indexed)"},"limit":{"type":"integer","minimum":0,"description":"Maximum number of lines to read"}},"additionalProperties":false}`)}, StructuredOutputSchema: readOutputSchema, Execute: readToolWith(options.Images)},
 		{ToolSpec: durable.ToolSpec{Name: "write", Description: "Write content to a file. Creates the file if it doesn't exist, overwrites if it does. Automatically creates parent directories.", Parameters: schema(`{"type":"object","required":["path","content"],"properties":{"path":{"type":"string"},"content":{"type":"string"}},"additionalProperties":false}`)}, Execute: writeTool},
 		{ToolSpec: durable.ToolSpec{Name: "edit", Description: "Edit a single file using exact text replacement. Every edits[].oldText must match a unique, non-overlapping region of the original file. If two changes affect the same block or nearby lines, merge them into one edit instead of emitting overlapping edits. Do not include large unchanged regions just to connect distant changes.", Parameters: schema(`{"type":"object","required":["path","edits"],"properties":{"path":{"type":"string"},"edits":{"type":"array","minItems":1,"items":{"type":"object","required":["oldText","newText"],"properties":{"oldText":{"type":"string","minLength":1},"newText":{"type":"string"}},"additionalProperties":false}}},"additionalProperties":false}`)}, Execute: editTool},
 		{ToolSpec: durable.ToolSpec{Name: "bash", Description: "Execute a bash command in the current working directory. Returns combined stdout and stderr. Output is truncated to last 2000 lines or 50KB (whichever is hit first). If truncated, full output is saved to a temp file. Optionally provide a timeout in seconds.", Parameters: schema(`{"type":"object","required":["command"],"properties":{"command":{"type":"string","minLength":1,"description":"Bash command to execute"},"timeout":{"type":"number","description":"Timeout in seconds (optional, no default timeout)"}},"additionalProperties":false}`)}, StructuredOutputSchema: shellOutputSchema, Execute: bashTool},
@@ -119,7 +136,13 @@ func result(content string) (durable.ToolResult, error) {
 	return durable.ToolResult{Content: content}, nil
 }
 
-func readTool(ctx context.Context, raw json.RawMessage, rt *durable.ToolRuntime) (durable.ToolResult, error) {
+func readToolWith(processor ImageProcessor) func(context.Context, json.RawMessage, *durable.ToolRuntime) (durable.ToolResult, error) {
+	return func(ctx context.Context, raw json.RawMessage, rt *durable.ToolRuntime) (durable.ToolResult, error) {
+		return readTool(ctx, raw, rt, processor)
+	}
+}
+
+func readTool(ctx context.Context, raw json.RawMessage, rt *durable.ToolRuntime, processor ImageProcessor) (durable.ToolResult, error) {
 	var a readArgs
 	if err := decodeArgs(raw, &a); err != nil {
 		return durable.ToolResult{}, err
@@ -162,7 +185,7 @@ func readTool(ctx context.Context, raw json.RawMessage, rt *durable.ToolRuntime)
 			}
 			size, image = int64(len(data)), bytes.NewReader(data)
 		}
-		return readImage(image, size, a.Path, mimeType, rt.AcceptsImages(ctx))
+		return readImage(image, size, a.Path, mimeType, rt.AcceptsImages(ctx), processor)
 	}
 	return readText(buffered, a.Path, a.Offset, a.Limit)
 }
