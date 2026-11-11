@@ -40,7 +40,7 @@ func (o OpenAI) Generate(ctx context.Context, req durable.ModelRequest, onDelta 
 		switch role {
 		case "user", "assistant", "system", "developer", "tool":
 		default:
-			return durable.ModelResponse{}, fmt.Errorf("unsupported message role %q", role)
+			return durable.ModelResponse{}, sanitizedError(fmt.Sprintf("unsupported message role %q", role), false)
 		}
 		msg := openAIMessage{Role: role, Content: m.Content}
 		if role == "tool" {
@@ -60,21 +60,21 @@ func (o OpenAI) Generate(ctx context.Context, req durable.ModelRequest, onDelta 
 		for _, tool := range req.Tools {
 			var parameters any
 			if len(tool.Parameters) == 0 || !json.Valid(tool.Parameters) {
-				return durable.ModelResponse{}, fmt.Errorf("invalid parameters schema for tool %q", tool.Name)
+				return durable.ModelResponse{}, sanitizedError(fmt.Sprintf("invalid parameters schema for tool %q", tool.Name), false)
 			}
 			if err := json.Unmarshal(tool.Parameters, &parameters); err != nil {
-				return durable.ModelResponse{}, fmt.Errorf("invalid parameters schema for tool %q", tool.Name)
+				return durable.ModelResponse{}, sanitizedError(fmt.Sprintf("invalid parameters schema for tool %q", tool.Name), false)
 			}
 			payload.Tools = append(payload.Tools, openAITool{Type: "function", Function: openAIFunctionDefinition{Name: tool.Name, Description: tool.Description, Parameters: parameters}})
 		}
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {
-		return durable.ModelResponse{}, fmt.Errorf("encode model request: %w", err)
+		return durable.ModelResponse{}, sanitizedError("cannot encode model request", false)
 	}
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
 	if err != nil {
-		return durable.ModelResponse{}, fmt.Errorf("create model request: %w", err)
+		return durable.ModelResponse{}, sanitizedError("cannot create model request", false)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Accept", "text/event-stream")
@@ -90,18 +90,25 @@ func (o OpenAI) Generate(ctx context.Context, req durable.ModelRequest, onDelta 
 		if ctx.Err() != nil {
 			return durable.ModelResponse{}, ctx.Err()
 		}
-		return durable.ModelResponse{}, errors.New("model request failed")
+		// Transport failures are pi-ai's "Connection error." family: transient.
+		return durable.ModelResponse{}, sanitizedError("model request failed", true)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return durable.ModelResponse{}, fmt.Errorf("model endpoint returned HTTP %d", resp.StatusCode)
+		// Classify what pi-ai would report, then discard the provider's text.
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorBodyBytes))
+		if ctx.Err() != nil {
+			return durable.ModelResponse{}, ctx.Err()
+		}
+		return durable.ModelResponse{}, classifiedError(fmt.Sprintf("model endpoint returned HTTP %d", resp.StatusCode),
+			openAIErrorText(resp.StatusCode, body), req.Model.Provider)
 	}
 	maxBytes := o.MaxResponseBytes
 	if maxBytes <= 0 {
 		maxBytes = defaultMaxResponseBytes
 	}
 	limited := &limitedReader{r: resp.Body, remaining: maxBytes}
-	response, err := parseSSE(ctx, limited, onDelta)
+	response, err := parseSSE(ctx, limited, onDelta, req.Model.Provider)
 	if err != nil {
 		return durable.ModelResponse{}, err
 	}
@@ -158,7 +165,7 @@ type streamChunk struct {
 	} `json:"usage"`
 }
 
-var errResponseTooLarge = errors.New("model response exceeds configured size limit")
+var errResponseTooLarge error = &providerError{message: "model response exceeds configured size limit"}
 
 type limitedReader struct {
 	r         io.Reader
@@ -185,7 +192,7 @@ type streamTool struct {
 	arguments strings.Builder
 }
 
-func parseSSE(ctx context.Context, r io.Reader, onDelta func(string) error) (durable.ModelResponse, error) {
+func parseSSE(ctx context.Context, r io.Reader, onDelta func(string) error, provider string) (durable.ModelResponse, error) {
 	response := durable.ModelResponse{}
 	tools := map[int]*streamTool{}
 	scanner := bufio.NewScanner(r)
@@ -204,10 +211,11 @@ func parseSSE(ctx context.Context, r io.Reader, onDelta func(string) error) (dur
 		}
 		var chunk streamChunk
 		if err := json.Unmarshal([]byte(text), &chunk); err != nil {
-			return errors.New("invalid event in model stream")
+			return sanitizedError("invalid event in model stream", false)
 		}
-		if len(chunk.Error) > 0 && string(chunk.Error) != "null" {
-			return errors.New("model stream reported an error")
+		var streamError any
+		if len(chunk.Error) > 0 && json.Unmarshal(chunk.Error, &streamError) == nil && truthyJSON(streamError) {
+			return classifiedError("model stream reported an error", streamErrorText(chunk.Error), provider)
 		}
 		if chunk.Usage != nil {
 			response.Usage.InputTokens = chunk.Usage.PromptTokens
@@ -268,14 +276,20 @@ func parseSSE(ctx context.Context, r io.Reader, onDelta func(string) error) (dur
 		if errors.Is(err, errResponseTooLarge) {
 			return durable.ModelResponse{}, errResponseTooLarge
 		}
-		return durable.ModelResponse{}, errors.New("model stream read failed or exceeded line limit")
+		if errors.Is(err, bufio.ErrTooLong) {
+			return durable.ModelResponse{}, sanitizedError("model stream line exceeded the size limit", false)
+		}
+		// A connection that drops mid-stream is transient, as pi-ai's
+		// "terminated" and "other side closed" are.
+		return durable.ModelResponse{}, sanitizedError("model stream read failed", true)
 	}
 	if !gotDone {
 		if err := process(); err != nil {
 			return durable.ModelResponse{}, err
 		}
 		if !gotDone {
-			return durable.ModelResponse{}, errors.New("model stream ended before [DONE]")
+			// pi-ai: "Stream ended without finish_reason", a transient ending.
+			return durable.ModelResponse{}, sanitizedError("model stream ended before [DONE]", true)
 		}
 	}
 	indices := make([]int, 0, len(tools))
@@ -296,7 +310,7 @@ func parseSSE(ctx context.Context, r io.Reader, onDelta func(string) error) (dur
 			args = "{}"
 		}
 		if !json.Valid([]byte(args)) {
-			return durable.ModelResponse{}, fmt.Errorf("tool call %q has invalid JSON arguments", t.name)
+			return durable.ModelResponse{}, sanitizedError(fmt.Sprintf("tool call %q has invalid JSON arguments", t.name), false)
 		}
 		response.ToolCalls = append(response.ToolCalls, durable.ToolCall{ID: t.id, Name: t.name, Arguments: json.RawMessage(args)})
 	}
@@ -309,7 +323,7 @@ func completionsURL(base string) (string, error) {
 	}
 	u, err := url.Parse(base)
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
-		return "", errors.New("invalid model BaseURL")
+		return "", sanitizedError("invalid model BaseURL", false)
 	}
 	path := strings.TrimRight(u.Path, "/")
 	if !strings.HasSuffix(path, "/chat/completions") {

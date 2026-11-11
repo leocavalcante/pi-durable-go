@@ -26,6 +26,16 @@ export class ModelRuntime {
       yield { type: "error", error: { errorMessage: "super-secret-provider-error" } };
       return;
     }
+    const failures = {
+      "transient-error": "503 overloaded; super-secret-provider-error",
+      "quota-error": "429 insufficient_quota; super-secret-provider-error",
+      "overflow-error": "400 prompt is too long; super-secret-provider-error",
+    };
+    if (failures[model.id] !== undefined) {
+      yield { type: "text_delta", delta: "partial " };
+      yield { type: "error", reason: "error", error: { ...result, stopReason: "error", errorMessage: failures[model.id] } };
+      return;
+    }
     if (model.id === "tool-round" && context.messages.some((message) => message.role === "toolResult")) {
       const assistant = context.messages.find((message) => message.role === "assistant");
       if (!assistant?.content.some((block) => block.thoughtSignature === "native-tool-signature")) {

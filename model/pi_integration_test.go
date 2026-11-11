@@ -219,3 +219,70 @@ func TestPiInstalledSDKOAuthRefresh(t *testing.T) {
 		t.Fatal("Pi did not safely persist rotated credentials")
 	}
 }
+
+// The installed SDK's own pi-ai classifies provider errors inside Node; only
+// the flags reach Go. The test wrapper links the installation's pi-ai so the
+// bridge resolves it from the wrapper as from the real package.
+func TestPiInstalledSDKErrorClassification(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Model string `json:"model"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		w.Header().Set("Content-Type", "application/json")
+		switch body.Model {
+		case "transient":
+			w.WriteHeader(503)
+			fmt.Fprint(w, `{"error":{"message":"The server is overloaded secret-body","type":"server_error"}}`)
+		case "quota":
+			w.WriteHeader(429)
+			fmt.Fprint(w, `{"error":{"message":"You exceeded your quota secret-body","type":"insufficient_quota","code":"insufficient_quota"}}`)
+		default:
+			w.WriteHeader(400)
+			fmt.Fprint(w, `{"error":{"message":"This model's maximum context length is 8192 tokens secret-body","code":"context_length_exceeded"}}`)
+		}
+	}))
+	defer server.Close()
+	p := installedPi(t, server.URL)
+	pkg := os.Getenv("PI_DURABLE_TEST_PI_PACKAGE_DIR")
+	ai := filepath.Join(pkg, "..", "pi-ai")
+	if _, err := os.Stat(filepath.Join(ai, "package.json")); err != nil {
+		ai = filepath.Join(pkg, "node_modules", "@earendil-works", "pi-ai")
+	}
+	if _, err := os.Stat(filepath.Join(ai, "package.json")); err != nil {
+		t.Fatalf("installed pi-ai not found next to %s", pkg)
+	}
+	link := filepath.Join(p.PackageDir, "node_modules", "@earendil-works")
+	if err := os.MkdirAll(link, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(ai, filepath.Join(link, "pi-ai")); err != nil {
+		t.Fatal(err)
+	}
+	writeJSON(t, filepath.Join(p.AgentDir, "models.json"), map[string]any{"providers": map[string]any{"openai": map[string]any{
+		"baseUrl": server.URL + "/v1", "api": "openai-completions", "apiKey": "fake-models-key",
+		"models": []any{map[string]any{"id": "transient"}, map[string]any{"id": "quota"}, map[string]any{"id": "overflow"}},
+	}}})
+	writeJSON(t, filepath.Join(p.AgentDir, "auth.json"), map[string]any{})
+	for _, tc := range []struct {
+		id   string
+		want modelErrorClass
+	}{
+		{"transient", modelErrorClass{true, false}},
+		{"quota", modelErrorClass{false, false}},
+		{"overflow", modelErrorClass{false, true}},
+	} {
+		t.Run(tc.id, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			defer cancel()
+			_, err := p.Generate(ctx, durable.ModelRequest{Model: durable.ModelRef{Provider: "openai", ID: tc.id},
+				Messages: []durable.Message{{Role: "user", Content: "local input"}}}, nil)
+			if err == nil || strings.Contains(err.Error(), "secret-body") {
+				t.Fatalf("error=%v", err)
+			}
+			if got := classOf(err, "openai"); got != tc.want {
+				t.Fatalf("class=%+v, want %+v", got, tc.want)
+			}
+		})
+	}
+}

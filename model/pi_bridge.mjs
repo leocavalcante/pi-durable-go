@@ -1,5 +1,7 @@
 // Optional subprocess adapter for the public Pi coding-agent ModelRuntime API.
 // Authentication and provider protocols stay in Pi, not in this bridge.
+import { existsSync } from "node:fs";
+import { createRequire } from "node:module";
 import { join, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { pathToFileURL } from "node:url";
@@ -104,6 +106,35 @@ function toResponse(message) {
     providerData: { format: "pi-assistant-v1", message: replay } };
 }
 
+// pi-ai's own classifiers, resolved through the coding agent's dependency tree
+// (its index does not re-export them). Without them, nothing is retryable.
+async function loadClassifiers(entry) {
+  try {
+    const require = createRequire(entry);
+    for (const dir of require.resolve.paths("@earendil-works/pi-ai") ?? []) {
+      const index = join(dir, "@earendil-works", "pi-ai", "dist", "index.js");
+      if (!existsSync(index)) continue;
+      const ai = await import(pathToFileURL(index).href);
+      if (typeof ai.isRetryableAssistantError === "function" && typeof ai.isContextOverflow === "function") return ai;
+      return undefined;
+    }
+  } catch {
+    // Classification is optional; an unresolvable pi-ai answers false.
+  }
+  return undefined;
+}
+
+// Classify a provider error message inside Node. Only two booleans cross the
+// boundary: the provider's text can quote secrets or response bodies.
+function classify(ai, message) {
+  const flags = { retryable: false, overflow: false };
+  if (!ai || typeof message !== "object" || message === null) return flags;
+  const failed = { ...message, stopReason: "error" };
+  try { flags.retryable = ai.isRetryableAssistantError(failed) === true; } catch {}
+  try { flags.overflow = ai.isContextOverflow(failed) === true; } catch {}
+  return flags;
+}
+
 async function main() {
   let config;
   try {
@@ -111,9 +142,9 @@ async function main() {
   } catch {
     return { type: "error", code: "request" };
   }
-  let sdk;
+  let sdk, entry;
   try {
-    const entry = config.packageDir
+    entry = config.packageDir
       ? pathToFileURL(join(resolve(config.packageDir), "dist", "index.js")).href
       : import.meta.resolve("@earendil-works/pi-coding-agent");
     sdk = await import(entry);
@@ -156,7 +187,10 @@ async function main() {
     for await (const event of stream) {
       if (event.type === "text_delta") await emit({ type: "delta", delta: event.delta });
       else if (event.type === "done") result = event.message;
-      else if (event.type === "error") return { type: "error", code: "provider" };
+      else if (event.type === "error") {
+        if (controller.signal.aborted) return { type: "error", code: "provider" };
+        return { type: "error", code: "provider", ...classify(await loadClassifiers(entry), event.error) };
+      }
     }
     if (!result || controller.signal.aborted) return { type: "error", code: "provider" };
     if (result.stopReason === "length") return { type: "error", code: "length" };

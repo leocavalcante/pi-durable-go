@@ -51,7 +51,7 @@ func (p Pi) Generate(ctx context.Context, req durable.ModelRequest, onDelta func
 		return durable.ModelResponse{}, err
 	}
 	if req.Model.Provider == "" || req.Model.ID == "" {
-		return durable.ModelResponse{}, errors.New("pi: model provider and ID are required")
+		return durable.ModelResponse{}, sanitizedError("pi: model provider and ID are required", false)
 	}
 	body, err := json.Marshal(struct {
 		Request    durable.ModelRequest `json:"request"`
@@ -59,7 +59,7 @@ func (p Pi) Generate(ctx context.Context, req durable.ModelRequest, onDelta func
 		AgentDir   string               `json:"agentDir,omitempty"`
 	}{req, p.packageDir(), p.AgentDir})
 	if err != nil {
-		return durable.ModelResponse{}, errors.New("pi: cannot encode model request")
+		return durable.ModelResponse{}, sanitizedError("pi: cannot encode model request", false)
 	}
 	node := p.nodePath()
 	// Use a cancellation pipe rather than killing Node immediately: OAuth refresh
@@ -70,19 +70,19 @@ func (p Pi) Generate(ctx context.Context, req durable.ModelRequest, onDelta func
 	cmd := exec.CommandContext(processCtx, node, "--input-type=module", "--eval", piBridge)
 	input, err := cmd.StdinPipe()
 	if err != nil {
-		return durable.ModelResponse{}, errors.New("pi: cannot create request pipe")
+		return durable.ModelResponse{}, sanitizedError("pi: cannot create request pipe", false)
 	}
 	defer input.Close()
 	output, err := cmd.StdoutPipe()
 	if err != nil {
-		return durable.ModelResponse{}, errors.New("pi: cannot create response pipe")
+		return durable.ModelResponse{}, sanitizedError("pi: cannot create response pipe", false)
 	}
 	// SDK/provider diagnostics can contain credentials or response bodies. Never
 	// publish stderr or raw child errors into durable task failure records.
 	cmd.Stderr = io.Discard
 	cmd.WaitDelay = time.Second
 	if err := cmd.Start(); err != nil {
-		return durable.ModelResponse{}, errors.New("pi: cannot start Node; configure NodePath or install Node.js 22.19+")
+		return durable.ModelResponse{}, sanitizedError("pi: cannot start Node; configure NodePath or install Node.js 22.19+", false)
 	}
 	finished := make(chan struct{})
 	stop := make(chan struct{})
@@ -129,7 +129,7 @@ func (p Pi) Generate(ctx context.Context, req durable.ModelRequest, onDelta func
 		return durable.ModelResponse{}, readErr
 	}
 	if writeErr != nil || waitErr != nil {
-		return durable.ModelResponse{}, errors.New("pi: SDK process failed")
+		return durable.ModelResponse{}, sanitizedError("pi: SDK process failed", false)
 	}
 	return response, nil
 }
@@ -146,9 +146,12 @@ func readPiOutput(r io.Reader, onDelta func(string) error) (durable.ModelRespons
 			Delta    string                 `json:"delta"`
 			Response *durable.ModelResponse `json:"response"`
 			Code     string                 `json:"code"`
+			// pi-ai's classification of the provider error, computed in Node.
+			Retryable bool `json:"retryable"`
+			Overflow  bool `json:"overflow"`
 		}
 		if response != nil || json.Unmarshal(scanner.Bytes(), &event) != nil {
-			return durable.ModelResponse{}, errors.New("pi: invalid SDK stream")
+			return durable.ModelResponse{}, sanitizedError("pi: invalid SDK stream", false)
 		}
 		switch event.Type {
 		case "delta":
@@ -159,43 +162,45 @@ func readPiOutput(r io.Reader, onDelta func(string) error) (durable.ModelRespons
 			}
 		case "result":
 			if event.Response == nil {
-				return durable.ModelResponse{}, errors.New("pi: invalid SDK result")
+				return durable.ModelResponse{}, sanitizedError("pi: invalid SDK result", false)
 			}
 			response = event.Response
 		case "error":
-			return durable.ModelResponse{}, piBridgeError(event.Code)
+			return durable.ModelResponse{}, piBridgeError(event.Code, event.Retryable, event.Overflow)
 		default:
-			return durable.ModelResponse{}, errors.New("pi: invalid SDK event")
+			return durable.ModelResponse{}, sanitizedError("pi: invalid SDK event", false)
 		}
 	}
 	if err := scanner.Err(); err != nil {
 		if errors.Is(err, errResponseTooLarge) {
 			return durable.ModelResponse{}, errResponseTooLarge
 		}
-		return durable.ModelResponse{}, errors.New("pi: SDK stream read failed")
+		return durable.ModelResponse{}, sanitizedError("pi: SDK stream read failed", false)
 	}
 	if response == nil {
-		return durable.ModelResponse{}, errors.New("pi: SDK stream ended without a result")
+		return durable.ModelResponse{}, sanitizedError("pi: SDK stream ended without a result", false)
 	}
 	return *response, nil
 }
 
-func piBridgeError(code string) error {
+func piBridgeError(code string, retryable, overflow bool) error {
 	// Only locally defined codes cross the boundary. Never return upstream error
-	// messages, including JSON parser errors that can quote secrets.
+	// messages, including JSON parser errors that can quote secrets. A provider
+	// error carries pi-ai's own retry and overflow classification instead.
 	switch code {
 	case "sdk":
-		return errors.New("pi: SDK unavailable; install pi-coding-agent 1.5.2 and configure PackageDir")
+		return sanitizedError("pi: SDK unavailable; install pi-coding-agent 1.5.2 and configure PackageDir", false)
 	case "config":
-		return errors.New("pi: invalid Pi model configuration; check models.json privately")
+		return sanitizedError("pi: invalid Pi model configuration; check models.json privately", false)
 	case "model":
-		return errors.New("pi: model not found; check the provider/ID and Pi models.json")
+		return sanitizedError("pi: model not found; check the provider/ID and Pi models.json", false)
 	case "request":
-		return errors.New("pi: unsupported or invalid model request")
+		return sanitizedError("pi: unsupported or invalid model request", false)
 	case "length":
-		return errors.New("pi: model output reached the token limit")
+		return sanitizedError("pi: model output reached the token limit", false)
 	default:
-		return errors.New("pi: provider request failed; check credentials with Pi /login and provider configuration")
+		return &providerError{message: "pi: provider request failed; check credentials with Pi /login and provider configuration",
+			retryable: retryable, overflow: overflow}
 	}
 }
 
