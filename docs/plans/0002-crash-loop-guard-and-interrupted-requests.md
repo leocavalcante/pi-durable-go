@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Status | In progress: M0–M2 complete; M3–M6 pending (§12.1) |
+| Status | In progress: M0–M3 complete; M4–M6 pending (§12.1) |
 | Date | 2026-11-11 |
 | Compatibility target | Pi **v1.5.2**: `@earendil-works/pi-durable` and `@earendil-works/pi-ai` 1.5.2, tag `v1.5.2`, commit `b4afdddf44e059c67ccf5097e5317d913521b470` (unchanged from plan 0001) |
 | Depends on | [Plan 0001](0001-task-outcomes-and-definition-lifecycle.md), merged to `main` |
@@ -63,7 +63,16 @@ Validation on Go 1.24.3:
 - `TaskRuntime.Commit` reports `task_interrupted` after a successful terminal commit whose failed outcome's `ErrorDetail` reason is `restart_limit` or `interrupted`, with the count captured before the callback in `Report.Restarts` (held outcomes at commit).
 - `crash_loop_test.go` adds a crash-simulation host wrapper (uncertain commit failures over a shared backend, optional crash points) and covers real crash loops of an extension run, an extension abort handler, and an aborted generation; held-fault cascades; limit-before-resolution ordering; limit settings and reopening with a higher limit; generic interruption reports, including held outcomes; and fault-write failures that fail the Session without a task report. M1 tests that seed large counts now opt out of enforcement with `math.Inf(1)`.
 
-M3–M6 remain unimplemented: built-in runs do not end themselves at the limit, there is no upstream retry policy, and crashed model requests still resend.
+### M3: Retry policy and classification
+
+Four commits, as planned; `RetryMax` and `RetryDelay` were removed with the generation commit rather than the first, so that each commit builds and passes on its own.
+
+1. `retry.go`: `RetrySettings` and its field-by-field resolution, `retryDelayMs` with pi-ai's safe-integer replacement and cap, saturating deadlines, and the exported `IsRetryableModelError`/`IsContextOverflowError` with the optional `Retryable()`/`ContextOverflow()` interfaces (`RetryableError`, `ContextOverflowError`). The pi-ai v1.5.2 pattern lists are verbatim; two lookaround patterns are rewritten for RE2, and JavaScript's `\s`/`\S` become explicit classes. `retry_test.go` checks every classification vector of pi-ai's `retry.test.ts` and every error-text vector of `overflow.test.ts`.
+2. Adapters: `model.OpenAI` classifies the status and the `error` object pi-ai's openai SDK path would report (or an SSE error event's message) before sanitizing; transport failures, dropped streams, and streams ending before `[DONE]` are retryable; local configuration, encoding, invalid-event, and size-limit errors are explicitly neither. The Pi bridge resolves pi-ai through the coding agent's dependency tree and returns only pi-ai's own two answers. A fake pi-ai fixture and an installed-SDK loopback test (503, 429 quota, 400 overflow) cover the bridge.
+3. `pi.generation` 2: a 1-based `attempt`, a `retry` phase with `until` in Unix milliseconds, `attempt = retry + 1` migration, preparing again after the backoff without counting a turn, and a retry phase that backs off again before its deadline.
+4. `pi.compaction` 2: the same policy without the overflow check; `retry` resends the pinned request as the next attempt; version-1 records migrate unchanged.
+
+M4–M6 remain unimplemented: built-in runs do not end themselves at the limit, tool output still lives in the checkpoint, and crashed model requests still resend.
 
 ## 2. Compatibility target
 

@@ -28,12 +28,12 @@ type retryPolicy struct {
 	maxAgentDelayMs float64
 }
 
-// defaultMaxAgentRetryDelayMs is pi-ai's DEFAULT_MAX_AGENT_RETRY_DELAY_MS.
-const defaultMaxAgentRetryDelayMs = 60_000
+// defaultMaxAgentDelayMs is pi-ai's DEFAULT_MAX_AGENT_RETRY_DELAY_MS.
+const defaultMaxAgentDelayMs = 60_000
 
 // resolve merges the set fields over Pi Durable's DEFAULT_RETRY_POLICY.
 func (s RetrySettings) resolve() retryPolicy {
-	policy := retryPolicy{enabled: true, maxRetries: 3, baseDelayMs: 2000, maxAgentDelayMs: defaultMaxAgentRetryDelayMs}
+	policy := retryPolicy{enabled: true, maxRetries: 3, baseDelayMs: 2000, maxAgentDelayMs: defaultMaxAgentDelayMs}
 	if s.Enabled != nil {
 		policy.enabled = *s.Enabled
 	}
