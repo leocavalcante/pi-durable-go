@@ -32,7 +32,6 @@
 ## 3. Not planned
 
 - **Deferred commits (`persistWithinMs`).** Upstream publishes progress to watches before storing it; this port's rule that visible state is committed before publication (AGENTS.md) forbids that. Progress commits are throttled instead.
-
 - **Code mode.** It runs model-written scripts in a JavaScript sandbox; Go would need an embedded engine.
 - **Upstream storage formats and Chord.** Go keeps its own backends; no file-format compatibility is claimed.
 - **Provider payload hooks (`beforeProviderRequest`).** Go's `Model` boundary builds provider payloads in adapters, not in the Harness.
