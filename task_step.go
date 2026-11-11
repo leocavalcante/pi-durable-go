@@ -168,60 +168,60 @@ func (s *Scheduler) settleTerminal(tx *Tx, t *TaskRecord) error {
 // Only an abort handler is faulted for the restart limit here (built-in run
 // phases end themselves): the task was aborted and keeps that meaning. Its run
 // ends aborted with the fault message as detail, without converting a partial
-// whose conversion may be what keeps cutting the handler off.
+// whose conversion may be what keeps cutting the handler off, and an aborted
+// compaction is no failure.
 func (h *Harness) settleSchedulerOutcome(tx *Tx, task *TaskRecord) error {
 	cutOff := task.Outcome.Status == OutcomeFaulted && detailReason(task.Outcome.ErrorDetail) == reasonRestartLimit
 	switch task.Kind {
 	case "pi.generation":
-		conv, err := tx.Conversation(task.Conversation)
+		live, err := readRunLive(tx, *task)
 		if err != nil {
-			return err
+			return nil // malformed run state must not poison the Session
 		}
-		if conv.Busy != task.ID {
+		if live.Run == nil || live.Run.TaskID != task.ID {
 			return nil
 		}
-		var fields map[string]json.RawMessage
-		_ = json.Unmarshal(task.Checkpoint, &fields)
-		var partial string
-		_ = json.Unmarshal(fields["partial"], &partial)
-		if partial != "" && !cutOff {
-			if _, err := tx.Append(task.Conversation, Entry{Kind: "pi.assistant", Message: &Message{Role: "assistant", Content: partial, Aborted: true}}); err != nil {
+		if !cutOff {
+			if err := convertPartial(tx, *task); err != nil {
 				return err
 			}
 		}
-		var input generationInput
-		_ = json.Unmarshal(task.Input, &input)
-		for _, id := range input.Submissions {
-			if sub := tx.state.Submissions[id]; sub != nil && sub.Status == "running" {
-				sub.Status = "unanswered"
-				sub.Answer = 0
-				sub.Reason = task.Outcome.Reason
-				sub.Detail = nil
-				if task.Outcome.Status == OutcomeFaulted {
-					sub.Reason = "faulted"
-					if cutOff {
-						sub.Reason = "aborted"
-					}
-					sub.Detail, _ = json.Marshal(task.Outcome.Error)
-				}
-			}
+		end := runEnd{reason: RunFaulted, detail: task.Outcome.Error}
+		switch {
+		case cutOff:
+			end.reason = RunAborted
+		case task.Outcome.Status == OutcomeOrphaned:
+			end = runEnd{reason: RunOrphaned, detail: task.Outcome.Reason, settlement: &runSettlement{reason: task.Outcome.Reason}}
 		}
-		conv.Busy = 0 // failed runs keep queued work, rather than advancing it
+		// Failed runs keep queued work, rather than advancing it.
+		if err := endRun(tx, task.Conversation, live, task.ID, end); err != nil {
+			return err
+		}
+		return writeLive(tx, task.Conversation, live)
 	case "pi.tool":
-		if doc := tx.state.Documents[documentKey(liveDocument, uint64(task.Conversation))]; doc != nil {
-			var live map[string]any
-			if json.Unmarshal(doc.Value, &live) != nil || live == nil {
-				return nil // malformed task diagnostics must not poison the Session
-			}
-			if tools, ok := live["tools"].(map[string]any); ok {
-				delete(tools, fmt.Sprint(task.ID))
-			}
-			data, err := json.Marshal(live)
-			if err != nil {
-				return err
-			}
-			return tx.PutDocument(liveDocument, uint64(task.Conversation), data)
+		live, err := readLive(tx, task.Conversation)
+		if err != nil {
+			return nil
 		}
+		if slot := live.toolSlot(task.ID); slot != nil {
+			finishSlot(slot) // done without an entry; context synthesizes the result
+			return writeLive(tx, task.Conversation, live)
+		}
+	case "pi.compaction":
+		live, err := readLive(tx, task.Conversation)
+		if err != nil {
+			return nil
+		}
+		if cutOff {
+			live.removeCompaction(task.ID)
+		} else {
+			message := task.Outcome.Error
+			if task.Outcome.Status == OutcomeOrphaned {
+				message = task.Outcome.Reason
+			}
+			live.failCompaction(task.ID, message)
+		}
+		return writeLive(tx, task.Conversation, live)
 	}
 	return nil
 }

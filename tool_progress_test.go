@@ -53,15 +53,16 @@ func toolTask(t *testing.T, h *Harness) TaskRecord {
 	return TaskRecord{}
 }
 
-func toolSlot(t *testing.T, h *Harness, cid ConversationID, id TaskID) map[string]any {
+func toolSlot(t *testing.T, h *Harness, cid ConversationID, id TaskID) ToolSlot {
 	t.Helper()
-	live, err := ReadDocument[map[string]any](context.Background(), h, liveDocument, uint64(cid))
+	live, err := ReadDocument[LiveState](context.Background(), h, liveDocument, uint64(cid))
 	if err != nil {
 		t.Fatal(err)
 	}
-	tools, _ := live["tools"].(map[string]any)
-	slot, _ := tools[itoa(id)].(map[string]any)
-	return slot
+	if slot := live.toolSlot(id); slot != nil {
+		return *slot
+	}
+	return ToolSlot{}
 }
 
 func toolResultEntry(t *testing.T, h *Harness, cid ConversationID) Entry {
@@ -124,7 +125,7 @@ func TestToolProgressIsNotTaskProgress(t *testing.T) {
 		t.Fatalf("progress changed task state: restarts=%d checkpoint=%s (before %s)", after.Restarts, after.Checkpoint, before.Checkpoint)
 	}
 	slot := toolSlot(t, h, root.ID(), after.ID)
-	if slot["output"] != "chunk one, chunk two" || slot["details"].(map[string]any)["progress"] != 0.5 {
+	if slot.Output != "chunk one, chunk two" || string(slot.Details) != `{"progress":0.5}` || slot.Status != "running" {
 		t.Fatalf("slot=%+v", slot)
 	}
 	close(finish)
@@ -162,12 +163,11 @@ func TestToolProgressRerunsAndInterruptions(t *testing.T) {
 					<-ctx.Done()
 					return ToolResult{}, ctx.Err()
 				}
-				live, err := ReadDocument[map[string]any](ctx, r.Harness(), liveDocument, uint64(r.ConversationID))
+				live, err := ReadDocument[LiveState](ctx, r.Harness(), liveDocument, uint64(r.ConversationID))
 				if err != nil {
 					return ToolResult{}, err
 				}
-				tools, _ := live["tools"].(map[string]any)
-				data, _ := json.Marshal(tools[itoa(r.ID)])
+				data, _ := json.Marshal(live.toolSlot(r.ID))
 				rerunSlot.Store(string(data))
 				if err := r.Output(ctx, "second attempt"); err != nil {
 					return ToolResult{}, err
@@ -237,10 +237,17 @@ func TestToolProgressLegacyCheckpointOutput(t *testing.T) {
 				if err != nil {
 					return err
 				}
-				generation, err := tx.createGeneration(root.ID(), nil)
+				live, err := readLive(tx, root.ID())
 				if err != nil {
 					return err
 				}
+				if err := startRun(tx, root.ID(), live, nil, assistant, false); err != nil {
+					return err
+				}
+				if err := writeLive(tx, root.ID(), live); err != nil {
+					return err
+				}
+				generation := live.Run.TaskID
 				input, _ := json.Marshal(toolTaskInput{Assistant: assistant, CallID: "call-1", Call: ToolCall{ID: "call-1", Name: "effect", Arguments: json.RawMessage(`{}`)}})
 				if tool, err = tx.CreateTask(root.ID(), toolTaskDefinition(), input, TaskOptions{Owner: Owner{Task: generation}}); err != nil {
 					return err
@@ -251,8 +258,7 @@ func TestToolProgressLegacyCheckpointOutput(t *testing.T) {
 				owner := tx.state.Tasks[generation]
 				owner.Status = "waiting"
 				owner.WaitOn, owner.WaitPolicy = []TaskID{tool}, "allSettled"
-				owner.Checkpoint, _ = json.Marshal(generationCheckpoint{Phase: "tools", Attempt: 1, Turns: 1, Children: []TaskID{tool}, Assistant: assistant})
-				tx.state.Conversations[root.ID()].Busy = generation
+				owner.Checkpoint, _ = json.Marshal(generationCheckpoint{Phase: "tools", Children: []TaskID{tool}, Assistant: assistant})
 				return nil
 			}); err != nil {
 				t.Fatal(err)

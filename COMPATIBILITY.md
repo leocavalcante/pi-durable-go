@@ -11,7 +11,8 @@ Pinned upstream references: [Durable source](https://github.com/earendil-works/p
 - Serialized commits across transcripts, submissions, tasks, and JSON documents; detached snapshots and commit-before-publication observation. Memory, SQLite, and append-only JSONL backends persist whole-State snapshots.
 - Uncertain storage failures poison the Session; caller writes rejected as unapplied roll back, while scheduler bookkeeping failures fail closed. Fatal failures end observers and waits, signal invocations, and close storage after admitted work drains. `Err`, `Done`, and `WaitClosed` expose admission/failure and shutdown completion.
 - ID-based conversations, root creation, complete-Agent reconfiguration, transcript forks, and per-conversation provider session IDs.
-- Input/write submissions include custom non-`pi.*` input-entry kinds/data, per-conversation request-ID admission deduplication, waiting, and queued-input withdrawal. Display-only writes settle immediately during a run unless a reset is queued.
+- Input, write, and continue submissions follow upstream admission (spec §6): custom non-`pi.*` input-entry kinds/data, per-conversation request-ID deduplication, `WhenBusy` (`followUp`, `steer`, `reject`) and `WhenIdle: "reject"` (`ErrIdle`), `queued`/`placed`/`done`/`unanswered` statuses with the placed `Entry`, waiting, and queued-input withdrawal. Display-only writes settle immediately during a run unless a reset is queued. Queued items are placed at upstream's final and post-tools boundaries under `Settings.SteeringMode`/`FollowUpMode`.
+- Run control lives in `pi.live` (upstream `LiveState`): `run`, `generation` attempt and retry note, tool slots, `compactions`, `compactionFailure`, and `runFailure` with upstream's reason codes. A generation runs one turn and hands the run to the next; `Settings.AfterFailedRun`, continue submissions, tool handoffs that continue in a new context, and `Agent.MaxTurns` (`turn_limit`) follow upstream ([plan 0004](docs/plans/0004-run-control-and-run-failures.md)).
 - Generation and tool tasks persist intent and replay-safety policies. Custom tasks support checkpoints, timers, waiting, ownership, cancellation, restart abandonment, and background work; `OwnedTasks` and invocation-bound `AbortOwned` expose direct task children.
 - Versioned documents support conversation/session/task scope; conversation history/forks include `latest`/`rewindable` and `initial`/`current`/`asOf` policies.
 - Extensions provide ordered selections, same-name replacement, tool wrappers, hooks, and sections. Conversation/document watchers deliver bounded latest snapshots, not audit logs.
@@ -27,7 +28,7 @@ Task-written outcomes are `completed`, `failed`, and `aborted`. A newly committe
 
 If a handler returns while its task is still `running`, a structurally changed checkpoint lets the next phase continue in the same invocation; returning without that progress faults it. A committed `pending`, `waiting`, or terminal transition ends that phase without the progress check. JSON object key order and numerically equivalent number spellings do not count as progress differences. The task-committed `pending` transition is a Go-specific yield; `waiting` waits on task IDs. Every outcome hold in `completing` drops memos immediately while retaining the checkpoint until finalization. Runtime gates are invocation-scoped, as in upstream v1.5.2's `#run`/`#runtime`/`#gated`: a continuing step does not revoke the runtime. Join phase-owned goroutines before returning when their writes must precede that phase's progress decision.
 
-For built-in tasks, scheduler faults/orphans clean up in the terminal commit. Generation cleanup salvages a partial assistant message, marks affected running submissions `unanswered` with a reason/detail, clears the conversation's busy task, and leaves queued submissions alone. Tool cleanup removes the live tool slot without appending a result; derived model context synthesizes a missing-result error message, but Go does not expose upstream's structured `missing_result` diagnostic. Unlike upstream, Go removes the tool slot rather than retaining a `done` slot. Go has no separate compaction status to clear.
+For built-in tasks, scheduler faults/orphans clean up in the terminal commit. Generation cleanup salvages a partial assistant message and ends the run (`faulted` with the message, or `orphaned` with its reason), recording `runFailure` and leaving queued submissions alone. Tool cleanup marks the slot done without a result entry; derived model context synthesizes a missing-result error message, but Go does not expose upstream's structured `missing_result` diagnostic. Compaction cleanup records `compactionFailure`, except for a cut-off abort handler.
 
 ### Resolution, migration, and inspection
 
@@ -69,10 +70,8 @@ Accounting leaves State version 2 unchanged. The first open counts `running` rec
 
 These need upstream subsystems Go does not have yet (plan 0002 §12.2):
 
-- There is no `pi.live` run state: no `runFailure`, no generation attempt or retry note, and no `compactions`/`compactionFailure`.
-- Run failures other than `faulted`, orphan reasons, `interrupted`, `restart_limit`, and cut-off `aborted` keep free-text reasons instead of codes such as `model_error` or `no_model`.
 - Messages have no stop reason or error message: a failed attempt is kept as its partial (an aborted entry), and `AfterResponse` sees only successful responses. A `length` stop is an adapter error rather than an answer.
-- One generation task serves a whole run (`prepare`, `request`, `retry`, `tools`); there are no `poll`/`finish`/`drain` phases or deferred model handles.
+- A generation's phases are `prepare`, `request`, `retry`, and `tools`; there are no `poll`/`finish`/`drain` phases, `afterRun` hooks, or deferred model handles.
 - Tool results written by the Harness have no structured diagnostics and no `afterTool` hooks; the `restart_limit` result uses Go's result form.
 - No automatic or overflow compaction, so an overflow fails the run.
 - Settings are static per Harness rather than function-valued.
@@ -112,9 +111,9 @@ This table highlights compatibility changes since the previous runtime reference
 | `settings.retry` policy and pi-ai transient/overflow classification | Before the previous reference | Implemented for generation and compaction; backoffs sleep. |
 | Full wait-cycle validation across wait and ownership edges | 1.2.0 | Implemented: a wait that would close a cycle through wait and live ordinary ownership edges is rejected with upstream's messages; abort-marked waiters and background subtrees add no edges. |
 | Durable `sleeping`, `sleepUntil`, timers, wake API | 1.4.0 | Implemented ([plan 0003](docs/plans/0003-durable-sleeping-and-wakeups.md)): `sleeping` status, `SleepUntil`, timer-driven passes without polling, `SetTimer`, `OnWake`, `Harness.Wake()`, and invocation-bound `TaskRuntime.SetTimer`. |
-| `afterFailedRun`; `pi.live.runFailure`; continue-submission/idle policies and per-conversation `maxTurns` | 1.4.0, 1.5.0 | Missing. Go has a global `Settings.MaxTurns` safeguard but no upstream run-failure model; failed runs keep queued work. |
+| `afterFailedRun`; `pi.live.runFailure`; continue-submission/idle policies and per-conversation `maxTurns` | 1.4.0, 1.5.0 | Implemented ([plan 0004](docs/plans/0004-run-control-and-run-failures.md)); the global `Settings.MaxTurns` safeguard is removed, as upstream has none. |
 | Conversation submission hooks, run-end/provider hooks, task/host entry access | 1.5.0 | Missing. |
-| Tool `handoff` continuation and persistence of each assistant attempt's requested `thinkingLevel` | 1.5.0 | Missing (follow-up J): Go settles the run on the tool-calling answer and does not store per-attempt thinking level on assistant messages. |
+| Tool `handoff` continuation and persistence of each assistant attempt's requested `thinkingLevel` | 1.5.0 | Partial: a handoff appends its reset and the run continues in the new context; per-attempt `thinkingLevel` on assistant messages is missing (J). |
 | v1.2+ tool suite: nested/structured tools, tool callers and selection, deferred search/codemode, `afterTool`, and unoffered-call tasks | 1.2.0–1.5.0 | Missing; see Agent execution above. |
 | Group commit, deferred commits, progress throttling, Chord observers/views/watch events | 1.5.0 | Missing; Go commits whole snapshots and watches coalesced latest state. |
 | `SessionEnd` tagged by `kind` | 1.5.0 | Implemented as `SessionEnd.Kind`. |

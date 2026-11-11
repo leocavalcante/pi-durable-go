@@ -99,7 +99,7 @@ func TestCrashLoopOpenCountsOnlyRunningTasksOnce(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if state.Version != 2 {
+		if state.Version != stateVersion {
 			t.Fatalf("open %d changed state version to %d", open, state.Version)
 		}
 		for _, tc := range statuses {

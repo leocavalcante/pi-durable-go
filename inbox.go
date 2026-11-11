@@ -1,6 +1,9 @@
 package durable
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"sort"
+)
 
 func inputEntry(request SubmissionRequest) Entry {
 	kind := "pi.user"
@@ -12,8 +15,10 @@ func inputEntry(request SubmissionRequest) Entry {
 	return Entry{Kind: kind, Message: &Message{Role: "user", Content: request.Content}, Data: data}
 }
 
+// isDisplayOnlyWrite: a write that changes nothing the model sees (no
+// message, not a reset or compaction summary) needs no boundary.
 func isDisplayOnlyWrite(request SubmissionRequest) bool {
-	return request.Type == "write" && request.Entry != nil && request.Entry.Kind != "pi.reset" && request.Entry.Message == nil
+	return request.Type == "write" && request.Entry != nil && request.Entry.Kind != "pi.reset" && request.Entry.Kind != "pi.compaction" && request.Entry.Message == nil
 }
 
 func queuedResetExists(tx *Tx, cid ConversationID) bool {
@@ -76,6 +81,10 @@ func placeWrite(tx *Tx, cid ConversationID, submission *SubmissionRecord) error 
 		return err
 	}
 	submission.Status = "done"
-	submission.Answer = id
+	submission.Entry = id
 	return nil
+}
+
+func sortSubmissions(items []*SubmissionRecord) {
+	sort.Slice(items, func(i, j int) bool { return items[i].ID < items[j].ID })
 }

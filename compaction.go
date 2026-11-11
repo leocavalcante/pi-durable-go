@@ -56,7 +56,15 @@ func compactionTaskDefinition() TaskDefinition {
 		Run:     runCompaction,
 		Migrate: migrateCompaction,
 		Abort: func(ctx context.Context, r *TaskRuntime, t TaskRecord) error {
-			return r.Complete(ctx, Outcome{Status: OutcomeAborted})
+			return r.Commit(ctx, func(tx *Tx) (TaskTransition, error) {
+				if err := updateLive(tx, t.Conversation, func(live *LiveState) error {
+					live.removeCompaction(t.ID)
+					return nil
+				}); err != nil {
+					return TaskTransition{}, err
+				}
+				return TaskTransition{Status: "terminal", Outcome: &Outcome{Status: OutcomeAborted}}, nil
+			})
 		},
 	}
 }
@@ -114,8 +122,15 @@ func (c *Conversation) Compact(ctx context.Context, instructions string) (TaskID
 	def := compactionTaskDefinition()
 	err = c.h.Commit(ctx, func(tx *Tx) error {
 		var err error
-		id, err = tx.CreateTask(c.id, def, input, TaskOptions{Background: true})
-		return err
+		// A manual compaction is conversation-owned and not background, so a
+		// conversation abort aborts it (upstream createCompaction).
+		if id, err = tx.CreateTask(c.id, def, input, TaskOptions{}); err != nil {
+			return err
+		}
+		return updateLive(tx, c.id, func(live *LiveState) error {
+			live.Compactions = append(live.Compactions, CompactionStatus{TaskID: id, Trigger: "manual", Attempt: 1})
+			return nil
+		})
 	})
 	if err == nil {
 		c.h.Resume()
@@ -136,13 +151,13 @@ func runCompaction(ctx context.Context, r *TaskRuntime, task TaskRecord) error {
 	switch checkpoint.Phase {
 	case "request", "retry", "publish":
 		if cutOffTooOften(task.Restarts, r.h.restartLimit()) {
-			return r.Complete(ctx, Outcome{Status: OutcomeFailed, Error: "Compaction was interrupted " + cutOffCount(task.Restarts), ErrorDetail: restartLimitDetail})
+			return failCompaction(ctx, r, task, "Compaction was interrupted "+cutOffCount(task.Restarts), reasonRestartLimit)
 		}
 	}
 	switch checkpoint.Phase {
 	case "request":
 		if r.h.options.Model == nil {
-			return r.Complete(ctx, Outcome{Status: OutcomeFailed, Error: "durable: no model configured"})
+			return failCompaction(ctx, r, task, "No model is configured", RunNoModel)
 		}
 		response, err := r.h.options.Model.Generate(ctx, input.Request, func(string) error { return nil })
 		if err != nil {
@@ -153,6 +168,7 @@ func runCompaction(ctx context.Context, r *TaskRuntime, task TaskRecord) error {
 			// overflow check (Pi Durable §8.7); read when the attempt failed.
 			policy := r.h.options.Settings.Retry.resolve()
 			attempt := checkpoint.attempt()
+			text := diagnostic(err.Error())
 			if IsRetryableModelError(err) && policy.allows(attempt) {
 				until := retryDeadline(r.h.now(), retryDelayMs(policy, attempt)).UnixMilli()
 				next, err := json.Marshal(compactionCheckpoint{Phase: "retry", Attempt: attempt, Until: until})
@@ -160,11 +176,19 @@ func runCompaction(ctx context.Context, r *TaskRuntime, task TaskRecord) error {
 					return err
 				}
 				wake := time.UnixMilli(until).UTC()
-				return r.Commit(ctx, func(*Tx) (TaskTransition, error) {
+				return r.Commit(ctx, func(tx *Tx) (TaskTransition, error) {
+					if err := updateLive(tx, task.Conversation, func(live *LiveState) error {
+						if status := live.compaction(task.ID); status != nil {
+							status.Retry = &LiveRetry{At: until, Error: text}
+						}
+						return nil
+					}); err != nil {
+						return TaskTransition{}, err
+					}
 					return TaskTransition{Status: "sleeping", Checkpoint: next, WakeAt: &wake}, nil
 				})
 			}
-			return r.Complete(ctx, Outcome{Status: OutcomeFailed, Error: diagnostic(err.Error())})
+			return failCompaction(ctx, r, task, text, RunModelError)
 		}
 		next, err := json.Marshal(compactionCheckpoint{Phase: "publish", Summary: response.Content})
 		if err != nil {
@@ -199,11 +223,20 @@ func runCompaction(ctx context.Context, r *TaskRuntime, task TaskRecord) error {
 				return TaskTransition{Status: "sleeping", Checkpoint: task.Checkpoint, WakeAt: &wake}, nil
 			})
 		}
-		next, err := json.Marshal(compactionCheckpoint{Phase: "request", Attempt: checkpoint.attempt() + 1})
+		attempt := checkpoint.attempt() + 1
+		next, err := json.Marshal(compactionCheckpoint{Phase: "request", Attempt: attempt})
 		if err != nil {
 			return err
 		}
-		return r.Commit(ctx, func(*Tx) (TaskTransition, error) {
+		return r.Commit(ctx, func(tx *Tx) (TaskTransition, error) {
+			if err := updateLive(tx, task.Conversation, func(live *LiveState) error {
+				if status := live.compaction(task.ID); status != nil {
+					status.Attempt, status.Retry = attempt, nil
+				}
+				return nil
+			}); err != nil {
+				return TaskTransition{}, err
+			}
 			return TaskTransition{Status: "running", Checkpoint: next}, nil
 		})
 	case "publish":
@@ -241,8 +274,21 @@ func runCompaction(ctx context.Context, r *TaskRuntime, task TaskRecord) error {
 					}
 				}
 			}
+			live, err := readLive(tx, task.Conversation)
+			if err != nil {
+				return TaskTransition{}, err
+			}
+			live.removeCompaction(task.ID)
 			if stale {
+				if err := writeLive(tx, task.Conversation, live); err != nil {
+					return TaskTransition{}, err
+				}
 				return TaskTransition{Status: "terminal", Outcome: &Outcome{Status: "completed", Result: json.RawMessage(`{"stale":true}`)}}, nil
+			}
+			// A compaction that produces a summary removes the last failure.
+			live.CompactionFailure = nil
+			if err := writeLive(tx, task.Conversation, live); err != nil {
+				return TaskTransition{}, err
 			}
 			data, err := json.Marshal(struct {
 				Summary string  `json:"summary"`
@@ -251,16 +297,11 @@ func runCompaction(ctx context.Context, r *TaskRuntime, task TaskRecord) error {
 			if err != nil {
 				return TaskTransition{}, err
 			}
-			id := SubmissionID(tx.id())
-			tx.state.Submissions[id] = &SubmissionRecord{ID: id, Conversation: task.Conversation, Request: SubmissionRequest{Type: "write", Entry: &Entry{Kind: "pi.compaction", Data: data}, RequestID: fmt.Sprintf("compaction:%d", task.ID)}, Status: "queued", CreatedAt: tx.clock()}
-			rec, err := tx.Conversation(task.Conversation)
+			// A conversation-owned compaction places its summary through a
+			// write submission: at once when idle, else at the next boundary.
+			id, err := r.h.admitSubmission(tx, task.Conversation, SubmissionRequest{Type: "write", Entry: &Entry{Kind: "pi.compaction", Data: data}, RequestID: fmt.Sprintf("compaction:%d", task.ID)})
 			if err != nil {
 				return TaskTransition{}, err
-			}
-			if rec.Busy == 0 {
-				if err := advanceInbox(tx, task.Conversation); err != nil {
-					return TaskTransition{}, err
-				}
 			}
 			result, err := json.Marshal(struct {
 				SubmissionID SubmissionID `json:"submissionId"`
@@ -273,4 +314,22 @@ func runCompaction(ctx context.Context, r *TaskRuntime, task TaskRecord) error {
 	default:
 		return fmt.Errorf("%w: compaction phase", ErrInvalid)
 	}
+}
+
+// failCompaction fails a compaction with message and ErrorDetail {"reason":
+// reason}, recording the failure in pi.live.compactionFailure.
+func failCompaction(ctx context.Context, r *TaskRuntime, task TaskRecord, message, reason string) error {
+	return r.Commit(ctx, func(tx *Tx) (TaskTransition, error) {
+		if err := updateLive(tx, task.Conversation, func(live *LiveState) error {
+			live.failCompaction(task.ID, message)
+			return nil
+		}); err != nil {
+			return TaskTransition{}, err
+		}
+		detail, err := json.Marshal(map[string]string{"reason": reason})
+		if err != nil {
+			return TaskTransition{}, err
+		}
+		return TaskTransition{Status: "terminal", Outcome: &Outcome{Status: OutcomeFailed, Error: diagnostic(message), ErrorDetail: detail}}, nil
+	})
 }

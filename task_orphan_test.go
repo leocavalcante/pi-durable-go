@@ -806,7 +806,7 @@ func TestTaskOrphanBuiltinGenerationCleanupIsAtomic(t *testing.T) {
 		task.Version = def.Version + 1
 		task.Checkpoint = checkpoint
 		tx.state.Conversations[c.id].Busy = id
-		tx.state.Submissions[77] = &SubmissionRecord{ID: 77, Conversation: c.id, Status: "running", Request: SubmissionRequest{Type: "input"}, CreatedAt: time.Now()}
+		tx.state.Submissions[77] = &SubmissionRecord{ID: 77, Conversation: c.id, Status: "placed", Request: SubmissionRequest{Type: "input"}, CreatedAt: time.Now()}
 		return tx.PutDocument(orphanTaskDocument, uint64(id), json.RawMessage(`{"retire":true}`))
 	}); err != nil {
 		t.Fatal(err)

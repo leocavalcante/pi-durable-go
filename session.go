@@ -55,9 +55,9 @@ func NewSession(ctx context.Context, storage Storage, now func() time.Time) (*Se
 		return nil, err
 	}
 	if st == nil {
-		st = &State{Version: 2, NextID: 1, Conversations: map[ConversationID]*ConversationRecord{}, Entries: map[EntryID]*Entry{}, Tasks: map[TaskID]*TaskRecord{}, Submissions: map[SubmissionID]*SubmissionRecord{}, Documents: map[string]*DocumentRecord{}}
+		st = &State{Version: stateVersion, NextID: 1, Conversations: map[ConversationID]*ConversationRecord{}, Entries: map[EntryID]*Entry{}, Tasks: map[TaskID]*TaskRecord{}, Submissions: map[SubmissionID]*SubmissionRecord{}, Documents: map[string]*DocumentRecord{}}
 	}
-	if (st.Version != 1 && st.Version != 2) || st.NextID == 0 {
+	if st.Version < 1 || st.Version > stateVersion || st.NextID == 0 {
 		return nil, fmt.Errorf("%w: unsupported storage version or invalid ID allocator", ErrInvalid)
 	}
 	st, err = cloneState(st)
@@ -65,8 +65,10 @@ func NewSession(ctx context.Context, storage Storage, now func() time.Time) (*Se
 		return nil, fmt.Errorf("durable: invalid stored state: %w", err)
 	}
 	// Upgrade only the detached in-memory snapshot. The next successful commit
-	// persists v2; merely opening a v1 store does not write to it.
-	st.Version = 2
+	// persists it; merely opening an older store does not write to it.
+	if err := upgradeState(st); err != nil {
+		return nil, fmt.Errorf("durable: cannot upgrade stored state: %w", err)
+	}
 	return &Session{storage: storage, state: st, now: now, watchers: map[*stateWatcher]struct{}{}, closing: make(chan struct{}), closeDone: make(chan struct{})}, nil
 }
 
@@ -317,4 +319,67 @@ func cloneState(s *State) (*State, error) {
 		out.Documents = map[string]*DocumentRecord{}
 	}
 	return &out, nil
+}
+
+// stateVersion is Go's storage format version. Version 2 added outcome and
+// submission diagnostics; version 3 is upstream's run model: placed
+// submissions with their entry, and run control in pi.live.
+const stateVersion = 3
+
+// upgradeState upgrades a detached State to stateVersion in memory.
+func upgradeState(st *State) error {
+	if st.Version == 1 {
+		st.Version = 2 // version 2 only added optional fields
+	}
+	if st.Version == 2 {
+		for _, sub := range st.Submissions {
+			if sub.Status == "running" {
+				sub.Status = "placed"
+			}
+			if sub.Request.WhenBusy == "follow-up" {
+				sub.Request.WhenBusy = "followUp"
+			}
+			if sub.Request.Type == "write" && sub.Entry == 0 && sub.Answer != 0 {
+				sub.Entry, sub.Answer = sub.Answer, 0
+			}
+		}
+		for _, doc := range st.Documents {
+			if doc.Kind == liveDocument.Kind && doc.Version == 1 {
+				value, err := liveFromVersion1(doc.Value)
+				if err != nil {
+					return err
+				}
+				doc.Value, doc.Version = value, liveDocument.Version
+			}
+		}
+		// A version-2 run lived in one generation, whose input listed it.
+		for id, conv := range st.Conversations {
+			if conv.Busy == 0 || st.Tasks[conv.Busy] == nil {
+				continue
+			}
+			var input generationInput
+			_ = json.Unmarshal(st.Tasks[conv.Busy].Input, &input)
+			key := documentKey(liveDocument, uint64(id))
+			doc := st.Documents[key]
+			if doc == nil {
+				doc = &DocumentRecord{Kind: liveDocument.Kind, Version: liveDocument.Version, Scope: liveDocument.Scope, ScopeID: uint64(id),
+					History: normalizeHistory(liveDocument.History), Fork: normalizeFork(liveDocument.Scope, liveDocument.Fork), Value: json.RawMessage(`{}`)}
+				st.Documents[key] = doc
+			}
+			var live LiveState
+			if err := json.Unmarshal(doc.Value, &live); err != nil {
+				return err
+			}
+			if live.Run == nil {
+				live.Run = &LiveRun{TaskID: conv.Busy, Inputs: append([]SubmissionID{}, input.Submissions...)}
+			}
+			value, err := json.Marshal(live)
+			if err != nil {
+				return err
+			}
+			doc.Value = value
+		}
+		st.Version = 3
+	}
+	return nil
 }

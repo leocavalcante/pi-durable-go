@@ -93,7 +93,7 @@ func (h *Harness) Inspect(ctx context.Context) (HarnessInspection, error) {
 		out.Tasks = append(out.Tasks, item)
 	}
 	for _, sub := range state.Submissions {
-		if sub.Status == "queued" || sub.Status == "running" {
+		if sub.Status == "queued" || sub.Status == "placed" {
 			out.Submissions = append(out.Submissions, *sub)
 		}
 	}

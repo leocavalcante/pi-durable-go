@@ -3,27 +3,29 @@ package durable
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"sort"
 	"strings"
 	"time"
 )
 
+// generationInput is empty for version-3 generations, whose run inputs live
+// in pi.live.run. Version-2 generations ran whole runs and listed their
+// inputs here; the State version-3 upgrade moves them to pi.live.run.
 type generationInput struct {
 	Submissions []SubmissionID `json:"submissions,omitempty"`
 }
 
-// generationCheckpoint is pi.generation version 2. Phases: prepare, request,
-// retry (a backoff until Until, in Unix milliseconds), and tools. Attempt is
-// the 1-based model attempt of the current turn; zero reads as 1.
+// generationCheckpoint is pi.generation version 3, one turn of a run.
+// Phases: prepare, request, retry (a sleep until Until, in Unix
+// milliseconds), and tools. Attempt is the 1-based model attempt of the turn;
+// zero reads as 1.
 type generationCheckpoint struct {
 	Phase     string       `json:"phase"`
 	Attempt   int          `json:"attempt,omitempty"`
 	Until     int64        `json:"until,omitempty"`
 	Request   ModelRequest `json:"request,omitempty"`
 	Partial   string       `json:"partial,omitempty"`
-	Turns     int          `json:"turns,omitempty"`
+	Turns     int          `json:"turns,omitempty"` // version 2 only
 	Children  []TaskID     `json:"children,omitempty"`
 	Assistant EntryID      `json:"assistant,omitempty"`
 }
@@ -37,13 +39,19 @@ func (cp generationCheckpoint) attempt() int {
 
 // generationVersion is Go's own numbering of pi.generation's stored form.
 // Version 2 replaced version 1's retry count with a 1-based attempt and added
-// the retry phase; a version-1 Harness leaves version-2 records blocked.
-const generationVersion = 2
+// the retry phase. Version 3 is one generation per turn, with the run in
+// pi.live; a version-2 Harness would loop a run in one generation, so it
+// leaves version-3 records blocked.
+const generationVersion = 3
 
-// migrateGeneration accepts version-1 records: attempt = retry + 1, every
-// other field kept as stored.
+// migrateGeneration accepts older records. From version 1: attempt = retry +
+// 1, every other field kept. Version 2 checkpoints are unchanged.
 func migrateGeneration(from int, input, checkpoint json.RawMessage) (MigratedTask, error) {
-	if from != 1 {
+	switch from {
+	case 1:
+	case 2:
+		return MigratedTask{Input: input, Checkpoint: checkpoint}, nil
+	default:
 		return MigratedTask{}, fmt.Errorf("pi.generation has no migration from version %d", from)
 	}
 	var fields map[string]json.RawMessage
@@ -66,63 +74,22 @@ func migrateGeneration(from int, input, checkpoint json.RawMessage) (MigratedTas
 	return MigratedTask{Input: input, Checkpoint: migrated}, err
 }
 
-type toolTaskInput struct {
-	Assistant EntryID  `json:"assistant"`
-	CallID    string   `json:"callId"`
-	Call      ToolCall `json:"call"`
+// createGeneration creates a conversation-owned generation for a turn.
+func (tx *Tx) createGeneration(cid ConversationID) (TaskID, error) {
+	return tx.CreateTask(cid, generationTaskDefinition(), json.RawMessage(`{}`), TaskOptions{})
 }
 
-// toolCheckpoint is pi.tool version 2: phases call and execute. Running
-// output lives in the call's pi.live slot; Output is only read from version-1
-// records, which stored it here.
-type toolCheckpoint struct {
-	Phase      string          `json:"phase"`
-	Arguments  json.RawMessage `json:"arguments,omitempty"`
-	ReplaySafe bool            `json:"replaySafe,omitempty"`
-	Output     string          `json:"output,omitempty"` // legacy version 1 only
-}
-
-// toolVersion is Go's own numbering of pi.tool's stored form. Version 2 moved
-// output to the pi.live slot only; a version-1 Harness would drop committed
-// output from interrupted and aborted results, so it leaves version 2 blocked.
-const toolVersion = 2
-
-func migrateTool(from int, input, checkpoint json.RawMessage) (MigratedTask, error) {
-	if from != 1 {
-		return MigratedTask{}, fmt.Errorf("pi.tool has no migration from version %d", from)
-	}
-	return MigratedTask{Input: input, Checkpoint: checkpoint}, nil
-}
-
-type toolTaskResult struct {
-	EntryID EntryID    `json:"entryId"`
-	Result  ToolResult `json:"result"`
-}
-
-func (tx *Tx) createGeneration(cid ConversationID, submissions []SubmissionID) (TaskID, error) {
-	input, err := json.Marshal(generationInput{Submissions: submissions})
-	if err != nil {
-		return 0, err
-	}
-	return tx.CreateTask(cid, generationTaskDefinition(), input, TaskOptions{})
-}
 func generationTaskDefinition() TaskDefinition {
 	return TaskDefinition{Kind: "pi.generation", Version: generationVersion, Initial: func(json.RawMessage) (json.RawMessage, error) {
 		return json.Marshal(generationCheckpoint{Phase: "prepare", Attempt: 1})
 	}, Run: runGeneration, Abort: settleGenerationAbort, Migrate: migrateGeneration}
 }
-func toolTaskDefinition() TaskDefinition {
-	return TaskDefinition{Kind: "pi.tool", Version: toolVersion, Initial: func(json.RawMessage) (json.RawMessage, error) { return json.Marshal(toolCheckpoint{Phase: "call"}) }, Run: runTool, Abort: func(ctx context.Context, r *TaskRuntime, t TaskRecord) error {
-		return finishTool(ctx, r, t, ToolResult{Content: "aborted", IsError: true}, "aborted")
-	}, Migrate: migrateTool}
-}
 
+// runGeneration runs one turn of a run (Pi Durable §8.3): prepare the
+// request, request (or retry) the model, and either answer, ending the run,
+// or start a tool round whose end hands the run to the next generation.
 func runGeneration(ctx context.Context, r *TaskRuntime, task TaskRecord) error {
-	var input generationInput
 	var cp generationCheckpoint
-	if err := json.Unmarshal(task.Input, &input); err != nil {
-		return err
-	}
 	if err := json.Unmarshal(task.Checkpoint, &cp); err != nil {
 		return err
 	}
@@ -131,292 +98,469 @@ func runGeneration(ctx context.Context, r *TaskRuntime, task TaskRecord) error {
 	switch cp.Phase {
 	case "prepare", "request", "retry", "tools":
 		if limit := r.h.restartLimit(); cutOffTooOften(task.Restarts, limit) {
-			return endGenerationCutOff(ctx, r, task, input, cp, limit)
+			return endGenerationCutOff(ctx, r, task, cp, limit)
 		}
 	}
 	switch cp.Phase {
 	case "prepare":
-		// A retry prepares the same turn again, so agent, section, and settings
-		// changes made during its backoff apply; only a first attempt is a turn.
-		attempt := cp.attempt()
-		max := r.h.options.Settings.MaxTurns
-		if max <= 0 {
-			max = 100
-		}
-		if attempt == 1 && cp.Turns >= max {
-			return failGeneration(ctx, r, task, input, fmt.Errorf("maximum generation turns (%d) exceeded", max))
-		}
-		state, err := r.h.Snapshot(ctx)
-		if err != nil {
-			return err
-		}
-		c := state.Conversations[task.Conversation]
-		if c == nil {
-			return ErrNotFound
-		}
-		if r.h.options.Model == nil {
-			return failGeneration(ctx, r, task, input, errors.New("no model configured"))
-		}
-		request, err := buildRequest(ctx, r, state, *c)
-		if err != nil {
-			return failGeneration(ctx, r, task, input, err)
-		}
-		cp.Phase = "request"
-		cp.Request = request
-		cp.Partial = ""
-		cp.Attempt = attempt
-		cp.Until = 0
-		if attempt == 1 {
-			cp.Turns++
-		}
-		return r.Commit(ctx, func(tx *Tx) (TaskTransition, error) {
-			metadata, err := json.Marshal(struct {
-				Messages []Message  `json:"system"`
-				Tools    []ToolSpec `json:"tools"`
-			}{systemMessages(request.Messages), request.Tools})
-			if err != nil {
-				return TaskTransition{}, err
-			}
-			// Journal prompt/tool choices, while the complete prepared request is the
-			// recovery authority. Native positional system-update caching is not ported.
-			entries, err := entriesFromState(tx.state, task.Conversation)
-			if err != nil {
-				return TaskTransition{}, err
-			}
-			var previous json.RawMessage
-			for _, e := range entries {
-				if e.Kind == "pi.system" {
-					previous = e.Data
-				}
-			}
-			if string(previous) != string(metadata) {
-				if _, err := tx.Append(task.Conversation, Entry{Kind: "pi.system", Data: metadata}); err != nil {
-					return TaskTransition{}, err
-				}
-			}
-			data, err := json.Marshal(cp)
-			return TaskTransition{Status: "pending", Checkpoint: data}, err
-		})
+		return prepareGeneration(ctx, r, task, cp)
 	case "request":
-		// The host stopped while this request was in flight: a failed attempt
-		// under the retry policy, not a resend (§8.3). A clean close is not a
-		// crash and leaves no count, so its request is resent below.
-		if task.Restarts > 0 {
-			return chargeInterruptedRequest(ctx, r, task, input, cp)
-		}
-		if r.h.options.Model == nil {
-			return failGeneration(ctx, r, task, input, errors.New("no model configured"))
-		}
-		if cp.Partial != "" {
-			err := r.Commit(ctx, func(tx *Tx) (TaskTransition, error) {
-				if _, err := tx.Append(task.Conversation, Entry{Kind: "pi.assistant", Message: &Message{Role: "assistant", Content: cp.Partial, Aborted: true}}); err != nil {
-					return TaskTransition{}, err
-				}
-				cp.Partial = ""
-				data, err := json.Marshal(cp)
-				return TaskTransition{Status: "running", Checkpoint: data}, err
-			})
-			if err != nil {
-				return err
-			}
-		}
-		started := time.Now()
-		response, err := r.h.options.Model.Generate(ctx, cp.Request, func(delta string) error {
-			cp.Partial += delta
-			return r.Commit(ctx, func(*Tx) (TaskTransition, error) {
-				data, err := json.Marshal(cp)
-				return TaskTransition{Status: "running", Checkpoint: data}, err
-			})
-		})
-		responseDurationMs := time.Since(started).Milliseconds()
-		if err != nil {
-			if ctx.Err() != nil {
-				return ctx.Err()
-			}
-			// The policy governs the next attempt, so it is read now. An
-			// overflow never retries: only a compaction could make it fit.
-			policy := r.h.options.Settings.Retry.resolve()
-			attempt := cp.attempt()
-			if !IsContextOverflowError(err, cp.Request.Model.Provider) && IsRetryableModelError(err) && policy.allows(attempt) {
-				until := retryDeadline(r.h.now(), retryDelayMs(policy, attempt))
-				return r.Commit(ctx, func(tx *Tx) (TaskTransition, error) {
-					if cp.Partial != "" {
-						if _, e := tx.Append(task.Conversation, Entry{Kind: "pi.assistant", Message: &Message{Role: "assistant", Content: cp.Partial, Aborted: true, Usage: response.Usage}}); e != nil {
-							return TaskTransition{}, e
-						}
-					}
-					if e := recordModelUsage(tx, task.Conversation, cp.Request.Model, response.Usage); e != nil {
-						return TaskTransition{}, e
-					}
-					return retryTransition(cp, attempt, until)
-				})
-			}
-			return failGeneration(ctx, r, task, input, err)
-		}
-		state, e := r.h.Snapshot(ctx)
-		if e != nil {
-			return e
-		}
-		conv := state.Conversations[task.Conversation]
-		if conv == nil {
-			return ErrNotFound
-		}
-		hooks := r.Registry().Hooks(conv.Agent, "pi.generation")
-		for _, hook := range hooks {
-			if hook.AfterResponse != nil {
-				if e := hook.AfterResponse(ctx, &response, r); e != nil {
-					if e = recordHookError(ctx, r, "afterResponse", e); e != nil {
-						return e
-					}
-				}
-			}
-		}
-		var continuation string
-		if len(response.ToolCalls) == 0 {
-			for _, hook := range hooks {
-				if hook.OnYield != nil {
-					value, e := hook.OnYield(ctx, response, r)
-					if e != nil {
-						if e = recordHookError(ctx, r, "onYield", e); e != nil {
-							return e
-						}
-						continue
-					}
-					if value != "" {
-						continuation = value
-						break
-					}
-				}
-			}
-		}
-		return r.Commit(ctx, func(tx *Tx) (TaskTransition, error) {
-			message := Message{Role: "assistant", Content: response.Content, Thinking: response.Thinking, ToolCalls: response.ToolCalls, Usage: response.Usage, DurationMs: &responseDurationMs, ProviderData: response.ProviderData}
-			assistant, err := tx.Append(task.Conversation, Entry{Kind: "pi.assistant", Message: &message})
-			if err != nil {
-				return TaskTransition{}, err
-			}
-			if err := recordModelUsage(tx, task.Conversation, cp.Request.Model, response.Usage); err != nil {
-				return TaskTransition{}, err
-			}
-			if len(response.ToolCalls) == 0 {
-				if continuation != "" {
-					if _, err := tx.Append(task.Conversation, Entry{Kind: "pi.user", Message: &Message{Role: "user", Content: continuation}}); err != nil {
-						return TaskTransition{}, err
-					}
-					next, err := json.Marshal(generationCheckpoint{Phase: "prepare", Attempt: 1, Turns: cp.Turns})
-					return TaskTransition{Status: "pending", Checkpoint: next}, err
-				}
-				return settleRun(tx, task, input, assistant, "", true)
-			}
-			seen := map[string]bool{}
-			var children []TaskID
-			for _, call := range response.ToolCalls {
-				if call.ID == "" || seen[call.ID] {
-					return TaskTransition{}, fmt.Errorf("%w: missing/duplicate tool call ID", ErrInvalid)
-				}
-				seen[call.ID] = true
-				data, err := json.Marshal(toolTaskInput{Assistant: assistant, CallID: call.ID, Call: call})
-				if err != nil {
-					return TaskTransition{}, err
-				}
-				child, err := tx.CreateTask(task.Conversation, toolTaskDefinition(), data, TaskOptions{Owner: Owner{Task: task.ID}})
-				if err != nil {
-					return TaskTransition{}, err
-				}
-				children = append(children, child)
-			}
-			next, err := json.Marshal(generationCheckpoint{Phase: "tools", Turns: cp.Turns, Children: children, Assistant: assistant})
-			return TaskTransition{Status: "waiting", Checkpoint: next, WaitOn: children, WaitPolicy: "allSettled"}, err
-		})
-	case "tools":
-		state, err := r.h.Snapshot(ctx)
-		if err != nil {
-			return err
-		}
-		var results []ToolResult
-		terminate := len(cp.Children) > 0
-		handoff := ""
-		for _, id := range cp.Children {
-			child := state.Tasks[id]
-			if child == nil || child.Status != "terminal" {
-				return fmt.Errorf("%w: unfinished tool round", ErrInvalid)
-			}
-			var result toolTaskResult
-			if child.Outcome != nil && len(child.Outcome.Result) > 0 {
-				if err := json.Unmarshal(child.Outcome.Result, &result); err != nil {
-					return err
-				}
-			} else {
-				result.Result = ToolResult{Content: "tool failed without result", IsError: true}
-			}
-			results = append(results, result.Result)
-			terminate = terminate && result.Result.Terminate
-			if result.Result.Handoff != "" {
-				handoff = result.Result.Handoff
-			}
-		}
-		conv := state.Conversations[task.Conversation]
-		if conv == nil {
-			return ErrNotFound
-		}
-		for _, hook := range r.Registry().Hooks(conv.Agent, "pi.generation") {
-			if hook.AfterTools != nil {
-				if err := hook.AfterTools(ctx, results, r); err != nil {
-					if err = recordHookError(ctx, r, "afterTools", err); err != nil {
-						return err
-					}
-				}
-			}
-		}
-		return r.Commit(ctx, func(tx *Tx) (TaskTransition, error) {
-			if handoff != "" {
-				if _, err := tx.Append(task.Conversation, Entry{Kind: "pi.reset", Message: &Message{Role: "user", Content: handoff}}); err != nil {
-					return TaskTransition{}, err
-				}
-			}
-			if terminate || handoff != "" {
-				return settleRun(tx, task, input, cp.Assistant, "", true)
-			}
-			reset, err := placeBusyBoundary(tx, task.Conversation, &input)
-			if err != nil {
-				return TaskTransition{}, err
-			}
-			if reset {
-				return settleRun(tx, task, input, 0, "reset", false)
-			}
-			rec, err := tx.Task(task.ID)
-			if err != nil {
-				return TaskTransition{}, err
-			}
-			rec.Input, err = json.Marshal(input)
-			if err != nil {
-				return TaskTransition{}, err
-			}
-			next, err := json.Marshal(generationCheckpoint{Phase: "prepare", Attempt: 1, Turns: cp.Turns})
-			return TaskTransition{Status: "pending", Checkpoint: next}, err
-		})
+		return requestGeneration(ctx, r, task, cp)
 	case "retry":
 		// After the backoff. A phase that runs before until, after an early
-		// wake or a clock that moved backward, backs off again unchanged.
+		// wake or a clock that moved backward, sleeps again unchanged.
 		if cp.Until > r.h.now().UnixMilli() {
 			wake := time.UnixMilli(cp.Until).UTC()
 			return r.Commit(ctx, func(*Tx) (TaskTransition, error) {
 				return TaskTransition{Status: "sleeping", Checkpoint: task.Checkpoint, WakeAt: &wake}, nil
 			})
 		}
-		return r.Commit(ctx, func(*Tx) (TaskTransition, error) {
-			next, err := json.Marshal(generationCheckpoint{Phase: "prepare", Attempt: cp.attempt() + 1, Turns: cp.Turns})
+		return r.Commit(ctx, func(tx *Tx) (TaskTransition, error) {
+			attempt := cp.attempt() + 1
+			if err := updateLive(tx, task.Conversation, func(live *LiveState) error {
+				live.Generation = &LiveGeneration{Attempt: attempt}
+				return nil
+			}); err != nil {
+				return TaskTransition{}, err
+			}
+			next, err := json.Marshal(generationCheckpoint{Phase: "prepare", Attempt: attempt})
 			return TaskTransition{Status: "running", Checkpoint: next}, err
 		})
+	case "tools":
+		return finishToolRound(ctx, r, task, cp)
 	default:
 		return fmt.Errorf("%w: generation phase %q", ErrInvalid, cp.Phase)
 	}
 }
 
-// retryTransition backs a failed attempt off until the retry deadline; the
-// next attempt prepares its request again (Pi Durable's retry phase).
-func retryTransition(cp generationCheckpoint, attempt int, until time.Time) (TaskTransition, error) {
-	next, err := json.Marshal(generationCheckpoint{Phase: "retry", Attempt: attempt, Until: until.UnixMilli(), Turns: cp.Turns})
+// prepareGeneration renders the system prompt and tool loadout and moves to
+// request. A retry prepares again, so agent, section, and settings changes
+// made during its backoff apply.
+func prepareGeneration(ctx context.Context, r *TaskRuntime, task TaskRecord, cp generationCheckpoint) error {
+	if r.h.options.Model == nil {
+		return failNoModel(ctx, r, task)
+	}
+	state, err := r.h.Snapshot(ctx)
+	if err != nil {
+		return err
+	}
+	c := state.Conversations[task.Conversation]
+	if c == nil {
+		return ErrNotFound
+	}
+	// The model owes an answer only to a context ending in a user message or
+	// tool results; otherwise the run ends before any request.
+	messages, err := contextFromState(state, task.Conversation)
+	if err != nil {
+		return err
+	}
+	var last *Message
+	for i := len(messages) - 1; i >= 0; i-- {
+		if messages[i].Role != "system" {
+			last = &messages[i]
+			break
+		}
+	}
+	if last == nil || last.Role != "user" && last.Role != "tool" {
+		return failRun(ctx, r, task, runEnd{reason: RunNothingToAnswer}, "The conversation has nothing to answer", false)
+	}
+	request := buildRequest(ctx, r, state, *c)
+	attempt := cp.attempt()
+	return r.Commit(ctx, func(tx *Tx) (TaskTransition, error) {
+		metadata, err := json.Marshal(struct {
+			Messages []Message  `json:"system"`
+			Tools    []ToolSpec `json:"tools"`
+		}{systemMessages(request.Messages), request.Tools})
+		if err != nil {
+			return TaskTransition{}, err
+		}
+		// Journal prompt/tool choices, while the complete prepared request is
+		// the recovery authority. Native positional system-update caching is
+		// not ported.
+		entries, err := entriesFromState(tx.state, task.Conversation)
+		if err != nil {
+			return TaskTransition{}, err
+		}
+		var previous json.RawMessage
+		for _, e := range entries {
+			if e.Kind == "pi.system" {
+				previous = e.Data
+			}
+		}
+		if string(previous) != string(metadata) {
+			if _, err := tx.Append(task.Conversation, Entry{Kind: "pi.system", Data: metadata}); err != nil {
+				return TaskTransition{}, err
+			}
+		}
+		if err := updateLive(tx, task.Conversation, func(live *LiveState) error {
+			live.Generation = &LiveGeneration{Attempt: attempt}
+			return nil
+		}); err != nil {
+			return TaskTransition{}, err
+		}
+		data, err := json.Marshal(generationCheckpoint{Phase: "request", Attempt: attempt, Request: request})
+		return TaskTransition{Status: "running", Checkpoint: data}, err
+	})
+}
+
+func requestGeneration(ctx context.Context, r *TaskRuntime, task TaskRecord, cp generationCheckpoint) error {
+	// The host stopped while this request was in flight: a failed attempt
+	// under the retry policy, not a resend (§8.3). A clean close is not a
+	// crash and leaves no count, so its request is resent below.
+	if task.Restarts > 0 {
+		return chargeInterruptedRequest(ctx, r, task, cp)
+	}
+	if r.h.options.Model == nil {
+		return failNoModel(ctx, r, task)
+	}
+	if cp.Partial != "" {
+		err := r.Commit(ctx, func(tx *Tx) (TaskTransition, error) {
+			if _, err := tx.Append(task.Conversation, Entry{Kind: "pi.assistant", Message: &Message{Role: "assistant", Content: cp.Partial, Aborted: true}}); err != nil {
+				return TaskTransition{}, err
+			}
+			cp.Partial = ""
+			data, err := json.Marshal(cp)
+			return TaskTransition{Status: "running", Checkpoint: data}, err
+		})
+		if err != nil {
+			return err
+		}
+	}
+	started := time.Now()
+	response, err := r.h.options.Model.Generate(ctx, cp.Request, func(delta string) error {
+		cp.Partial += delta
+		return r.Commit(ctx, func(*Tx) (TaskTransition, error) {
+			data, err := json.Marshal(cp)
+			return TaskTransition{Status: "running", Checkpoint: data}, err
+		})
+	})
+	responseDurationMs := time.Since(started).Milliseconds()
+	if err != nil {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		// The policy governs the next attempt, so it is read now. An overflow
+		// never retries: only a compaction could make it fit.
+		policy := r.h.options.Settings.Retry.resolve()
+		attempt := cp.attempt()
+		text := diagnostic(err.Error())
+		if !IsContextOverflowError(err, cp.Request.Model.Provider) && IsRetryableModelError(err) && policy.allows(attempt) {
+			until := retryDeadline(r.h.now(), retryDelayMs(policy, attempt))
+			return r.Commit(ctx, func(tx *Tx) (TaskTransition, error) {
+				if cp.Partial != "" {
+					if _, e := tx.Append(task.Conversation, Entry{Kind: "pi.assistant", Message: &Message{Role: "assistant", Content: cp.Partial, Aborted: true, Usage: response.Usage}}); e != nil {
+						return TaskTransition{}, e
+					}
+				}
+				if e := recordModelUsage(tx, task.Conversation, cp.Request.Model, response.Usage); e != nil {
+					return TaskTransition{}, e
+				}
+				return retryTransition(tx, task.Conversation, attempt, until, text)
+			})
+		}
+		return failRun(ctx, r, task, runEnd{reason: RunModelError, detail: text}, text, true)
+	}
+	state, e := r.h.Snapshot(ctx)
+	if e != nil {
+		return e
+	}
+	conv := state.Conversations[task.Conversation]
+	if conv == nil {
+		return ErrNotFound
+	}
+	hooks := r.Registry().Hooks(conv.Agent, "pi.generation")
+	for _, hook := range hooks {
+		if hook.AfterResponse != nil {
+			if e := hook.AfterResponse(ctx, &response, r); e != nil {
+				if e = recordHookError(ctx, r, "afterResponse", e); e != nil {
+					return e
+				}
+			}
+		}
+	}
+	message := Message{Role: "assistant", Content: response.Content, Thinking: response.Thinking, ToolCalls: response.ToolCalls, Usage: response.Usage, DurationMs: &responseDurationMs, ProviderData: response.ProviderData}
+	if len(response.ToolCalls) > 0 {
+		return startToolRound(ctx, r, task, cp, message)
+	}
+	var continuation string
+	for _, hook := range hooks {
+		if hook.OnYield != nil {
+			value, e := hook.OnYield(ctx, response, r)
+			if e != nil {
+				if e = recordHookError(ctx, r, "onYield", e); e != nil {
+					return e
+				}
+				continue
+			}
+			if value != "" {
+				continuation = value
+				break
+			}
+		}
+	}
+	return answer(ctx, r, task, cp, message, continuation)
+}
+
+// appendAssistant appends a provider result and its usage in one commit.
+func appendAssistant(tx *Tx, cid ConversationID, model ModelRef, message Message) (EntryID, error) {
+	if err := recordModelUsage(tx, cid, model, message.Usage); err != nil {
+		return 0, err
+	}
+	return tx.Append(cid, Entry{Kind: "pi.assistant", Message: &message})
+}
+
+// answer is a final answer; the final boundary places queued items (§6).
+// The first OnYield continuation appends a user message and hands the run to
+// a successor generation, but only when no user item or reset is queued.
+// Otherwise the run's inputs settle done, and selected user items start the
+// next run.
+func answer(ctx context.Context, r *TaskRuntime, task TaskRecord, cp generationCheckpoint, message Message, continuation string) error {
+	return r.Commit(ctx, func(tx *Tx) (TaskTransition, error) {
+		cid := task.Conversation
+		continues := continuation != ""
+		for _, item := range queuedSubmissions(tx, cid) {
+			if item.Request.Type == "input" || isReset(item.Request) {
+				continues = false
+			}
+		}
+		live, err := readRunLive(tx, task)
+		if err != nil {
+			return TaskTransition{}, err
+		}
+		entry, err := appendAssistant(tx, cid, cp.Request.Model, message)
+		if err != nil {
+			return TaskTransition{}, err
+		}
+		result, err := json.Marshal(map[string]EntryID{"entryId": entry})
+		if err != nil {
+			return TaskTransition{}, err
+		}
+		completed := TaskTransition{Status: "terminal", Outcome: &Outcome{Status: OutcomeCompleted, Result: result}}
+		boundary, err := r.h.applyBoundary(tx, cid, true)
+		if err != nil {
+			return TaskTransition{}, err
+		}
+		if continues {
+			if _, err := tx.Append(cid, Entry{Kind: "pi.user", Message: &Message{Role: "user", Content: continuation}}); err != nil {
+				return TaskTransition{}, err
+			}
+			// The continuation starts the run's turn count over: bounding
+			// OnYield loops is the extension's job.
+			if live.Run != nil && live.Run.TaskID == task.ID {
+				live.Run.Turns = 0
+			}
+			next, err := tx.createGeneration(cid)
+			if err != nil {
+				return TaskTransition{}, err
+			}
+			if err := handOver(tx, cid, live, task.ID, next); err != nil {
+				return TaskTransition{}, err
+			}
+			live.Generation = nil
+			return completed, writeLive(tx, cid, live)
+		}
+		if err := endRun(tx, cid, live, task.ID, runEnd{done: true, answer: entry}); err != nil {
+			return TaskTransition{}, err
+		}
+		if len(boundary.users) > 0 {
+			if err := startRun(tx, cid, live, boundary.users, boundary.first, false); err != nil {
+				return TaskTransition{}, err
+			}
+		}
+		return completed, writeLive(tx, cid, live)
+	})
+}
+
+// startToolRound appends the tool-calling answer and starts its round in one
+// commit: a tool task per call, owned by the generation, in call order, and a
+// slot per call. The generation then waits in its tools phase.
+func startToolRound(ctx context.Context, r *TaskRuntime, task TaskRecord, cp generationCheckpoint, message Message) error {
+	return r.Commit(ctx, func(tx *Tx) (TaskTransition, error) {
+		cid := task.Conversation
+		live, err := readRunLive(tx, task)
+		if err != nil {
+			return TaskTransition{}, err
+		}
+		assistant, err := appendAssistant(tx, cid, cp.Request.Model, message)
+		if err != nil {
+			return TaskTransition{}, err
+		}
+		seen := map[string]bool{}
+		var children []TaskID
+		var slots []ToolSlot
+		for _, call := range message.ToolCalls {
+			if call.ID == "" || seen[call.ID] {
+				return TaskTransition{}, fmt.Errorf("%w: missing/duplicate tool call ID", ErrInvalid)
+			}
+			seen[call.ID] = true
+			data, err := json.Marshal(toolTaskInput{Assistant: assistant, CallID: call.ID, Call: call})
+			if err != nil {
+				return TaskTransition{}, err
+			}
+			child, err := tx.CreateTask(cid, toolTaskDefinition(), data, TaskOptions{Owner: Owner{Task: task.ID}})
+			if err != nil {
+				return TaskTransition{}, err
+			}
+			children = append(children, child)
+			slots = append(slots, ToolSlot{CallID: call.ID, Name: call.Name, Status: "pending", TaskID: child})
+		}
+		live.Generation = nil
+		live.Tools = slots
+		if live.Run != nil && live.Run.TaskID == task.ID {
+			// A tool round is one turn of the run (Agent.MaxTurns).
+			live.Run.Turns++
+			// A run its boundary started without placing anything, such as a
+			// continue after an answer, begins here.
+			if live.Run.First == 0 {
+				live.Run.First = assistant
+			}
+		}
+		if err := writeLive(tx, cid, live); err != nil {
+			return TaskTransition{}, err
+		}
+		next, err := json.Marshal(generationCheckpoint{Phase: "tools", Children: children, Assistant: assistant})
+		return TaskTransition{Status: "waiting", Checkpoint: next, WaitOn: children, WaitPolicy: "allSettled"}, err
+	})
+}
+
+// finishToolRound runs once the round's tools are terminal: apply their
+// controls, append a handoff's reset, and then end the run at the final
+// boundary (terminate), end it like a failure at the conversation's turn
+// limit, end it at a queued reset, or hand it to the next generation at the
+// post-tools boundary, in the handoff's new context when there is one (§8.5).
+func finishToolRound(ctx context.Context, r *TaskRuntime, task TaskRecord, cp generationCheckpoint) error {
+	state, err := r.h.Snapshot(ctx)
+	if err != nil {
+		return err
+	}
+	var results []ToolResult
+	terminate := len(cp.Children) > 0
+	handoff := ""
+	for _, id := range cp.Children {
+		child := state.Tasks[id]
+		if child == nil || child.Status != "terminal" {
+			return fmt.Errorf("%w: unfinished tool round", ErrInvalid)
+		}
+		var result toolTaskResult
+		if child.Outcome != nil && len(child.Outcome.Result) > 0 {
+			if err := json.Unmarshal(child.Outcome.Result, &result); err != nil {
+				return err
+			}
+		} else {
+			result.Result = ToolResult{Content: "tool failed without result", IsError: true}
+		}
+		results = append(results, result.Result)
+		terminate = terminate && result.Result.Terminate
+		if result.Result.Handoff != "" {
+			handoff = result.Result.Handoff
+		}
+	}
+	conv := state.Conversations[task.Conversation]
+	if conv == nil {
+		return ErrNotFound
+	}
+	for _, hook := range r.Registry().Hooks(conv.Agent, "pi.generation") {
+		if hook.AfterTools != nil {
+			if err := hook.AfterTools(ctx, results, r); err != nil {
+				if err = recordHookError(ctx, r, "afterTools", err); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	// Read from the phase's agent; a Configure during the round applies at
+	// its end.
+	maxTurns := conv.Agent.MaxTurns
+	return r.Commit(ctx, func(tx *Tx) (TaskTransition, error) {
+		cid := task.Conversation
+		live, err := readRunLive(tx, task)
+		if err != nil {
+			return TaskTransition{}, err
+		}
+		result, err := json.Marshal(map[string]EntryID{"entryId": cp.Assistant})
+		if err != nil {
+			return TaskTransition{}, err
+		}
+		completed := TaskTransition{Status: "terminal", Outcome: &Outcome{Status: OutcomeCompleted, Result: result}}
+		if handoff != "" {
+			// The handoff's reset precedes every queued item, so queued writes
+			// and selected steers land in its context.
+			if _, err := tx.Append(cid, Entry{Kind: "pi.reset", Message: &Message{Role: "user", Content: handoff}}); err != nil {
+				return TaskTransition{}, err
+			}
+		}
+		turns := 0
+		if live.Run != nil && live.Run.TaskID == task.ID {
+			turns = live.Run.Turns
+		}
+		switch {
+		case terminate:
+			boundary, err := r.h.applyBoundary(tx, cid, true)
+			if err != nil {
+				return TaskTransition{}, err
+			}
+			if err := endRun(tx, cid, live, task.ID, runEnd{done: true, answer: cp.Assistant}); err != nil {
+				return TaskTransition{}, err
+			}
+			if len(boundary.users) > 0 {
+				if err := startRun(tx, cid, live, boundary.users, boundary.first, false); err != nil {
+					return TaskTransition{}, err
+				}
+			}
+		case maxTurns > 0 && turns >= maxTurns:
+			// The turn limit ends the run like a failure: AfterFailedRun
+			// decides the queued items, and a continue resumes it on the
+			// round's results.
+			detail := fmt.Sprintf("%d turns", turns)
+			if turns == 1 {
+				detail = "1 turn"
+			}
+			if err := r.h.endFailedRun(tx, cid, live, task.ID, runEnd{reason: RunTurnLimit, detail: detail}); err != nil {
+				return TaskTransition{}, err
+			}
+		default:
+			boundary, err := r.h.applyBoundary(tx, cid, false)
+			if err != nil {
+				return TaskTransition{}, err
+			}
+			if boundary.reset {
+				// The queued reset cut the run's context before an answer.
+				if err := endRun(tx, cid, live, task.ID, runEnd{reason: RunReset}); err != nil {
+					return TaskTransition{}, err
+				}
+				if len(boundary.users) > 0 {
+					if err := startRun(tx, cid, live, boundary.users, boundary.first, true); err != nil {
+						return TaskTransition{}, err
+					}
+				}
+				break
+			}
+			live.Tools = nil
+			if live.Run != nil && live.Run.TaskID == task.ID {
+				live.Run.Inputs = append(live.Run.Inputs, boundary.users...)
+			}
+			next, err := tx.createGeneration(cid)
+			if err != nil {
+				return TaskTransition{}, err
+			}
+			if err := handOver(tx, cid, live, task.ID, next); err != nil {
+				return TaskTransition{}, err
+			}
+		}
+		return completed, writeLive(tx, cid, live)
+	})
+}
+
+// retryTransition sleeps a failed attempt until the retry deadline, noting
+// the backoff in pi.live; the next attempt prepares its request again.
+func retryTransition(tx *Tx, cid ConversationID, attempt int, until time.Time, text string) (TaskTransition, error) {
+	if err := updateLive(tx, cid, func(live *LiveState) error {
+		live.Generation = &LiveGeneration{Attempt: attempt, Retry: &LiveRetry{At: until.UnixMilli(), Error: text}}
+		return nil
+	}); err != nil {
+		return TaskTransition{}, err
+	}
+	next, err := json.Marshal(generationCheckpoint{Phase: "retry", Attempt: attempt, Until: until.UnixMilli()})
 	wake := time.UnixMilli(until.UnixMilli()).UTC()
 	return TaskTransition{Status: "sleeping", Checkpoint: next, WakeAt: &wake}, err
 }
@@ -430,20 +574,22 @@ func systemMessages(messages []Message) []Message {
 	}
 	return out
 }
-func buildRequest(ctx context.Context, r *TaskRuntime, state *State, c ConversationRecord) (ModelRequest, error) {
-	messages, err := contextFromState(state, c.ID)
-	if err != nil {
-		return ModelRequest{}, err
-	}
+
+// buildRequest renders sections and runs BeforeRequest hooks. A section or
+// hook that fails is reported as extension_error and skipped, as upstream's
+// hooks.each does; the request goes on without it.
+func buildRequest(ctx context.Context, r *TaskRuntime, state *State, c ConversationRecord) ModelRequest {
+	messages, _ := contextFromState(state, c.ID)
 	registry := r.Registry()
 	var prompt strings.Builder
-	for _, section := range registry.Sections(c.Agent) {
+	for _, section := range registry.sections(c.Agent) {
 		if section.Render == nil {
 			continue
 		}
 		text, err := section.Render(ctx, c, r.h)
 		if err != nil {
-			return ModelRequest{}, err
+			r.reportExtension(err, section.extension)
+			continue
 		}
 		if text != "" {
 			fmt.Fprintf(&prompt, "<%s>\n%s\n</%s>\n", section.Name, text, section.Name)
@@ -459,15 +605,31 @@ func buildRequest(ctx context.Context, r *TaskRuntime, state *State, c Conversat
 	for _, tool := range registry.Tools(c.Agent) {
 		request.Tools = append(request.Tools, tool.ToolSpec)
 	}
-	for _, hook := range registry.Hooks(c.Agent, "pi.generation") {
+	for _, hook := range registry.hooks(c.Agent) {
 		if hook.BeforeRequest != nil {
-			if err := hook.BeforeRequest(ctx, &request, r); err != nil {
-				return ModelRequest{}, err
+			replaced := request
+			replaced.Messages = append([]Message(nil), request.Messages...)
+			replaced.Tools = append([]ToolSpec(nil), request.Tools...)
+			if err := containPanic(func() error { return hook.BeforeRequest(ctx, &replaced, r) }); err != nil {
+				r.reportExtension(err, hook.extension)
+				continue
 			}
+			request = replaced
 		}
 	}
-	return request, nil
+	return request
 }
+
+// reportExtension reports extension code the task called that failed.
+func (r *TaskRuntime) reportExtension(err error, extension string) {
+	if err == nil || r.check() != nil {
+		return
+	}
+	report := r.taskReport(ReportExtensionError, err, "")
+	report.Extension = extension
+	r.h.report(report)
+}
+
 func recordHookError(ctx context.Context, r *TaskRuntime, phase string, cause error) error {
 	return r.Commit(ctx, func(tx *Tx) (TaskTransition, error) {
 		task, err := tx.Task(r.ID)
@@ -482,355 +644,118 @@ func recordHookError(ctx context.Context, r *TaskRuntime, phase string, cause er
 		return TaskTransition{Status: "running", Checkpoint: task.Checkpoint}, err
 	})
 }
-func settleRun(tx *Tx, task TaskRecord, input generationInput, answer EntryID, reason string, done bool) (TaskTransition, error) {
-	for _, id := range input.Submissions {
-		if sub := tx.state.Submissions[id]; sub != nil {
-			sub.Reason = reason
-			sub.Answer = answer
-			if done {
-				sub.Status = "done"
-			} else {
-				sub.Status = "unanswered"
-			}
-		}
-	}
-	conv, err := tx.Conversation(task.Conversation)
+
+// failRun ends a run without an answer: endFailedRun applies AfterFailedRun
+// when failed is true (model_error, no_model, interrupted, restart_limit,
+// nothing_to_answer). A committed partial is kept as an aborted entry when
+// salvage is set. The task fails with message and ErrorDetail {"reason":
+// end.reason}.
+func failRun(ctx context.Context, r *TaskRuntime, task TaskRecord, end runEnd, message string, salvage bool) error {
+	return r.Commit(ctx, func(tx *Tx) (TaskTransition, error) {
+		return failRunTx(tx, r.h, task, end, message, salvage)
+	})
+}
+
+func failRunTx(tx *Tx, h *Harness, task TaskRecord, end runEnd, message string, salvage bool) (TaskTransition, error) {
+	cid := task.Conversation
+	live, err := readRunLive(tx, task)
 	if err != nil {
 		return TaskTransition{}, err
 	}
-	if conv.Busy == task.ID {
-		conv.Busy = 0
-	}
-	if done || reason == "reset" {
-		if err := advanceInbox(tx, task.Conversation); err != nil {
+	if salvage {
+		if err := convertPartial(tx, task); err != nil {
 			return TaskTransition{}, err
 		}
 	}
-	status := "completed"
-	if !done {
-		status = "failed"
+	if err := h.endFailedRun(tx, cid, live, task.ID, end); err != nil {
+		return TaskTransition{}, err
 	}
-	result, _ := json.Marshal(map[string]EntryID{"entryId": answer})
-	outcome := &Outcome{Status: status, Result: result}
-	if status == OutcomeFailed {
-		outcome.Error = diagnostic(reason)
+	if err := writeLive(tx, cid, live); err != nil {
+		return TaskTransition{}, err
 	}
-	return TaskTransition{Status: "terminal", Outcome: outcome}, nil
+	errorDetail, err := json.Marshal(map[string]string{"reason": end.reason})
+	if err != nil {
+		return TaskTransition{}, err
+	}
+	return TaskTransition{Status: "terminal", Outcome: &Outcome{Status: OutcomeFailed, Error: diagnostic(message), ErrorDetail: errorDetail}}, nil
 }
 
-// settleRunFailure ends a run without an answer for a coded reason: inputs
-// settle unanswered with the code as Reason and the text as JSON-string
-// Detail, Busy is cleared while queued inputs stay, and the task fails with
-// the text and ErrorDetail {"reason": code}.
-func settleRunFailure(tx *Tx, task TaskRecord, input generationInput, code, text string) (TaskTransition, error) {
-	detail, err := json.Marshal(text)
+// convertPartial appends the committed partial of the task's current
+// checkpoint as an aborted assistant entry.
+func convertPartial(tx *Tx, task TaskRecord) error {
+	current, err := tx.Task(task.ID)
 	if err != nil {
-		return TaskTransition{}, err
+		return err
 	}
-	for _, id := range input.Submissions {
-		if sub := tx.state.Submissions[id]; sub != nil {
-			sub.Status, sub.Answer, sub.Reason, sub.Detail = "unanswered", 0, code, detail
-		}
+	var fields map[string]json.RawMessage
+	_ = json.Unmarshal(current.Checkpoint, &fields)
+	var partial string
+	_ = json.Unmarshal(fields["partial"], &partial)
+	if partial == "" {
+		return nil
 	}
-	conv, err := tx.Conversation(task.Conversation)
-	if err != nil {
-		return TaskTransition{}, err
-	}
-	if conv.Busy == task.ID {
-		conv.Busy = 0
-	}
-	errorDetail, err := json.Marshal(map[string]string{"reason": code})
-	if err != nil {
-		return TaskTransition{}, err
-	}
-	return TaskTransition{Status: "terminal", Outcome: &Outcome{Status: OutcomeFailed, Error: diagnostic(text), ErrorDetail: errorDetail}}, nil
+	_, err = tx.Append(task.Conversation, Entry{Kind: "pi.assistant", Message: &Message{Role: "assistant", Content: partial, Aborted: true}})
+	return err
+}
+
+// failNoModel ends the run: no model is configured. Its inputs settle
+// unanswered with reason no_model and no detail.
+func failNoModel(ctx context.Context, r *TaskRuntime, task TaskRecord) error {
+	const message = "No model is configured"
+	return failRun(ctx, r, task, runEnd{reason: RunNoModel, detail: message, settlement: &runSettlement{reason: RunNoModel}}, message, true)
 }
 
 // endGenerationCutOff ends a run whose generation was cut off restartLimit
 // times in a row. At the limit it still keeps a committed partial as an
 // aborted entry; past it, that conversion may be what keeps failing.
-func endGenerationCutOff(ctx context.Context, r *TaskRuntime, task TaskRecord, input generationInput, cp generationCheckpoint, limit float64) error {
+func endGenerationCutOff(ctx context.Context, r *TaskRuntime, task TaskRecord, cp generationCheckpoint, limit float64) error {
 	text := fmt.Sprintf("The generation was interrupted %s in its %s phase", cutOffCount(task.Restarts), cp.Phase)
-	salvage := salvageable(task.Restarts, limit)
-	return r.Commit(ctx, func(tx *Tx) (TaskTransition, error) {
-		if salvage && cp.Partial != "" {
-			if _, err := tx.Append(task.Conversation, Entry{Kind: "pi.assistant", Message: &Message{Role: "assistant", Content: cp.Partial, Aborted: true}}); err != nil {
-				return TaskTransition{}, err
-			}
-		}
-		return settleRunFailure(tx, task, input, reasonRestartLimit, text)
-	})
+	return failRun(ctx, r, task, runEnd{reason: RunRestartLimit, detail: text}, text, salvageable(task.Restarts, limit))
 }
 
 // chargeInterruptedRequest charges a request a crash cut off as a failed
 // attempt. Its committed partial becomes an aborted entry; with a retry left
-// the generation backs off and then prepares the next attempt, otherwise the
-// run ends interrupted. Nothing is classified: a crash is not an error message.
-func chargeInterruptedRequest(ctx context.Context, r *TaskRuntime, task TaskRecord, input generationInput, cp generationCheckpoint) error {
+// the generation sleeps and then prepares the next attempt, otherwise the run
+// ends interrupted. Nothing is classified: a crash is not an error message.
+func chargeInterruptedRequest(ctx context.Context, r *TaskRuntime, task TaskRecord, cp generationCheckpoint) error {
 	attempt := cp.attempt()
 	policy := r.h.options.Settings.Retry.resolve()
 	retry := policy.allows(attempt)
 	until := retryDeadline(r.h.now(), retryDelayMs(policy, attempt))
 	text := fmt.Sprintf("The host stopped while the model was answering, on attempt %d", attempt)
+	if !retry {
+		return failRun(ctx, r, task, runEnd{reason: RunInterrupted, detail: text}, text, true)
+	}
 	return r.Commit(ctx, func(tx *Tx) (TaskTransition, error) {
-		if cp.Partial != "" {
-			if _, err := tx.Append(task.Conversation, Entry{Kind: "pi.assistant", Message: &Message{Role: "assistant", Content: cp.Partial, Aborted: true}}); err != nil {
-				return TaskTransition{}, err
-			}
+		if err := convertPartial(tx, task); err != nil {
+			return TaskTransition{}, err
 		}
-		if retry {
-			return retryTransition(cp, attempt, until)
-		}
-		return settleRunFailure(tx, task, input, reasonInterrupted, text)
+		return retryTransition(tx, task.Conversation, attempt, until, text)
 	})
 }
 
-func failGeneration(ctx context.Context, r *TaskRuntime, task TaskRecord, input generationInput, cause error) error {
-	return r.Commit(ctx, func(tx *Tx) (TaskTransition, error) {
-		current, err := tx.Task(task.ID)
-		if err != nil {
-			return TaskTransition{}, err
-		}
-		var cp generationCheckpoint
-		if err := json.Unmarshal(current.Checkpoint, &cp); err != nil {
-			return TaskTransition{}, err
-		}
-		if cp.Partial != "" {
-			if _, err := tx.Append(task.Conversation, Entry{Kind: "pi.assistant", Message: &Message{Role: "assistant", Content: cp.Partial, Aborted: true}}); err != nil {
-				return TaskTransition{}, err
-			}
-		}
-		return settleRun(tx, task, input, 0, diagnostic(cause.Error()), false)
-	})
-}
+// settleGenerationAbort is the abort handler: its partial becomes an aborted
+// entry, and the run ends unanswered with reason aborted.
 func settleGenerationAbort(ctx context.Context, r *TaskRuntime, task TaskRecord) error {
-	var input generationInput
-	if err := json.Unmarshal(task.Input, &input); err != nil {
-		return err
-	}
 	return r.Commit(ctx, func(tx *Tx) (TaskTransition, error) {
-		current, err := tx.Task(task.ID)
+		cid := task.Conversation
+		live, err := readRunLive(tx, task)
 		if err != nil {
 			return TaskTransition{}, err
 		}
-		var cp generationCheckpoint
-		if err := json.Unmarshal(current.Checkpoint, &cp); err != nil {
+		if err := convertPartial(tx, task); err != nil {
 			return TaskTransition{}, err
 		}
-		if cp.Partial != "" {
-			if _, err := tx.Append(task.Conversation, Entry{Kind: "pi.assistant", Message: &Message{Role: "assistant", Content: cp.Partial, Aborted: true}}); err != nil {
-				return TaskTransition{}, err
-			}
+		if err := endRun(tx, cid, live, task.ID, runEnd{reason: RunAborted}); err != nil {
+			return TaskTransition{}, err
 		}
-		transition, err := settleRun(tx, task, input, 0, "aborted", false)
-		if err == nil {
-			transition.Outcome.Status = OutcomeAborted
-			transition.Outcome.Error = ""
+		if err := writeLive(tx, cid, live); err != nil {
+			return TaskTransition{}, err
 		}
-		return transition, err
+		return TaskTransition{Status: "terminal", Outcome: &Outcome{Status: OutcomeAborted}}, nil
 	})
-}
-func runTool(ctx context.Context, r *TaskRuntime, task TaskRecord) error {
-	var input toolTaskInput
-	var cp toolCheckpoint
-	if err := json.Unmarshal(task.Input, &input); err != nil {
-		return err
-	}
-	if err := json.Unmarshal(task.Checkpoint, &cp); err != nil {
-		return err
-	}
-	// After reading its call, and before the replay decision, a call cut off
-	// restartLimit times in a row ends with an error result instead of
-	// running again, even for a replay-unsafe tool.
-	if (cp.Phase == "call" || cp.Phase == "execute") && cutOffTooOften(task.Restarts, r.h.restartLimit()) {
-		message := fmt.Sprintf("Tool %s was interrupted %s; it is not run again", input.Call.Name, cutOffCount(task.Restarts))
-		return finishToolEnding(ctx, r, task, ToolResult{Content: message, IsError: true}, OutcomeFailed, message, restartLimitDetail)
-	}
-	state, err := r.h.Snapshot(ctx)
-	if err != nil {
-		return err
-	}
-	c := state.Conversations[task.Conversation]
-	if c == nil {
-		return ErrNotFound
-	}
-	registry := r.Registry()
-	var def *ToolDefinition
-	for _, tool := range registry.Tools(c.Agent) {
-		if tool.Name == input.Call.Name {
-			copy := tool
-			def = &copy
-			break
-		}
-	}
-	runtime := &ToolRuntime{TaskRuntime: r, ConversationID: task.Conversation, Call: input.Call}
-	hooks := registry.Hooks(c.Agent, "pi.tool")
-	if cp.Phase == "execute" {
-		// Recovery after intent: rerun only when the stored and the current
-		// policy both say safe.
-		if !cp.ReplaySafe || def == nil || !def.ReplaySafe || def.Execute == nil {
-			return finishTool(ctx, r, task, ToolResult{Content: fmt.Sprintf("Tool %s was interrupted and may have partially run", input.Call.Name), IsError: true}, "failed")
-		}
-		// The rerun reports from scratch: clear what the interrupted attempt
-		// published. A version-1 record's checkpoint output goes too.
-		if err := r.Commit(ctx, func(tx *Tx) (TaskTransition, error) {
-			if err := runtime.clearProgress(tx); err != nil {
-				return TaskTransition{}, err
-			}
-			checkpoint := task.Checkpoint
-			if cp.Output != "" {
-				cleared := toolCheckpoint{Phase: cp.Phase, Arguments: cp.Arguments, ReplaySafe: cp.ReplaySafe}
-				var err error
-				if checkpoint, err = json.Marshal(cleared); err != nil {
-					return TaskTransition{}, err
-				}
-			}
-			return TaskTransition{Status: "running", Checkpoint: checkpoint}, nil
-		}); err != nil {
-			return err
-		}
-		runtime.Call.Arguments = cp.Arguments
-	} else if cp.Phase == "call" {
-		if def == nil || def.Execute == nil {
-			return finishTool(ctx, r, task, ToolResult{Content: "tool unavailable", IsError: true}, "completed")
-		}
-		if err := validateToolArguments(def.ToolSpec, runtime.Call.Arguments); err != nil {
-			return finishTool(ctx, r, task, ToolResult{Content: err.Error(), IsError: true}, "completed")
-		}
-		for _, hook := range hooks {
-			if hook.BeforeTool != nil {
-				if err := hook.BeforeTool(ctx, &runtime.Call, runtime); err != nil {
-					return finishTool(ctx, r, task, ToolResult{Content: "tool blocked: " + err.Error(), IsError: true}, "completed")
-				}
-			}
-		}
-		if runtime.Call.Name != input.Call.Name || runtime.Call.ID != input.Call.ID {
-			return finishTool(ctx, r, task, ToolResult{Content: "tool hooks cannot change call identity", IsError: true}, "completed")
-		}
-		if err := validateToolArguments(def.ToolSpec, runtime.Call.Arguments); err != nil {
-			return finishTool(ctx, r, task, ToolResult{Content: err.Error(), IsError: true}, "completed")
-		}
-		cp = toolCheckpoint{Phase: "execute", Arguments: runtime.Call.Arguments, ReplaySafe: def.ReplaySafe}
-		if err := r.Commit(ctx, func(*Tx) (TaskTransition, error) {
-			data, err := json.Marshal(cp)
-			return TaskTransition{Status: "running", Checkpoint: data}, err
-		}); err != nil {
-			return err
-		}
-	} else {
-		return fmt.Errorf("%w: tool phase", ErrInvalid)
-	}
-	started := time.Now()
-	result, executeErr := def.Execute(ctx, cp.Arguments, runtime)
-	durationMs := time.Since(started).Milliseconds()
-	if ctx.Err() != nil {
-		return ctx.Err()
-	}
-	status := "completed"
-	if executeErr != nil {
-		status = "failed"
-		result = ToolResult{Content: diagnostic(executeErr.Error()), IsError: true}
-	}
-	result.DurationMs = &durationMs
-	for _, hook := range hooks {
-		if hook.AfterTool != nil {
-			if err := hook.AfterTool(ctx, &result, runtime); err != nil {
-				if err = recordHookError(ctx, r, "afterTool", err); err != nil {
-					return err
-				}
-			}
-		}
-	}
-	result.DurationMs = &durationMs
-	return finishTool(ctx, r, task, result, status)
-}
-func finishTool(ctx context.Context, r *TaskRuntime, task TaskRecord, result ToolResult, status string) error {
-	return finishToolEnding(ctx, r, task, result, status, "", nil)
 }
 
-// finishToolEnding settles a call with its result entry. A failed outcome's
-// Error is outcomeError when given, else the result content, and carries
-// detail as its ErrorDetail.
-func finishToolEnding(ctx context.Context, r *TaskRuntime, task TaskRecord, result ToolResult, status, outcomeError string, detail json.RawMessage) error {
-	var input toolTaskInput
-	if err := json.Unmarshal(task.Input, &input); err != nil {
-		return err
-	}
-	return r.Commit(ctx, func(tx *Tx) (TaskTransition, error) {
-		current, err := tx.Task(task.ID)
-		if err != nil {
-			return TaskTransition{}, err
-		}
-		var cp toolCheckpoint
-		if err := json.Unmarshal(current.Checkpoint, &cp); err != nil {
-			return TaskTransition{}, err
-		}
-		// Committed output is the slot's; a version-1 record kept it in its
-		// checkpoint instead.
-		committed := cp.Output
-		if doc := tx.state.Documents[documentKey(liveDocument, uint64(task.Conversation))]; doc != nil {
-			var live map[string]any
-			if err := json.Unmarshal(doc.Value, &live); err != nil {
-				return TaskTransition{}, err
-			}
-			if tools, ok := live["tools"].(map[string]any); ok {
-				key := fmt.Sprintf("%d", task.ID)
-				if slot, ok := tools[key].(map[string]any); ok {
-					if output, ok := slot["output"].(string); ok {
-						committed = output
-					}
-					if details, ok := slot["details"]; ok && len(result.Details) == 0 {
-						result.Details, err = json.Marshal(details)
-						if err != nil {
-							return TaskTransition{}, err
-						}
-					}
-				}
-				delete(tools, key)
-			}
-			data, err := json.Marshal(live)
-			if err != nil {
-				return TaskTransition{}, err
-			}
-			if err := tx.PutDocument(liveDocument, uint64(task.Conversation), data); err != nil {
-				return TaskTransition{}, err
-			}
-		}
-		if result.Content == "" {
-			result.Content = committed
-		}
-		if (status == "aborted" || status == "failed") && committed != "" && result.Content != committed {
-			result.Content += "\nCommitted output:\n" + committed
-		}
-		if len(result.Content) > 50*1024 {
-			result.Content = "[truncated]\n" + result.Content[len(result.Content)-50*1024:]
-		}
-		details, err := json.Marshal(result)
-		if err != nil {
-			return TaskTransition{}, err
-		}
-		id, err := tx.Append(task.Conversation, Entry{Kind: "pi.tool-result", Message: &Message{Role: "tool", ToolCallID: input.Call.ID, ToolName: input.Call.Name, Content: result.Content, IsError: result.IsError, Usage: result.Usage, DurationMs: result.DurationMs}, Data: details})
-		if err != nil {
-			return TaskTransition{}, err
-		}
-		if err := recordToolUsage(tx, task.Conversation, input.Call.Name, result.Usage); err != nil {
-			return TaskTransition{}, err
-		}
-		data, err := json.Marshal(toolTaskResult{EntryID: id, Result: result})
-		if err != nil {
-			return TaskTransition{}, err
-		}
-		outcome := &Outcome{Status: status, Result: data}
-		if status == OutcomeFailed {
-			outcome.Error = diagnostic(result.Content)
-			if outcomeError != "" {
-				outcome.Error = diagnostic(outcomeError)
-			}
-			outcome.ErrorDetail = detail
-		}
-		return TaskTransition{Status: "terminal", Outcome: outcome}, nil
-	})
-}
 func queuedSubmissions(tx *Tx, cid ConversationID) []*SubmissionRecord {
 	var queued []*SubmissionRecord
 	for _, s := range tx.state.Submissions {
@@ -838,56 +763,6 @@ func queuedSubmissions(tx *Tx, cid ConversationID) []*SubmissionRecord {
 			queued = append(queued, s)
 		}
 	}
-	sort.Slice(queued, func(i, j int) bool { return queued[i].ID < queued[j].ID })
+	sortSubmissions(queued)
 	return queued
-}
-func placeBusyBoundary(tx *Tx, cid ConversationID, input *generationInput) (bool, error) {
-	reset := false
-	for _, s := range queuedSubmissions(tx, cid) {
-		if s.Request.Type == "write" {
-			if err := placeWrite(tx, cid, s); err != nil {
-				return false, err
-			}
-			if s.Status == "done" && s.Request.Entry.Kind == "pi.reset" {
-				reset = true
-			}
-			continue
-		}
-		if s.Request.WhenBusy == "steer" && !reset {
-			if _, err := tx.Append(cid, inputEntry(s.Request)); err != nil {
-				return false, err
-			}
-			s.Status = "running"
-			input.Submissions = append(input.Submissions, s.ID)
-		}
-	}
-	return reset, nil
-}
-func advanceInbox(tx *Tx, cid ConversationID) error {
-	c, err := tx.Conversation(cid)
-	if err != nil {
-		return err
-	}
-	if c.Busy != 0 {
-		return nil
-	}
-	for _, s := range queuedSubmissions(tx, cid) {
-		if s.Request.Type == "write" {
-			if err := placeWrite(tx, cid, s); err != nil {
-				return err
-			}
-			continue
-		}
-		if _, err := tx.Append(cid, inputEntry(s.Request)); err != nil {
-			return err
-		}
-		s.Status = "running"
-		id, err := tx.createGeneration(cid, []SubmissionID{s.ID})
-		if err != nil {
-			return err
-		}
-		c.Busy = id
-		break
-	}
-	return nil
 }

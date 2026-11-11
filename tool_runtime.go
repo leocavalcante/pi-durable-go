@@ -1,6 +1,7 @@
 package durable
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -12,8 +13,6 @@ type ToolRuntime struct {
 	ConversationID ConversationID
 	Call           ToolCall
 }
-
-var liveDocument = DocumentDefinition{Kind: "pi.live", Version: 1, Scope: "conversation", History: "latest", Fork: "initial", Initial: func() any { return map[string]any{} }}
 
 // maxToolOutputBytes bounds a running tool's committed output, keeping the tail.
 const maxToolOutputBytes = 50 * 1024
@@ -27,9 +26,8 @@ func (r *ToolRuntime) Output(ctx context.Context, text string) error {
 		if err != nil {
 			return TaskTransition{}, err
 		}
-		if err := r.updateLive(tx, func(slot map[string]any) {
-			output, _ := slot["output"].(string)
-			slot["output"] = tailBytes(output+text, maxToolOutputBytes)
+		if err := r.updateLive(tx, func(slot *ToolSlot) {
+			slot.Output = tailBytes(slot.Output+text, maxToolOutputBytes)
 		}); err != nil {
 			return TaskTransition{}, err
 		}
@@ -50,19 +48,21 @@ func tailBytes(s string, max int) string {
 }
 
 // clearProgress removes what an interrupted attempt published, before a
-// safe rerun reports from scratch.
+// safe rerun reports from scratch, and shows the slot running again.
 func (r *ToolRuntime) clearProgress(tx *Tx) error {
-	return r.updateLive(tx, func(slot map[string]any) {
-		delete(slot, "output")
-		delete(slot, "details")
+	return r.updateLive(tx, func(slot *ToolSlot) {
+		slot.Output, slot.Details = "", nil
+		slot.Status = "running"
 	})
 }
+
+// Details replaces the call's published details in its pi.live slot.
 func (r *ToolRuntime) Details(ctx context.Context, value json.RawMessage) error {
 	if !json.Valid(value) {
 		return fmt.Errorf("%w: tool details JSON", ErrInvalid)
 	}
-	var decoded any
-	if err := json.Unmarshal(value, &decoded); err != nil {
+	var compact bytes.Buffer
+	if err := json.Compact(&compact, value); err != nil {
 		return err
 	}
 	return r.Commit(ctx, func(tx *Tx) (TaskTransition, error) {
@@ -70,24 +70,21 @@ func (r *ToolRuntime) Details(ctx context.Context, value json.RawMessage) error 
 		if err != nil {
 			return TaskTransition{}, err
 		}
-		if err := r.updateLive(tx, func(slot map[string]any) { slot["details"] = decoded }); err != nil {
+		if err := r.updateLive(tx, func(slot *ToolSlot) { slot.Details = append(json.RawMessage(nil), compact.Bytes()...) }); err != nil {
 			return TaskTransition{}, err
 		}
 		return TaskTransition{Status: "running", Checkpoint: task.Checkpoint}, nil
 	})
 }
-func (r *ToolRuntime) updateLive(tx *Tx, update func(map[string]any)) error {
-	return UpdateDocument(tx, liveDocument, uint64(r.ConversationID), func(live *map[string]any) error {
-		tools, ok := (*live)["tools"].(map[string]any)
-		if !ok {
-			tools = map[string]any{}
-			(*live)["tools"] = tools
-		}
-		key := fmt.Sprintf("%d", r.ID)
-		slot, ok := tools[key].(map[string]any)
-		if !ok {
-			slot = map[string]any{"callId": r.Call.ID, "name": r.Call.Name}
-			tools[key] = slot
+
+// updateLive edits the call's slot; a slot that is missing, as for a task
+// created before slots existed, is added.
+func (r *ToolRuntime) updateLive(tx *Tx, update func(*ToolSlot)) error {
+	return updateLive(tx, r.ConversationID, func(live *LiveState) error {
+		slot := live.toolSlot(r.ID)
+		if slot == nil {
+			live.Tools = append(live.Tools, ToolSlot{CallID: r.Call.ID, Name: r.Call.Name, Status: "running", TaskID: r.ID})
+			slot = &live.Tools[len(live.Tools)-1]
 		}
 		update(slot)
 		return nil
@@ -120,9 +117,7 @@ func (r *ToolRuntime) Submit(ctx context.Context, content string) (ConversationI
 			}
 		}
 		if sid == 0 {
-			sid = SubmissionID(tx.id())
-			tx.state.Submissions[sid] = &SubmissionRecord{ID: sid, Conversation: cid, Request: SubmissionRequest{Type: "input", Content: content, RequestID: requestID}, Status: "queued", CreatedAt: tx.clock()}
-			if err := advanceInbox(tx, cid); err != nil {
+			if sid, err = r.h.admitSubmission(tx, cid, SubmissionRequest{Type: "input", Content: content, RequestID: requestID}); err != nil {
 				return TaskTransition{}, err
 			}
 		}

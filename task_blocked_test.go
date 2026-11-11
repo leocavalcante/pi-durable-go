@@ -606,7 +606,7 @@ func TestTaskBlockedInspectionDerivesStatesWithoutCallingUserCode(t *testing.T) 
 		}
 		tx.state.Tasks[ids["terminal"]].Status = "terminal"
 		tx.state.Submissions[90] = &SubmissionRecord{ID: 90, Status: "queued"}
-		tx.state.Submissions[12] = &SubmissionRecord{ID: 12, Status: "running"}
+		tx.state.Submissions[12] = &SubmissionRecord{ID: 12, Status: "placed"}
 		tx.state.Submissions[3] = &SubmissionRecord{ID: 3, Status: "done"}
 		return nil
 	}); err != nil {

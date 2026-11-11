@@ -18,9 +18,9 @@ func versionedState(version int) *State {
 	}
 }
 
-func TestSessionAcceptsAndPersistsStateVersionsOneAndTwo(t *testing.T) {
-	for _, storedVersion := range []int{1, 2} {
-		t.Run(map[int]string{1: "v1", 2: "v2"}[storedVersion], func(t *testing.T) {
+func TestSessionAcceptsAndPersistsEarlierStateVersions(t *testing.T) {
+	for _, storedVersion := range []int{1, 2, 3} {
+		t.Run(map[int]string{1: "v1", 2: "v2", 3: "v3"}[storedVersion], func(t *testing.T) {
 			ctx := context.Background()
 			store := NewMemoryStorage()
 			store.state = versionedState(storedVersion)
@@ -35,7 +35,7 @@ func TestSessionAcceptsAndPersistsStateVersionsOneAndTwo(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if snapshot.Version != 2 || snapshot.Documents["kept"] == nil {
+			if snapshot.Version != stateVersion || snapshot.Documents["kept"] == nil {
 				t.Fatalf("in-memory upgraded snapshot=%+v", snapshot)
 			}
 			store.mu.Lock()
@@ -51,14 +51,14 @@ func TestSessionAcceptsAndPersistsStateVersionsOneAndTwo(t *testing.T) {
 			store.mu.Lock()
 			persistedVersion := store.state.Version
 			store.mu.Unlock()
-			if persistedVersion != 2 {
-				t.Fatalf("next commit persisted version %d, want 2", persistedVersion)
+			if persistedVersion != stateVersion {
+				t.Fatalf("next commit persisted version %d, want %d", persistedVersion, stateVersion)
 			}
 		})
 	}
 }
 
-func TestSessionDefaultsNewStateToVersionTwo(t *testing.T) {
+func TestSessionDefaultsNewStateToCurrentVersion(t *testing.T) {
 	ctx := context.Background()
 	store := NewMemoryStorage()
 	s, err := NewSession(ctx, store, nil)
@@ -70,23 +70,23 @@ func TestSessionDefaultsNewStateToVersionTwo(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if state.Version != 2 {
-		t.Fatalf("new Session version=%d, want 2", state.Version)
+	if state.Version != stateVersion {
+		t.Fatalf("new Session version=%d, want %d", state.Version, stateVersion)
 	}
 	if err := s.Commit(ctx, nil); err != nil {
 		t.Fatal(err)
 	}
 	store.mu.Lock()
 	defer store.mu.Unlock()
-	if store.state.Version != 2 {
-		t.Fatalf("new store persisted version %d, want 2", store.state.Version)
+	if store.state.Version != stateVersion {
+		t.Fatalf("new store persisted version %d, want %d", store.state.Version, stateVersion)
 	}
 }
 
 func TestSessionRejectsLaterStateVersion(t *testing.T) {
 	store := NewMemoryStorage()
-	store.state = versionedState(3)
+	store.state = versionedState(stateVersion + 1)
 	if _, err := NewSession(context.Background(), store, nil); !errors.Is(err, ErrInvalid) {
-		t.Fatalf("version 3 error=%v, want ErrInvalid", err)
+		t.Fatalf("version %d error=%v, want ErrInvalid", stateVersion+1, err)
 	}
 }

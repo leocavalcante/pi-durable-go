@@ -75,7 +75,7 @@ func TestTaskFaultGenerationCleanupWaitsForOwnedWork(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if state.Tasks[generation].Status != "completing" || state.Conversations[c.id].Busy != generation || state.Submissions[first.id].Status != "running" {
+	if state.Tasks[generation].Status != "completing" || state.Conversations[c.id].Busy != generation || state.Submissions[first.id].Status != "placed" {
 		t.Fatalf("cleanup ran before owned work drained: task=%+v sub=%+v", state.Tasks[generation], state.Submissions[first.id])
 	}
 	childOnce.Do(func() { close(releaseChild) })
@@ -112,7 +112,7 @@ func TestTaskFaultMalformedGenerationCheckpointDoesNotFailSession(t *testing.T) 
 	var sid SubmissionID
 	if err := h.Commit(context.Background(), func(tx *Tx) error {
 		sid = SubmissionID(tx.id())
-		tx.state.Submissions[sid] = &SubmissionRecord{ID: sid, Conversation: c.id, Status: "running"}
+		tx.state.Submissions[sid] = &SubmissionRecord{ID: sid, Conversation: c.id, Status: "placed"}
 		input, _ := json.Marshal(generationInput{Submissions: []SubmissionID{sid}})
 		var err error
 		id, err = tx.CreateTask(c.id, generationTaskDefinition(), input, TaskOptions{})

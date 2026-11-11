@@ -266,6 +266,54 @@ func (s *RegistrySnapshot) Sections(agent Agent) []Section {
 	}
 	return out
 }
+
+// namedSection is a selected section with its installing extension.
+type namedSection struct {
+	Section
+	extension string
+}
+
+// namedHooks are an extension's selected hooks with its name.
+type namedHooks struct {
+	Hooks
+	extension string
+}
+
+// sections returns Sections with the extension that installed each.
+func (s *RegistrySnapshot) sections(agent Agent) []namedSection {
+	if s == nil {
+		return nil
+	}
+	out := []namedSection{}
+	positions := map[string]int{}
+	for _, ext := range selectedExtensions(s.extensions, agent.Extensions) {
+		for _, sec := range ext.Sections {
+			named := namedSection{Section: sec, extension: ext.Name}
+			if i, ok := positions[sec.Name]; ok {
+				out[i] = named
+			} else {
+				positions[sec.Name] = len(out)
+				out = append(out, named)
+			}
+		}
+	}
+	return out
+}
+
+// hooks returns Hooks with the extension that installed each.
+func (s *RegistrySnapshot) hooks(agent Agent) []namedHooks {
+	var out []namedHooks
+	if s == nil {
+		return out
+	}
+	for _, ext := range selectedExtensions(s.extensions, agent.Extensions) {
+		if ext.Hooks.BeforeRequest != nil || ext.Hooks.AfterResponse != nil || ext.Hooks.BeforeTool != nil || ext.Hooks.AfterTool != nil || ext.Hooks.AfterTools != nil || ext.Hooks.OnYield != nil {
+			out = append(out, namedHooks{Hooks: ext.Hooks, extension: ext.Name})
+		}
+	}
+	return out
+}
+
 func (s *RegistrySnapshot) Hooks(agent Agent, kind string) []Hooks {
 	var out []Hooks
 	if s == nil {

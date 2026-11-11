@@ -338,11 +338,26 @@ func (c *Conversation) Submit(ctx context.Context, request SubmissionRequest) (*
 	if request.Type == "" {
 		request.Type = "input"
 	}
-	if request.Type != "input" && request.Type != "write" {
-		return nil, fmt.Errorf("%w: submission type", ErrInvalid)
+	if request.WhenBusy == "follow-up" {
+		request.WhenBusy = "followUp" // the earlier Go spelling
 	}
-	if request.WhenBusy != "" && request.WhenBusy != "follow-up" && request.WhenBusy != "steer" && request.WhenBusy != "reject" {
-		return nil, fmt.Errorf("%w: busy mode", ErrInvalid)
+	switch request.Type {
+	case "input":
+		if request.WhenBusy != "" && request.WhenBusy != "followUp" && request.WhenBusy != "steer" && request.WhenBusy != "reject" {
+			return nil, fmt.Errorf("%w: busy mode", ErrInvalid)
+		}
+		if request.WhenIdle != "" && request.WhenIdle != "reject" {
+			return nil, fmt.Errorf("%w: idle mode", ErrInvalid)
+		}
+	case "write", "continue":
+		if request.WhenBusy != "" || request.WhenIdle != "" {
+			return nil, fmt.Errorf("%w: busy and idle modes apply to input only", ErrInvalid)
+		}
+		if request.Type == "continue" && (request.Content != "" || request.Entry != nil) {
+			return nil, fmt.Errorf("%w: a continue has no content or entry", ErrInvalid)
+		}
+	default:
+		return nil, fmt.Errorf("%w: submission type", ErrInvalid)
 	}
 	if request.Type == "write" && (request.Entry == nil || request.Entry.Kind == "") {
 		return nil, fmt.Errorf("%w: write requires entry", ErrInvalid)
@@ -356,40 +371,17 @@ func (c *Conversation) Submit(ctx context.Context, request SubmissionRequest) (*
 			return nil, fmt.Errorf("%w: input entry data must be JSON", ErrInvalid)
 		}
 	}
+	// Submitting asks for progress: the run it starts needs scheduling.
+	c.h.Resume()
 	var id SubmissionID
 	err := c.h.Commit(ctx, func(tx *Tx) error {
-		rec, err := tx.Conversation(c.id)
-		if err != nil {
-			return err
-		}
-		if request.RequestID != "" {
-			for _, existing := range tx.state.Submissions {
-				if existing.Conversation == c.id && existing.Request.RequestID == request.RequestID {
-					if existing.Request.Type != request.Type {
-						return fmt.Errorf("%w: requestId reused for another type", ErrInvalid)
-					}
-					id = existing.ID
-					return nil
-				}
-			}
-		}
-		if rec.Busy != 0 && request.WhenBusy == "reject" {
-			return ErrBusy
-		}
-		id = SubmissionID(tx.id())
-		tx.state.Submissions[id] = &SubmissionRecord{ID: id, Conversation: c.id, Request: request, Status: "queued", CreatedAt: tx.clock()}
-		if rec.Busy == 0 {
-			return advanceInbox(tx, c.id)
-		}
-		if isDisplayOnlyWrite(request) && !queuedResetExists(tx, c.id) {
-			return placeWrite(tx, c.id, tx.state.Submissions[id])
-		}
-		return nil
+		var err error
+		id, err = c.h.admitSubmission(tx, c.id, request)
+		return err
 	})
 	if err != nil {
 		return nil, err
 	}
-	c.h.Resume()
 	return &Submission{h: c.h, id: id}, nil
 }
 func (s *Submission) Record(ctx context.Context) (SubmissionRecord, error) {
@@ -511,7 +503,7 @@ func viewFromState(state *State, id ConversationID) (View, error) {
 		}
 	}
 	for _, s := range state.Submissions {
-		if s.Conversation == id && (s.Status == "queued" || s.Status == "running") {
+		if s.Conversation == id && (s.Status == "queued" || s.Status == "placed") {
 			view.Inbox = append(view.Inbox, *s)
 		}
 	}

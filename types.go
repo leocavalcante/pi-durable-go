@@ -67,6 +67,9 @@ type Agent struct {
 	Tools         []string `json:"tools"`
 	Instructions  string   `json:"instructions,omitempty"`
 	Cwd           string   `json:"cwd,omitempty"`
+	// MaxTurns bounds a run's tool rounds; a run that reaches it ends
+	// unanswered with turn_limit, and a continue resumes it. Zero: no bound.
+	MaxTurns int `json:"maxTurns,omitempty"`
 }
 type ConversationRecord struct {
 	ID                ConversationID `json:"id"`
@@ -127,22 +130,33 @@ type UsageState struct {
 	Tools  map[string]Usage `json:"tools"`
 }
 
+// SubmissionRequest is a host submission (Pi Durable SubmissionDraft): user
+// input that may start a run, a passive entry write, or a continue, which
+// starts a run on the context as it is, without a new user message.
 type SubmissionRequest struct {
-	Type      string `json:"type"` // input or write
+	Type      string `json:"type"` // input, write, or continue
 	Content   string `json:"content,omitempty"`
 	Entry     *Entry `json:"entry,omitempty"`
 	RequestID string `json:"requestId,omitempty"`
-	WhenBusy  string `json:"whenBusy,omitempty"` // follow-up (default), steer, reject
+	// WhenBusy (input only): followUp (default) queues for the next run, steer
+	// joins the current run at its next boundary, reject fails with ErrBusy.
+	WhenBusy string `json:"whenBusy,omitempty"`
+	// WhenIdle (input only): reject fails with ErrIdle instead of starting a
+	// run in a conversation without one.
+	WhenIdle string `json:"whenIdle,omitempty"`
 }
 type SubmissionRecord struct {
 	ID           SubmissionID      `json:"id"`
 	Conversation ConversationID    `json:"conversation"`
 	Request      SubmissionRequest `json:"request"`
-	Status       string            `json:"status"` // queued, running, done, unanswered
-	Answer       EntryID           `json:"answer,omitempty"`
-	Reason       string            `json:"reason,omitempty"`
-	Detail       json.RawMessage   `json:"detail,omitempty"`
-	CreatedAt    time.Time         `json:"createdAt"`
+	Status       string            `json:"status"` // queued, placed, done, unanswered
+	// Entry is the transcript entry the submission was placed as: an input's
+	// user message, or a write's entry.
+	Entry     EntryID         `json:"entry,omitempty"`
+	Answer    EntryID         `json:"answer,omitempty"`
+	Reason    string          `json:"reason,omitempty"`
+	Detail    json.RawMessage `json:"detail,omitempty"`
+	CreatedAt time.Time       `json:"createdAt"`
 }
 
 type TaskRecord struct {
@@ -319,8 +333,18 @@ type Extension struct {
 type Settings struct {
 	// Retry is Pi Durable's settings.retry policy for generation and
 	// compaction model attempts, merged field by field over its default.
-	Retry    RetrySettings
-	MaxTurns int // zero defaults to 100; prevents unbounded runaway calls
+	Retry RetrySettings
+	// SteeringMode and FollowUpMode select how many queued steers or
+	// follow-ups a boundary places: QueueOneAtATime (default) or QueueAll.
+	SteeringMode string
+	FollowUpMode string
+	// AfterFailedRun decides what a run that fails (model_error, no_model,
+	// interrupted, restart_limit, nothing_to_answer, turn_limit) does with the
+	// inputs queued behind it: AfterFailedRunKeep (default) leaves them
+	// queued until the next input or queued write, AfterFailedRunContinue
+	// starts the next run with them, and AfterFailedRunWithdraw settles them
+	// unanswered with reason run_failed.
+	AfterFailedRun string
 	// RestartLimit ends a task cut off this many times in a row by crashes,
 	// following Pi Durable's restartLimit number setting: values below 1 and NaN
 	// select the default of 5, fractions round down, and math.Inf(1) never ends

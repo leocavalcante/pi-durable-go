@@ -30,7 +30,9 @@ func (m codingModel) Generate(ctx context.Context, request durable.ModelRequest,
 }
 func runCoding(t *testing.T, dir, name, args string) (durable.Message, string) {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	// A hang bound, not a latency assertion: large reads under the race
+	// detector on a loaded host take seconds.
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	registry := durable.NewRegistry()
 	if err := registry.Install(Coding()); err != nil {

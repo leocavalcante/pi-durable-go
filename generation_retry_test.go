@@ -128,8 +128,7 @@ func TestRetryPolicyGenerationRetriesTransientErrorAndPreparesAgain(t *testing.T
 		failWith(errors.New("503 Service Unavailable"), "par"),
 		answerWith("ok"),
 	}}
-	// MaxTurns 1 proves the retry prepares the same turn instead of a new one.
-	h := taskTestHarness(t, HarnessOptions{Model: model, Registry: registry, Now: clock.Now, Settings: Settings{MaxTurns: 1}})
+	h := taskTestHarness(t, HarnessOptions{Model: model, Registry: registry, Now: clock.Now})
 	root, err := h.Root(ctx, ConversationOptions{Agent: Agent{Model: ModelRef{Provider: "fake", ID: "m"}, Extensions: []string{"modes"}}})
 	if err != nil {
 		t.Fatal(err)
@@ -142,7 +141,7 @@ func TestRetryPolicyGenerationRetriesTransientErrorAndPreparesAgain(t *testing.T
 	backoff := waitForTask(t, h, id, func(task TaskRecord) bool { return generationPhase(task).Phase == "retry" })
 	cp := generationPhase(backoff)
 	until := clock.unixMilliAfter(2000)
-	if backoff.Status != "sleeping" || cp.Attempt != 1 || cp.Until != until || backoff.WakeAt == nil || backoff.WakeAt.UnixMilli() != until || cp.Turns != 1 {
+	if backoff.Status != "sleeping" || cp.Attempt != 1 || cp.Until != until || backoff.WakeAt == nil || backoff.WakeAt.UnixMilli() != until {
 		t.Fatalf("backoff=%+v checkpoint=%+v, want attempt 1 until %d", backoff, cp, until)
 	}
 	view, err := root.View(ctx)
@@ -260,17 +259,27 @@ func seedGeneration(t *testing.T, h *Harness, cid ConversationID, version int, c
 	if err := h.Commit(context.Background(), func(tx *Tx) error {
 		sub = SubmissionID(tx.id())
 		request := SubmissionRequest{Type: "input", Content: "hi"}
-		tx.state.Submissions[sub] = &SubmissionRecord{ID: sub, Conversation: cid, Request: request, Status: "running", CreatedAt: tx.clock()}
-		if _, err := tx.Append(cid, inputEntry(request)); err != nil {
+		entry, err := tx.Append(cid, inputEntry(request))
+		if err != nil {
 			return err
 		}
-		var err error
-		if id, err = tx.createGeneration(cid, []SubmissionID{sub}); err != nil {
+		tx.state.Submissions[sub] = &SubmissionRecord{ID: sub, Conversation: cid, Request: request, Status: "placed", Entry: entry, CreatedAt: tx.clock()}
+		live, err := readLive(tx, cid)
+		if err != nil {
 			return err
 		}
+		if err := startRun(tx, cid, live, []SubmissionID{sub}, entry, false); err != nil {
+			return err
+		}
+		if err := writeLive(tx, cid, live); err != nil {
+			return err
+		}
+		id = live.Run.TaskID
 		task := tx.state.Tasks[id]
 		task.Version, task.Checkpoint, task.WakeAt = version, json.RawMessage(checkpoint), wakeAt
-		tx.state.Conversations[cid].Busy = id
+		if wakeAt != nil {
+			task.Status = "sleeping"
+		}
 		return nil
 	}); err != nil {
 		t.Fatal(err)
@@ -324,7 +333,10 @@ func TestBuiltinVersionGenerationMigration(t *testing.T) {
 			t.Errorf("migrated malformed %s", bad)
 		}
 	}
-	if _, err := migrateGeneration(2, nil, json.RawMessage(`{}`)); err == nil {
+	if migrated, err := migrateGeneration(2, nil, json.RawMessage(`{"phase":"prepare","attempt":2}`)); err != nil || string(migrated.Checkpoint) != `{"phase":"prepare","attempt":2}` {
+		t.Errorf("version 2 migration=%+v error=%v", migrated, err)
+	}
+	if _, err := migrateGeneration(3, nil, json.RawMessage(`{}`)); err == nil {
 		t.Error("migrated from an unknown version")
 	}
 
@@ -335,7 +347,11 @@ func TestBuiltinVersionGenerationMigration(t *testing.T) {
 	root := testRoot(t, h)
 	pinned := `{"model":{"provider":"fake","id":"pinned"},"sessionId":"s","messages":[{"role":"user","content":"pinned"}]}`
 	id, sub := seedGeneration(t, h, root.ID(), 1, `{"phase":"request","request":`+pinned+`,"turns":1,"retry":1}`, nil)
-	newer, _ := seedGeneration(t, h, root.ID(), generationVersion+1, `{"phase":"prepare","attempt":1}`, nil)
+	other, err := h.CreateConversation(ctx, ConversationOptions{Agent: Agent{Model: ModelRef{Provider: "fake", ID: "m"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	newer, _ := seedGeneration(t, h, other.ID(), generationVersion+1, `{"phase":"prepare","attempt":1}`, nil)
 	inspection, err := h.Inspect(ctx)
 	if err != nil {
 		t.Fatal(err)
