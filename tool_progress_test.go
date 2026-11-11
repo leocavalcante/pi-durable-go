@@ -207,7 +207,7 @@ func TestToolProgressRerunsAndInterruptions(t *testing.T) {
 				}
 				return
 			}
-			want := "Tool effect was interrupted and may have partially run\nCommitted output:\nfirst attempt"
+			want := "first attempt\n<harness>\n[error] Tool effect was interrupted and may have partially run\n</harness>"
 			if attempts.Load() != 1 || result != want {
 				t.Fatalf("attempts=%d result=%q, want %q", attempts.Load(), result, want)
 			}
@@ -268,7 +268,7 @@ func TestToolProgressLegacyCheckpointOutput(t *testing.T) {
 				t.Fatalf("record=%+v error=%v", record, err)
 			}
 			result := toolResultEntry(t, h, root.ID()).Message.Content
-			want := "Tool effect was interrupted and may have partially run\nCommitted output:\nlegacy output"
+			want := "legacy output\n<harness>\n[error] Tool effect was interrupted and may have partially run\n</harness>"
 			if safe {
 				want = "rerun result"
 			}

@@ -289,14 +289,29 @@ type ToolDefinition struct {
 	ReplaySafe bool
 	Execute    func(context.Context, json.RawMessage, *ToolRuntime) (ToolResult, error)
 }
+
+// ToolDiagnostic is a note the Harness or a tool attaches to a result:
+// severity info, warn, or error, an optional code, and a message. The model
+// sees them in a <harness> block after the content.
+type ToolDiagnostic struct {
+	Severity string `json:"severity"`
+	Message  string `json:"message"`
+	Code     string `json:"code,omitempty"`
+}
+
 type ToolResult struct {
-	Content    string          `json:"content"`
-	Details    json.RawMessage `json:"details,omitempty"`
-	IsError    bool            `json:"isError,omitempty"`
-	Usage      Usage           `json:"usage,omitempty"`
-	DurationMs *int64          `json:"durationMs,omitempty"`
-	Terminate  bool            `json:"terminate,omitempty"`
-	Handoff    string          `json:"handoff,omitempty"`
+	Content string `json:"content"`
+	// Diagnostics follow the content for the model. The Harness's own error
+	// results carry one error diagnostic with a code: tool_unavailable,
+	// invalid_arguments, blocked, interrupted, restart_limit, aborted, or
+	// abandoned.
+	Diagnostics []ToolDiagnostic `json:"diagnostics,omitempty"`
+	Details     json.RawMessage  `json:"details,omitempty"`
+	IsError     bool             `json:"isError,omitempty"`
+	Usage       Usage            `json:"usage,omitempty"`
+	DurationMs  *int64           `json:"durationMs,omitempty"`
+	Terminate   bool             `json:"terminate,omitempty"`
+	Handoff     string           `json:"handoff,omitempty"`
 }
 type ModelRequest struct {
 	Model         ModelRef   `json:"model"`

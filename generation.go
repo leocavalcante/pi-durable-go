@@ -295,13 +295,14 @@ func requestGeneration(ctx context.Context, r *TaskRuntime, task TaskRecord, cp 
 	if conv == nil {
 		return ErrNotFound
 	}
-	hooks := r.Registry().Hooks(conv.Agent, "pi.generation")
+	hooks := r.Registry().hooks(conv.Agent)
 	for _, hook := range hooks {
 		if hook.AfterResponse != nil {
-			if e := hook.AfterResponse(ctx, &response, r); e != nil {
-				if e = recordHookError(ctx, r, "afterResponse", e); e != nil {
-					return e
+			if e := containPanic(func() error { return hook.AfterResponse(ctx, &response, r) }); e != nil {
+				if ctx.Err() != nil {
+					return ctx.Err()
 				}
+				r.reportExtension(e, hook.extension)
 			}
 		}
 	}
@@ -323,11 +324,17 @@ func requestGeneration(ctx context.Context, r *TaskRuntime, task TaskRecord, cp 
 	var continuation string
 	for _, hook := range hooks {
 		if hook.OnYield != nil {
-			value, e := hook.OnYield(ctx, response, r)
+			var value string
+			e := containPanic(func() error {
+				var err error
+				value, err = hook.OnYield(ctx, response, r)
+				return err
+			})
 			if e != nil {
-				if e = recordHookError(ctx, r, "onYield", e); e != nil {
-					return e
+				if ctx.Err() != nil {
+					return ctx.Err()
 				}
+				r.reportExtension(e, hook.extension)
 				continue
 			}
 			if value != "" {
@@ -508,12 +515,13 @@ func finishToolRound(ctx context.Context, r *TaskRuntime, task TaskRecord, cp ge
 	if conv == nil {
 		return ErrNotFound
 	}
-	for _, hook := range r.Registry().Hooks(conv.Agent, "pi.generation") {
+	for _, hook := range r.Registry().hooks(conv.Agent) {
 		if hook.AfterTools != nil {
-			if err := hook.AfterTools(ctx, results, r); err != nil {
-				if err = recordHookError(ctx, r, "afterTools", err); err != nil {
-					return err
+			if err := containPanic(func() error { return hook.AfterTools(ctx, results, r) }); err != nil {
+				if ctx.Err() != nil {
+					return ctx.Err()
 				}
+				r.reportExtension(err, hook.extension)
 			}
 		}
 	}
@@ -702,21 +710,6 @@ func (r *TaskRuntime) reportExtension(err error, extension string) {
 	report := r.taskReport(ReportExtensionError, err, "")
 	report.Extension = extension
 	r.h.report(report)
-}
-
-func recordHookError(ctx context.Context, r *TaskRuntime, phase string, cause error) error {
-	return r.Commit(ctx, func(tx *Tx) (TaskTransition, error) {
-		task, err := tx.Task(r.ID)
-		if err != nil {
-			return TaskTransition{}, err
-		}
-		data, err := json.Marshal(map[string]string{"phase": phase, "error": diagnostic(cause.Error())})
-		if err != nil {
-			return TaskTransition{}, err
-		}
-		_, err = tx.Append(task.Conversation, Entry{Kind: "app.hook-error", Data: data})
-		return TaskTransition{Status: "running", Checkpoint: task.Checkpoint}, err
-	})
 }
 
 // failRun ends a run without an answer: endFailedRun applies AfterFailedRun

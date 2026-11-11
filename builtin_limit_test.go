@@ -185,7 +185,7 @@ func TestCrashLoopToolCutOffEndsWithErrorResult(t *testing.T) {
 		t.Fatalf("tool ran %d times, want 2", attempts.Load())
 	}
 	message := "Tool stream was interrupted 2 times in a row; it is not run again"
-	if result := toolResultEntry(t, h, root.ID()); result.Message.Content != message+"\nCommitted output:\npartial 2" || !result.Message.IsError {
+	if result := toolResultEntry(t, h, root.ID()); result.Message.Content != "partial 2\n<harness>\n[error] "+message+"\n</harness>" || !result.Message.IsError {
 		t.Fatalf("result=%+v", result.Message)
 	}
 	tool := toolTask(t, h)
@@ -222,7 +222,7 @@ func TestCrashLoopUnsafeToolCutOffIsNotAnInterruption(t *testing.T) {
 	if settled, err := (&Submission{h: h, id: submission.ID()}).Wait(ctx); err != nil || settled.Status != "done" {
 		t.Fatalf("submission=%+v error=%v", settled, err)
 	}
-	if result := toolResultEntry(t, h, root.ID()); result.Message.Content != "Tool effect was interrupted once; it is not run again" {
+	if result := toolResultEntry(t, h, root.ID()); result.Message.Content != "<harness>\n[error] Tool effect was interrupted once; it is not run again\n</harness>" {
 		t.Fatalf("result=%q", result.Message.Content)
 	}
 }

@@ -85,6 +85,8 @@ Each run is in `pi.live` (`LiveState`, readable with `ReadDocument`): `Run` whil
 
 A submission's `RequestID` deduplicates admission within one conversation. Retrying it returns the original even if the content changed; reusing it for another submission type is rejected. Persist `submission.ID()` for reconnection with `h.Submission(ctx, id)`. Inputs may use `Entry` to attach a custom non-`pi.*` kind and JSON data to the user message. Display-only write submissions settle immediately during a run unless a reset is queued.
 
+Tool results the Harness writes itself carry an error `ToolResult.Diagnostics` entry with upstream's code (`tool_unavailable`, `invalid_arguments`, `blocked`, `interrupted`, `restart_limit`, `aborted`, `abandoned`), shown to the model in a `<harness>` block after any output; every result passes `AfterTool` hooks. A failing hook is reported as `extension_error` and skipped.
+
 **Admission deduplication is not exactly-once external execution.** A crash between an external effect and the commit recording its result leaves uncertainty. Use service-side idempotency keys, queryable receipts, or reconciliation. Interrupted tools replay only when both their stored and current policies declare `ReplaySafe`. Coding tools default to unsafe.
 
 ### Crashes, clean closes, and the restart limit

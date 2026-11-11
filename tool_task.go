@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -47,51 +48,159 @@ func finishSlot(slot *ToolSlot) {
 }
 
 func toolTaskDefinition() TaskDefinition {
-	return TaskDefinition{Kind: "pi.tool", Version: toolVersion, Initial: func(json.RawMessage) (json.RawMessage, error) { return json.Marshal(toolCheckpoint{Phase: "call"}) }, Run: runTool, Abort: func(ctx context.Context, r *TaskRuntime, t TaskRecord) error {
-		return finishTool(ctx, r, t, ToolResult{Content: "aborted", IsError: true}, "aborted")
-	}, Migrate: migrateTool}
+	return TaskDefinition{Kind: "pi.tool", Version: toolVersion, Initial: func(json.RawMessage) (json.RawMessage, error) { return json.Marshal(toolCheckpoint{Phase: "call"}) }, Run: runTool, Abort: abortTool, Migrate: migrateTool}
 }
 
-func runTool(ctx context.Context, r *TaskRuntime, task TaskRecord) error {
-	var input toolTaskInput
-	var cp toolCheckpoint
-	if err := json.Unmarshal(task.Input, &input); err != nil {
-		return err
+// harnessError is an error result the Harness writes itself: no content and
+// one error diagnostic with a code.
+func harnessError(code, message string) ToolResult {
+	return ToolResult{IsError: true, Diagnostics: []ToolDiagnostic{{Severity: "error", Code: code, Message: message}}}
+}
+
+// toolCall resolves what a tool task's runtime and hooks need.
+type toolCall struct {
+	input   toolTaskInput
+	cp      toolCheckpoint
+	def     *ToolDefinition
+	runtime *ToolRuntime
+	hooks   []namedHooks
+}
+
+func resolveToolCall(ctx context.Context, r *TaskRuntime, task TaskRecord) (*toolCall, error) {
+	call := &toolCall{}
+	if err := json.Unmarshal(task.Input, &call.input); err != nil {
+		return nil, err
 	}
-	if err := json.Unmarshal(task.Checkpoint, &cp); err != nil {
-		return err
-	}
-	// After reading its call, and before the replay decision, a call cut off
-	// restartLimit times in a row ends with an error result instead of
-	// running again, even for a replay-unsafe tool.
-	if (cp.Phase == "call" || cp.Phase == "execute") && cutOffTooOften(task.Restarts, r.h.restartLimit()) {
-		message := fmt.Sprintf("Tool %s was interrupted %s; it is not run again", input.Call.Name, cutOffCount(task.Restarts))
-		return finishToolEnding(ctx, r, task, ToolResult{Content: message, IsError: true}, OutcomeFailed, message, restartLimitDetail)
+	if err := json.Unmarshal(task.Checkpoint, &call.cp); err != nil {
+		return nil, err
 	}
 	state, err := r.h.Snapshot(ctx)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	c := state.Conversations[task.Conversation]
 	if c == nil {
-		return ErrNotFound
+		return nil, ErrNotFound
 	}
 	registry := r.Registry()
-	var def *ToolDefinition
 	for _, tool := range registry.Tools(c.Agent) {
-		if tool.Name == input.Call.Name {
+		if tool.Name == call.input.Call.Name {
 			copy := tool
-			def = &copy
+			call.def = &copy
 			break
 		}
 	}
-	runtime := &ToolRuntime{TaskRuntime: r, ConversationID: task.Conversation, Call: input.Call}
-	hooks := registry.Hooks(c.Agent, "pi.tool")
+	call.runtime = &ToolRuntime{TaskRuntime: r, ConversationID: task.Conversation, Call: call.input.Call}
+	call.hooks = registry.hooks(c.Agent)
+	return call, nil
+}
+
+// afterTool runs AfterTool hooks on a result, as on every result the tool
+// task writes; a failing hook is reported as extension_error and skipped.
+func (call *toolCall) afterTool(ctx context.Context, result ToolResult) ToolResult {
+	for _, hook := range call.hooks {
+		if hook.AfterTool == nil {
+			continue
+		}
+		replaced := result
+		if err := containPanic(func() error { return hook.AfterTool(ctx, &replaced, call.runtime) }); err != nil {
+			call.runtime.reportExtension(err, hook.extension)
+			continue
+		}
+		result = replaced
+	}
+	return result
+}
+
+// fromSlot builds an error result from the call's slot: what it published,
+// and an error diagnostic. A version-1 record kept its output in the
+// checkpoint instead.
+func (call *toolCall) fromSlot(ctx context.Context, r *TaskRuntime, task TaskRecord, code, message string) (ToolResult, error) {
+	result := harnessError(code, message)
+	result.Content = call.cp.Output
+	state, err := r.h.Snapshot(ctx)
+	if err != nil {
+		return ToolResult{}, err
+	}
+	if doc := state.Documents[documentKey(liveDocument, uint64(task.Conversation))]; doc != nil {
+		var live LiveState
+		if value, err := migratedDocument(liveDocument, doc); err == nil && json.Unmarshal(value, &live) == nil {
+			if slot := live.toolSlot(task.ID); slot != nil {
+				if slot.Output != "" {
+					result.Content = slot.Output
+				}
+				result.Details = slot.Details
+			}
+		}
+	}
+	return result, nil
+}
+
+// abortTool is the abort handler. An abandonment after a restart says
+// whether the call may have run. The scheduler gives an abort handler its
+// last attempt at restarts limit-1; that attempt skips the hooks, which may
+// be what cuts it off.
+func abortTool(ctx context.Context, r *TaskRuntime, task TaskRecord) error {
+	call, err := resolveToolCall(ctx, r, task)
+	if err != nil {
+		return err
+	}
+	name := call.input.Call.Name
+	code, message := "aborted", fmt.Sprintf("Tool %s was aborted", name)
+	if task.AbortReason == "restart" {
+		if call.cp.Phase == "execute" {
+			code, message = "interrupted", fmt.Sprintf("Tool %s was interrupted by a restart and may have partially run", name)
+		} else {
+			code, message = "abandoned", fmt.Sprintf("Tool %s was not started: its caller ended with a restart", name)
+		}
+	}
+	result, err := call.fromSlot(ctx, r, task, code, message)
+	if err != nil {
+		return err
+	}
+	if float64(task.Restarts) < r.h.restartLimit()-1 {
+		result = call.afterTool(ctx, result)
+	}
+	return finishTool(ctx, r, task, result, OutcomeAborted)
+}
+
+func runTool(ctx context.Context, r *TaskRuntime, task TaskRecord) error {
+	call, err := resolveToolCall(ctx, r, task)
+	if err != nil {
+		return err
+	}
+	input, cp, def, runtime := call.input, call.cp, call.def, call.runtime
+	name := input.Call.Name
+	// After reading its call, and before the replay decision, a call cut off
+	// restartLimit times in a row ends with an error result built from its
+	// slot instead of running again, even for a replay-unsafe tool. Past the
+	// limit the hooks may be what keeps cutting it off.
+	if cp.Phase == "call" || cp.Phase == "execute" {
+		if limit := r.h.restartLimit(); cutOffTooOften(task.Restarts, limit) {
+			message := fmt.Sprintf("Tool %s was interrupted %s; it is not run again", name, cutOffCount(task.Restarts))
+			result, err := call.fromSlot(ctx, r, task, reasonRestartLimit, message)
+			if err != nil {
+				return err
+			}
+			if salvageable(task.Restarts, limit) {
+				result = call.afterTool(ctx, result)
+			}
+			return finishToolEnding(ctx, r, task, result, OutcomeFailed, message, restartLimitDetail)
+		}
+	}
+	reject := func(result ToolResult) error {
+		return finishTool(ctx, r, task, call.afterTool(ctx, result), OutcomeCompleted)
+	}
 	if cp.Phase == "execute" {
 		// Recovery after intent: rerun only when the stored and the current
 		// policy both say safe.
 		if !cp.ReplaySafe || def == nil || !def.ReplaySafe || def.Execute == nil {
-			return finishTool(ctx, r, task, ToolResult{Content: fmt.Sprintf("Tool %s was interrupted and may have partially run", input.Call.Name), IsError: true}, "failed")
+			message := fmt.Sprintf("Tool %s was interrupted and may have partially run", name)
+			result, err := call.fromSlot(ctx, r, task, "interrupted", message)
+			if err != nil {
+				return err
+			}
+			return finishToolEnding(ctx, r, task, call.afterTool(ctx, result), OutcomeFailed, message, nil)
 		}
 		// The rerun reports from scratch: clear what the interrupted attempt
 		// published. A version-1 record's checkpoint output goes too.
@@ -114,23 +223,28 @@ func runTool(ctx context.Context, r *TaskRuntime, task TaskRecord) error {
 		runtime.Call.Arguments = cp.Arguments
 	} else if cp.Phase == "call" {
 		if def == nil || def.Execute == nil {
-			return finishTool(ctx, r, task, ToolResult{Content: "tool unavailable", IsError: true}, "completed")
+			return reject(harnessError("tool_unavailable", fmt.Sprintf("Tool %s is not available", name)))
 		}
 		if err := validateToolArguments(def.ToolSpec, runtime.Call.Arguments); err != nil {
-			return finishTool(ctx, r, task, ToolResult{Content: err.Error(), IsError: true}, "completed")
+			return reject(harnessError("invalid_arguments", err.Error()))
 		}
-		for _, hook := range hooks {
-			if hook.BeforeTool != nil {
-				if err := hook.BeforeTool(ctx, &runtime.Call, runtime); err != nil {
-					return finishTool(ctx, r, task, ToolResult{Content: "tool blocked: " + err.Error(), IsError: true}, "completed")
+		for _, hook := range call.hooks {
+			if hook.BeforeTool == nil {
+				continue
+			}
+			// The first block wins; a throw blocks.
+			if err := containPanic(func() error { return hook.BeforeTool(ctx, &runtime.Call, runtime) }); err != nil {
+				if ctx.Err() != nil {
+					return ctx.Err()
 				}
+				return reject(harnessError("blocked", "Tool call blocked: "+err.Error()))
 			}
 		}
 		if runtime.Call.Name != input.Call.Name || runtime.Call.ID != input.Call.ID {
-			return finishTool(ctx, r, task, ToolResult{Content: "tool hooks cannot change call identity", IsError: true}, "completed")
+			return reject(harnessError("blocked", "Tool call blocked: hooks cannot change the call's identity"))
 		}
 		if err := validateToolArguments(def.ToolSpec, runtime.Call.Arguments); err != nil {
-			return finishTool(ctx, r, task, ToolResult{Content: err.Error(), IsError: true}, "completed")
+			return reject(harnessError("invalid_arguments", err.Error()))
 		}
 		cp = toolCheckpoint{Phase: "execute", Arguments: runtime.Call.Arguments, ReplaySafe: def.ReplaySafe}
 		if err := r.Commit(ctx, func(tx *Tx) (TaskTransition, error) {
@@ -157,18 +271,11 @@ func runTool(ctx context.Context, r *TaskRuntime, task TaskRecord) error {
 		result = ToolResult{Content: diagnostic(executeErr.Error()), IsError: true}
 	}
 	result.DurationMs = &durationMs
-	for _, hook := range hooks {
-		if hook.AfterTool != nil {
-			if err := hook.AfterTool(ctx, &result, runtime); err != nil {
-				if err = recordHookError(ctx, r, "afterTool", err); err != nil {
-					return err
-				}
-			}
-		}
-	}
+	result = call.afterTool(ctx, result)
 	result.DurationMs = &durationMs
 	return finishTool(ctx, r, task, result, status)
 }
+
 func finishTool(ctx context.Context, r *TaskRuntime, task TaskRecord, result ToolResult, status string) error {
 	return finishToolEnding(ctx, r, task, result, status, "", nil)
 }
@@ -206,20 +313,25 @@ func finishToolEnding(ctx context.Context, r *TaskRuntime, task TaskRecord, resu
 				result.Details = append(json.RawMessage(nil), slot.Details...)
 			}
 		}
-		if result.Content == "" {
+		// Omitted content is the retained Output text.
+		if result.Content == "" && len(result.Diagnostics) == 0 {
 			result.Content = committed
 		}
-		if (status == "aborted" || status == "failed") && committed != "" && result.Content != committed {
-			result.Content += "\nCommitted output:\n" + committed
-		}
 		if len(result.Content) > 50*1024 {
-			result.Content = "[truncated]\n" + result.Content[len(result.Content)-50*1024:]
+			result.Content = "[truncated]\n" + tailBytes(result.Content, 50*1024)
 		}
 		details, err := json.Marshal(result)
 		if err != nil {
 			return TaskTransition{}, err
 		}
-		id, err := tx.Append(task.Conversation, Entry{Kind: "pi.tool-result", Message: &Message{Role: "tool", ToolCallID: input.Call.ID, ToolName: input.Call.Name, Content: result.Content, IsError: result.IsError, Usage: result.Usage, DurationMs: result.DurationMs}, Data: details})
+		content := result.Content
+		if len(result.Diagnostics) > 0 {
+			if content != "" {
+				content += "\n"
+			}
+			content += renderDiagnostics(result.Diagnostics)
+		}
+		id, err := tx.Append(task.Conversation, Entry{Kind: "pi.tool-result", Message: &Message{Role: "tool", ToolCallID: input.Call.ID, ToolName: input.Call.Name, Content: content, IsError: result.IsError, Usage: result.Usage, DurationMs: result.DurationMs}, Data: details})
 		if err != nil {
 			return TaskTransition{}, err
 		}
@@ -241,7 +353,7 @@ func finishToolEnding(ctx context.Context, r *TaskRuntime, task TaskRecord, resu
 		}
 		outcome := &Outcome{Status: status, Result: data}
 		if status == OutcomeFailed {
-			outcome.Error = diagnostic(result.Content)
+			outcome.Error = diagnostic(content)
 			if outcomeError != "" {
 				outcome.Error = diagnostic(outcomeError)
 			}
@@ -249,4 +361,18 @@ func finishToolEnding(ctx context.Context, r *TaskRuntime, task TaskRecord, resu
 		}
 		return TaskTransition{Status: "terminal", Outcome: outcome}, nil
 	})
+}
+
+// renderDiagnostics is upstream's <harness> block the model sees.
+func renderDiagnostics(diagnostics []ToolDiagnostic) string {
+	var b strings.Builder
+	b.WriteString("<harness>\n")
+	for i, d := range diagnostics {
+		if i > 0 {
+			b.WriteString("\n")
+		}
+		fmt.Fprintf(&b, "[%s] %s", d.Severity, d.Message)
+	}
+	b.WriteString("\n</harness>")
+	return b.String()
 }
