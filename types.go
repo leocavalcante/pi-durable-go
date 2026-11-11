@@ -294,7 +294,14 @@ type ToolDefinition struct {
 	// ExecutionMode "sequential" runs a round containing a call to this tool
 	// one call at a time, in call order; empty runs calls in parallel.
 	ExecutionMode string
-	Execute       func(context.Context, json.RawMessage, *ToolRuntime) (ToolResult, error)
+	// Callers says who may call the tool: "model", "tools" (nested calls
+	// through ToolRuntime.ExecuteTool), or both (empty, the default).
+	Callers []string
+	// StructuredOutputSchema, when set, is the JSON Schema of the
+	// StructuredOutput programs get from a successful result; nested callers
+	// otherwise get the result's content as a JSON string.
+	StructuredOutputSchema json.RawMessage
+	Execute                func(context.Context, json.RawMessage, *ToolRuntime) (ToolResult, error)
 }
 
 // ToolDiagnostic is a note the Harness or a tool attaches to a result:
@@ -313,12 +320,15 @@ type ToolResult struct {
 	// invalid_arguments, blocked, interrupted, restart_limit, aborted, or
 	// abandoned.
 	Diagnostics []ToolDiagnostic `json:"diagnostics,omitempty"`
-	Details     json.RawMessage  `json:"details,omitempty"`
-	IsError     bool             `json:"isError,omitempty"`
-	Usage       Usage            `json:"usage,omitempty"`
-	DurationMs  *int64           `json:"durationMs,omitempty"`
-	Terminate   bool             `json:"terminate,omitempty"`
-	Handoff     string           `json:"handoff,omitempty"`
+	// StructuredOutput is the value for programs (nested callers) of a tool
+	// with a StructuredOutputSchema, validated against it.
+	StructuredOutput json.RawMessage `json:"structuredOutput,omitempty"`
+	Details          json.RawMessage `json:"details,omitempty"`
+	IsError          bool            `json:"isError,omitempty"`
+	Usage            Usage           `json:"usage,omitempty"`
+	DurationMs       *int64          `json:"durationMs,omitempty"`
+	Terminate        bool            `json:"terminate,omitempty"`
+	Handoff          string          `json:"handoff,omitempty"`
 }
 type ModelRequest struct {
 	Model         ModelRef   `json:"model"`

@@ -207,6 +207,12 @@ func (h *Harness) settleSchedulerOutcome(tx *Tx, task *TaskRecord) error {
 			finishSlot(slot) // done without an entry; context synthesizes the result
 			return writeLive(tx, task.Conversation, live)
 		}
+		for i := range live.NestedTools {
+			if slot := &live.NestedTools[i]; slot.TaskID == task.ID {
+				slot.Status, slot.Output, slot.Details = "done", "", nil
+				return writeLive(tx, task.Conversation, live)
+			}
+		}
 	case "pi.compaction":
 		live, err := readLive(tx, task.Conversation)
 		if err != nil {

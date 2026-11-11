@@ -772,7 +772,9 @@ func buildRequest(ctx context.Context, r *TaskRuntime, state *State, c Conversat
 	}
 	request := ModelRequest{Model: c.Agent.Model, SessionID: c.ProviderSessionID, ThinkingLevel: c.Agent.ThinkingLevel, Messages: messages}
 	for _, tool := range registry.Tools(c.Agent) {
-		request.Tools = append(request.Tools, tool.ToolSpec)
+		if callableBy(tool, "model") {
+			request.Tools = append(request.Tools, tool.ToolSpec)
+		}
 	}
 	for _, hook := range registry.hooks(c.Agent) {
 		if hook.BeforeRequest != nil {

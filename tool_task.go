@@ -9,9 +9,16 @@ import (
 )
 
 type toolTaskInput struct {
-	Assistant EntryID  `json:"assistant"`
-	CallID    string   `json:"callId"`
-	Call      ToolCall `json:"call"`
+	// Kind is "nested" for a call another tool made through ExecuteTool;
+	// empty for a model-issued call.
+	Kind         string   `json:"kind,omitempty"`
+	Parent       TaskID   `json:"parent,omitempty"`
+	ParentCallID string   `json:"parentCallId,omitempty"`
+	Key          string   `json:"key,omitempty"`
+	NoProgress   bool     `json:"noProgress,omitempty"`
+	Assistant    EntryID  `json:"assistant,omitempty"`
+	CallID       string   `json:"callId"`
+	Call         ToolCall `json:"call"`
 	// Unoffered marks a call to a tool its request did not offer: it settles
 	// tool_unavailable without resolving the name.
 	Unoffered bool `json:"unoffered,omitempty"`
@@ -86,14 +93,20 @@ func resolveToolCall(ctx context.Context, r *TaskRuntime, task TaskRecord) (*too
 		return nil, ErrNotFound
 	}
 	registry := r.Registry()
+	// A nested call resolves among the tools callable by tools.
+	caller := "model"
+	if call.input.Kind == "nested" {
+		caller = "tools"
+	}
 	for _, tool := range registry.Tools(c.Agent) {
-		if tool.Name == call.input.Call.Name {
+		if tool.Name == call.input.Call.Name && callableBy(tool, caller) {
 			copy := tool
 			call.def = &copy
 			break
 		}
 	}
-	call.runtime = &ToolRuntime{TaskRuntime: r, ConversationID: task.Conversation, Call: call.input.Call}
+	call.runtime = &ToolRuntime{TaskRuntime: r, ConversationID: task.Conversation, Call: call.input.Call,
+		nested: call.input.Kind == "nested", noProgress: call.input.NoProgress}
 	call.hooks = registry.hooks(c.Agent)
 	return call, nil
 }
@@ -264,6 +277,7 @@ func runTool(ctx context.Context, r *TaskRuntime, task TaskRecord) error {
 	}
 	started := time.Now()
 	result, executeErr := def.Execute(ctx, cp.Arguments, runtime)
+	runtime.executed.Store(true)
 	durationMs := time.Since(started).Milliseconds()
 	if ctx.Err() != nil {
 		return ctx.Err()
@@ -273,10 +287,42 @@ func runTool(ctx context.Context, r *TaskRuntime, task TaskRecord) error {
 		status = "failed"
 		result = ToolResult{Content: diagnostic(executeErr.Error()), IsError: true}
 	}
+	result = call.checkStructuredOutput(result)
 	result.DurationMs = &durationMs
 	result = call.afterTool(ctx, result)
 	result.DurationMs = &durationMs
 	return finishTool(ctx, r, task, result, status)
+}
+
+// checkStructuredOutput keeps a tool's structured output only where its
+// schema allows it: required on a success of a tool with a schema, which it
+// must satisfy, and not allowed without one. A broken contract is an error
+// result and is reported as the extension's error.
+func (call *toolCall) checkStructuredOutput(result ToolResult) ToolResult {
+	if call.def == nil {
+		return result
+	}
+	schema := call.def.StructuredOutputSchema
+	if len(schema) == 0 {
+		result.StructuredOutput = nil
+		return result
+	}
+	if result.IsError && len(result.StructuredOutput) == 0 {
+		return result
+	}
+	var problem error
+	if len(result.StructuredOutput) == 0 {
+		problem = fmt.Errorf("tool %s returned no structured output", call.def.Name)
+	} else if err := validateAgainst(schema, result.StructuredOutput); err != nil {
+		problem = fmt.Errorf("tool %s structured output is invalid: %w", call.def.Name, err)
+	}
+	if problem == nil {
+		return result
+	}
+	call.runtime.reportExtension(problem, "")
+	result.IsError, result.StructuredOutput = true, nil
+	result.Diagnostics = append(result.Diagnostics, ToolDiagnostic{Severity: "error", Code: "invalid_structured_output", Message: problem.Error()})
+	return result
 }
 
 func finishTool(ctx context.Context, r *TaskRuntime, task TaskRecord, result ToolResult, status string) error {
@@ -300,6 +346,10 @@ func finishToolEnding(ctx context.Context, r *TaskRuntime, task TaskRecord, resu
 		if err := json.Unmarshal(current.Checkpoint, &cp); err != nil {
 			return TaskTransition{}, err
 		}
+		// Nested calls this call left running are aborted first.
+		if err := abortNestedCalls(tx, *current); err != nil {
+			return TaskTransition{}, err
+		}
 		// Committed output is the slot's; a version-1 record kept it in its
 		// checkpoint instead.
 		committed := cp.Output
@@ -319,6 +369,25 @@ func finishToolEnding(ctx context.Context, r *TaskRuntime, task TaskRecord, resu
 		// Omitted content is the retained Output text.
 		if result.Content == "" && len(result.Diagnostics) == 0 {
 			result.Content = committed
+		}
+		if input.Kind == "nested" {
+			def, _ := r.Registry().toolByName(task, input.Call.Name)
+			data, err := settleNested(tx, input, task, def, result)
+			if err != nil {
+				return TaskTransition{}, err
+			}
+			outcome := &Outcome{Status: status, Result: data}
+			if status == OutcomeFailed {
+				outcome.Error = diagnostic(result.Content)
+				if outcomeError != "" {
+					outcome.Error = diagnostic(outcomeError)
+				}
+				if outcome.Error == "" {
+					outcome.Error = "nested call failed"
+				}
+				outcome.ErrorDetail = detail
+			}
+			return TaskTransition{Status: "terminal", Outcome: outcome}, nil
 		}
 		if len(result.Content) > 50*1024 {
 			result.Content = "[truncated]\n" + tailBytes(result.Content, 50*1024)

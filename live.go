@@ -20,6 +20,10 @@ type LiveState struct {
 	// Tools presents the current tool round in call order, from the
 	// tool-calling answer until the round ends.
 	Tools []ToolSlot `json:"tools,omitempty"`
+	// NestedTools presents nested calls of running tool calls, in creation
+	// order, so a parent precedes its children; removed when the caller
+	// settles.
+	NestedTools []NestedToolSlot `json:"nestedTools,omitempty"`
 	// Compactions lists live compaction tasks in task ID order.
 	Compactions []CompactionStatus `json:"compactions,omitempty"`
 	// CompactionFailure is the newest compaction that failed since a

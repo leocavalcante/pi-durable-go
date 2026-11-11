@@ -361,3 +361,33 @@ func selectedExtensions(available []Extension, names []string) []Extension {
 	}
 	return out
 }
+
+// callableBy reports whether a tool's Callers admit "model" or "tools".
+func callableBy(tool ToolDefinition, caller string) bool {
+	if len(tool.Callers) == 0 {
+		return true
+	}
+	for _, c := range tool.Callers {
+		if c == caller {
+			return true
+		}
+	}
+	return false
+}
+
+// toolByName finds an installed tool by name in any extension the snapshot
+// holds, for reading its contract after it ran.
+func (s *RegistrySnapshot) toolByName(_ TaskRecord, name string) (*ToolDefinition, bool) {
+	if s == nil {
+		return nil, false
+	}
+	for _, ext := range s.extensions {
+		for _, tool := range ext.Tools {
+			if tool.Name == name {
+				copy := tool
+				return &copy, true
+			}
+		}
+	}
+	return nil, false
+}

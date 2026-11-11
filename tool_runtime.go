@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sync/atomic"
 	"unicode/utf8"
 )
 
@@ -12,6 +13,11 @@ type ToolRuntime struct {
 	*TaskRuntime
 	ConversationID ConversationID
 	Call           ToolCall
+	// nested marks a nested call's runtime: its progress goes to its nested
+	// slot, unless noProgress.
+	nested, noProgress bool
+	executed           atomic.Bool  // Execute returned: no more nested calls
+	sequence           atomic.Int64 // default nested call keys of this attempt
 }
 
 // maxToolOutputBytes bounds a running tool's committed output, keeping the tail.
@@ -80,6 +86,21 @@ func (r *ToolRuntime) Details(ctx context.Context, value json.RawMessage) error 
 // updateLive edits the call's slot; a slot that is missing, as for a task
 // created before slots existed, is added.
 func (r *ToolRuntime) updateLive(tx *Tx, update func(*ToolSlot)) error {
+	if r.nested {
+		if r.noProgress {
+			return nil
+		}
+		return updateLive(tx, r.ConversationID, func(live *LiveState) error {
+			for i := range live.NestedTools {
+				if slot := &live.NestedTools[i]; slot.TaskID == r.ID {
+					view := ToolSlot{Status: slot.Status, Output: slot.Output, Details: slot.Details}
+					update(&view)
+					slot.Status, slot.Output, slot.Details = view.Status, view.Output, view.Details
+				}
+			}
+			return nil
+		})
+	}
 	return updateLive(tx, r.ConversationID, func(live *LiveState) error {
 		slot := live.toolSlot(r.ID)
 		if slot == nil {
