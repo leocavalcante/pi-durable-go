@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Status | In progress: M0 complete, M1 implemented for review; M2–M6 pending (§12.1) |
+| Status | In progress: M0 and M1 complete; M2–M6 pending (§12.1) |
 | Date | 2026-11-11 |
 | Compatibility target | Pi **v1.5.2**: `@earendil-works/pi-durable` and `@earendil-works/pi-ai` 1.5.2, tag `v1.5.2`, commit `b4afdddf44e059c67ccf5097e5317d913521b470` (unchanged from plan 0001) |
 | Depends on | [Plan 0001](0001-task-outcomes-and-definition-lifecycle.md), merged to `main` |
@@ -38,7 +38,7 @@ Plan 0001 was published on `main` as `fb700b4`; this accepted plan followed as `
 
 ### M1: Restart accounting
 
-Implemented on `feat/task-restart-accounting` for its milestone pull request; no dependent milestone has started.
+Implemented as `e348805` and merged through [PR #1](https://github.com/leocavalcante/pi-durable-go/pull/1) into `main` as `fbe0cce` on 2026-11-11. The maintainer authorized direct commits and pushes to `main` for the remaining milestones, without branches or pull requests. No dependent milestone has started.
 
 - `TaskRecord.Restarts` is optional and scheduler-owned. Reconciliation counts every surviving `running` task; State version 2 and built-in definition versions are unchanged.
 - Runtime commits compare detached state captured before the callback, including mutable checkpoint/wait slices and deadlines. New task state, outcomes (including held outcomes), and new/upgraded abort marks reset counts. Memo/document/entry writes and scheduler reservation/migration/handover/cancellation releases preserve them.
@@ -59,7 +59,7 @@ M2–M6 remain unimplemented. In particular, M1 only counts crashes: it does not
 
 ## 2. Compatibility target
 
-Rechecked before M1 publication on 2026-11-11 at 13:38 UTC:
+Rechecked before M1 merge on 2026-11-11; `make check` also passed again before merging:
 
 - npm `latest` for `@earendil-works/pi-durable`, `@earendil-works/pi-coding-agent`, and `@earendil-works/pi-ai` is 1.5.2;
 - the GitHub **Latest** release is `v1.5.2` (2026-11-10), commit `b4afdddf…`.
@@ -500,7 +500,7 @@ type Report struct {
 | Safe tool rerun | Appends to the interrupted attempt's output | Starts with cleared output and details | Behavioral |
 | Submission reasons | None for crashes | `interrupted` and `restart_limit` with `Detail`; `aborted` with `Detail` for a cut-off abort handler | No; additive |
 
-Migration notes for the README and pull requests:
+Migration notes for the README and commit descriptions:
 
 - **Retry settings.** Replace `RetryMax: n, RetryDelay: d` with `Retry: RetrySettings{MaxRetries: ptr(float64(n)), BaseDelayMs: ptr(float64(d.Milliseconds()))}`, where `ptr` is a local helper such as `func ptr[T any](v T) *T { return &v }`. Delays now double per attempt, up to `MaxAgentDelayMs`. To disable retries, set `Enabled: ptr(false)`. In tests, disable retries for fakes whose error text looks transient, such as "timeout" or "503".
 - **Upgrading.** The first open after upgrading counts tasks that an older build's clean close left `running`. With the default policy, an interrupted request is retried after the backoff.
@@ -515,7 +515,7 @@ Migration notes for the README and pull requests:
 
 ## 8. Milestones
 
-Each milestone is one pull request and must pass `make check` before dependent work starts.
+Per the maintainer's 2026-11-11 instruction, commit and push each remaining milestone directly to `main`; do not create branches or pull requests. Each milestone must pass `make check` before publication and before dependent work starts. M1's already-open PR #1 was merged before this workflow took effect.
 
 ### Milestone 0: Preconditions
 
