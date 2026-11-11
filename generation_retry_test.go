@@ -89,6 +89,8 @@ func generationPhase(task TaskRecord) generationCheckpoint {
 	return cp
 }
 
+// busyTask returns the generation running the conversation's run, or, for a
+// run that already ended, its first generation.
 func busyTask(t *testing.T, h *Harness, cid ConversationID) TaskID {
 	t.Helper()
 	deadline := time.Now().Add(5 * time.Second)
@@ -99,6 +101,11 @@ func busyTask(t *testing.T, h *Harness, cid ConversationID) TaskID {
 		}
 		if busy := state.Conversations[cid].Busy; busy != 0 {
 			return busy
+		}
+		for _, id := range sortedTaskIDs(state) {
+			if task := state.Tasks[id]; task.Kind == "pi.generation" && task.Conversation == cid {
+				return id
+			}
 		}
 		if time.Now().After(deadline) {
 			t.Fatal("conversation never became busy")
