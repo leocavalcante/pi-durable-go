@@ -598,3 +598,68 @@ func validateSubmission(request SubmissionRequest) error {
 	}
 	return nil
 }
+
+// EntryQuery bounds and orders a scan of a conversation's fork-aware
+// history: MinEntryID and MaxEntryID (0: unbounded), and Order "descending"
+// (default) or "ascending".
+type EntryQuery struct {
+	MinEntryID EntryID
+	MaxEntryID EntryID
+	Order      string
+}
+
+// EntryCursor continues a scan; it carries the scan's order.
+type EntryCursor struct {
+	After EntryID
+	Order string
+}
+
+// EntryPage is one page of a scan; Next is nil after the last page.
+type EntryPage struct {
+	Items []Entry
+	Next  *EntryCursor
+}
+
+// ScanEntries pages through the conversation's raw history, every entry
+// including those a summary or reset left behind, newest first unless the
+// query is ascending. Pass the previous page's Next to continue.
+func (c *Conversation) ScanEntries(ctx context.Context, query EntryQuery, limit int, cursor *EntryCursor) (EntryPage, error) {
+	if limit <= 0 {
+		return EntryPage{}, fmt.Errorf("%w: limit must be positive", ErrInvalid)
+	}
+	order := query.Order
+	if cursor != nil {
+		order = cursor.Order
+	}
+	if order == "" {
+		order = "descending"
+	}
+	if order != "ascending" && order != "descending" {
+		return EntryPage{}, fmt.Errorf("%w: order", ErrInvalid)
+	}
+	entries, err := c.Entries(ctx)
+	if err != nil {
+		return EntryPage{}, err
+	}
+	if order == "descending" {
+		for i, j := 0, len(entries)-1; i < j; i, j = i+1, j-1 {
+			entries[i], entries[j] = entries[j], entries[i]
+		}
+	}
+	var page EntryPage
+	for _, e := range entries {
+		if query.MinEntryID != 0 && e.ID < query.MinEntryID || query.MaxEntryID != 0 && e.ID > query.MaxEntryID {
+			continue
+		}
+		if cursor != nil && (order == "ascending" && e.ID <= cursor.After || order == "descending" && e.ID >= cursor.After) {
+			continue
+		}
+		if len(page.Items) == limit {
+			last := page.Items[len(page.Items)-1].ID
+			page.Next = &EntryCursor{After: last, Order: order}
+			break
+		}
+		page.Items = append(page.Items, e)
+	}
+	return page, nil
+}
