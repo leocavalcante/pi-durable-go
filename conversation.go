@@ -54,23 +54,32 @@ func (h *Harness) Conversation(ctx context.Context, id ConversationID) (*Convers
 	}
 	return &Conversation{h: h, id: id}, nil
 }
+
+// Configure replaces the conversation's agent in its own commit.
 func (c *Conversation) Configure(ctx context.Context, agent Agent) error {
+	return c.h.Commit(ctx, func(tx *Tx) error { return tx.Configure(c.id, agent) })
+}
+
+// Configure replaces a conversation's agent inside the caller's commit
+// (upstream configure(tx, conversationId, change)): read the current one
+// with Tx.Conversation, change what should change, and configure it, so the
+// change applies atomically with the commit's other writes. The agent is
+// recorded as a pi.agent entry.
+func (tx *Tx) Configure(cid ConversationID, agent Agent) error {
 	if agent.MaxTurns < 0 {
 		return fmt.Errorf("%w: MaxTurns must be 1 or more, or 0 for no bound", ErrInvalid)
 	}
-	return c.h.Commit(ctx, func(tx *Tx) error {
-		rec, err := tx.Conversation(c.id)
-		if err != nil {
-			return err
-		}
-		data, err := json.Marshal(agent)
-		if err != nil {
-			return err
-		}
-		rec.Agent = agent
-		_, err = tx.Append(c.id, Entry{Kind: "pi.agent", Data: data})
+	rec, err := tx.Conversation(cid)
+	if err != nil {
 		return err
-	})
+	}
+	data, err := json.Marshal(agent)
+	if err != nil {
+		return err
+	}
+	rec.Agent = agent
+	_, err = tx.Append(cid, Entry{Kind: "pi.agent", Data: data})
+	return err
 }
 func (c *Conversation) Agent(ctx context.Context) (Agent, error) {
 	s, err := c.h.read(ctx)

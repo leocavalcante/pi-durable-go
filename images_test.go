@@ -119,3 +119,30 @@ func TestUnstructuredOutputForPrograms(t *testing.T) {
 		}
 	}
 }
+
+func TestTxConfigureChangesTheAgentInTheCallersCommit(t *testing.T) {
+	h := testHarness(t)
+	root := testRoot(t, h)
+	if err := h.Commit(context.Background(), func(tx *Tx) error {
+		rec, err := tx.Conversation(root.ID())
+		if err != nil {
+			return err
+		}
+		agent := rec.Agent
+		agent.Instructions = "be brief"
+		if err := tx.Configure(root.ID(), agent); err != nil {
+			return err
+		}
+		_, err = tx.Append(root.ID(), Entry{Kind: "app.note"})
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	agent, err := root.Agent(context.Background())
+	if err != nil || agent.Instructions != "be brief" {
+		t.Fatalf("agent=%+v error=%v", agent, err)
+	}
+	if err := h.Commit(context.Background(), func(tx *Tx) error { return tx.Configure(root.ID(), Agent{MaxTurns: -1}) }); err == nil {
+		t.Fatal("a negative MaxTurns was configured")
+	}
+}
