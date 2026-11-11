@@ -32,6 +32,7 @@ func TestOpenAIStreamingTextToolsAndUsage(t *testing.T) {
 		write("data: {\"choices\":[{\"delta\":{\"content\":\"hello \"}}]}\n\n")
 		write(`data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call-1","type":"function","function":{"name":"lookup","arguments":"{\"q\":"}}]}}]}` + "\n\n")
 		write(`data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\"x\"}"}}]}}]}` + "\n\n")
+		write("data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\n")
 		write("data: {\"choices\":[],\"usage\":{\"prompt_tokens\":7,\"completion_tokens\":3}}\n\n")
 		write("data: [DONE]\n\n")
 	}))
@@ -50,6 +51,9 @@ func TestOpenAIStreamingTextToolsAndUsage(t *testing.T) {
 	}
 	if len(got.ToolCalls) != 1 || got.ToolCalls[0].Name != "lookup" || string(got.ToolCalls[0].Arguments) != `{"q":"x"}` {
 		t.Fatalf("tool calls=%+v", got.ToolCalls)
+	}
+	if got.StopReason != "toolUse" {
+		t.Fatalf("stop reason=%q", got.StopReason)
 	}
 }
 

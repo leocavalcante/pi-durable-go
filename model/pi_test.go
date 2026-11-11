@@ -124,7 +124,7 @@ func inspectPi(t *testing.T, p Pi, req durable.ModelRequest) piInspection {
 
 func TestPiSanitizedFailures(t *testing.T) {
 	p := fakePi(t)
-	for _, id := range []string{"fail", "error", "unknown", "length", "bad-arguments"} {
+	for _, id := range []string{"fail", "error", "unknown", "bad-arguments"} {
 		t.Run(id, func(t *testing.T) {
 			_, err := p.Generate(context.Background(), piRequest(id), nil)
 			if err == nil || strings.Contains(err.Error(), "secret") || strings.Contains(err.Error(), "sensitive") {
@@ -148,6 +148,17 @@ func TestPiSanitizedFailures(t *testing.T) {
 	p.NodePath = filepath.Join(t.TempDir(), "missing-node")
 	if _, err := p.Generate(context.Background(), piRequest("text-tools"), nil); err == nil || !strings.Contains(err.Error(), "cannot start Node") {
 		t.Fatalf("missing Node error=%v", err)
+	}
+}
+
+func TestPiLengthStopIsAnAnswer(t *testing.T) {
+	p := fakePi(t)
+	response, err := p.Generate(context.Background(), piRequest("length"), nil)
+	if err != nil || response.StopReason != "length" || response.Content != "hello world" {
+		t.Fatalf("response=%+v error=%v", response, err)
+	}
+	if response, err := p.Generate(context.Background(), piRequest("text-tools"), nil); err != nil || response.StopReason != "toolUse" {
+		t.Fatalf("tool-use response=%+v error=%v", response, err)
 	}
 }
 

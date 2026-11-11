@@ -100,7 +100,7 @@ function toResponse(message) {
     "providerThinkingLevel", "thinkingLevel", "usage", "stopReason", "timestamp"]) {
     if (message[key] !== undefined) replay[key] = message[key];
   }
-  return { ...visible,
+  return { ...visible, stopReason: message.stopReason,
     usage: { inputTokens: usage.input, outputTokens: usage.output, cacheReadTokens: usage.cacheRead,
       cacheWriteTokens: usage.cacheWrite, cost: usage.cost?.total ?? 0 },
     providerData: { format: "pi-assistant-v1", message: replay } };
@@ -193,8 +193,9 @@ async function main() {
       }
     }
     if (!result || controller.signal.aborted) return { type: "error", code: "provider" };
-    if (result.stopReason === "length") return { type: "error", code: "length" };
-    if (!["stop", "toolUse"].includes(result.stopReason)) return { type: "error", code: "provider" };
+    // A length stop is an answer cut off at its output limit, as upstream
+    // Durable treats it; its tool calls never run.
+    if (!["stop", "toolUse", "length"].includes(result.stopReason)) return { type: "error", code: "provider" };
     return { type: "result", response: toResponse(result) };
   } catch {
     // Upstream errors can quote secrets, URLs, command output, or response bodies.

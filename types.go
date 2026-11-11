@@ -106,9 +106,19 @@ type Message struct {
 	ToolCallID string     `json:"toolCallId,omitempty"`
 	ToolName   string     `json:"toolName,omitempty"`
 	IsError    bool       `json:"isError,omitempty"`
-	Aborted    bool       `json:"aborted,omitempty"`
-	Usage      Usage      `json:"usage,omitempty"`
-	DurationMs *int64     `json:"durationMs,omitempty"`
+	// Aborted marks an assistant attempt that did not finish; with an error
+	// StopReason it failed. Neither reaches later model context.
+	Aborted bool `json:"aborted,omitempty"`
+	// StopReason is an assistant message's ending: stop, length, toolUse,
+	// error, or aborted (pi-ai StopReason). Empty in messages from before it.
+	StopReason string `json:"stopReason,omitempty"`
+	// ErrorMessage is a failed attempt's error text.
+	ErrorMessage string `json:"errorMessage,omitempty"`
+	// ThinkingLevel is the level the attempt requested, as pi-agent-core's
+	// agent loop records it.
+	ThinkingLevel string `json:"thinkingLevel,omitempty"`
+	Usage         Usage  `json:"usage,omitempty"`
+	DurationMs    *int64 `json:"durationMs,omitempty"`
 	// ProviderData is adapter-owned assistant replay data (for example signed
 	// thinking blocks). Persist it with the message; never put credentials here.
 	ProviderData json.RawMessage `json:"providerData,omitempty"`
@@ -300,6 +310,10 @@ type ModelResponse struct {
 	Thinking  string     `json:"thinking,omitempty"`
 	ToolCalls []ToolCall `json:"toolCalls,omitempty"`
 	Usage     Usage      `json:"usage"`
+	// StopReason is stop, length (the output limit cut the answer off), or
+	// toolUse. Empty means toolUse with tool calls and stop without. A length
+	// answer is an answer: tool calls it was cut off in never run.
+	StopReason string `json:"stopReason,omitempty"`
 	// ProviderData is copied to the committed assistant Message for later replay.
 	ProviderData json.RawMessage `json:"providerData,omitempty"`
 }

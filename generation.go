@@ -215,7 +215,7 @@ func requestGeneration(ctx context.Context, r *TaskRuntime, task TaskRecord, cp 
 	}
 	if cp.Partial != "" {
 		err := r.Commit(ctx, func(tx *Tx) (TaskTransition, error) {
-			if _, err := tx.Append(task.Conversation, Entry{Kind: "pi.assistant", Message: &Message{Role: "assistant", Content: cp.Partial, Aborted: true}}); err != nil {
+			if _, err := tx.Append(task.Conversation, Entry{Kind: "pi.assistant", Message: abortedMessage(cp.Partial, cp.Request.ThinkingLevel)}); err != nil {
 				return TaskTransition{}, err
 			}
 			cp.Partial = ""
@@ -244,21 +244,25 @@ func requestGeneration(ctx context.Context, r *TaskRuntime, task TaskRecord, cp 
 		policy := r.h.options.Settings.Retry.resolve()
 		attempt := cp.attempt()
 		text := diagnostic(err.Error())
+		// The failed attempt is kept as an error entry, which context
+		// derivation excludes, with what it streamed.
+		failed := Message{Role: "assistant", Content: cp.Partial, Aborted: true, StopReason: "error", ErrorMessage: text,
+			ThinkingLevel: cp.Request.ThinkingLevel, Usage: response.Usage}
 		if !IsContextOverflowError(err, cp.Request.Model.Provider) && IsRetryableModelError(err) && policy.allows(attempt) {
 			until := retryDeadline(r.h.now(), retryDelayMs(policy, attempt))
 			return r.Commit(ctx, func(tx *Tx) (TaskTransition, error) {
-				if cp.Partial != "" {
-					if _, e := tx.Append(task.Conversation, Entry{Kind: "pi.assistant", Message: &Message{Role: "assistant", Content: cp.Partial, Aborted: true, Usage: response.Usage}}); e != nil {
-						return TaskTransition{}, e
-					}
-				}
-				if e := recordModelUsage(tx, task.Conversation, cp.Request.Model, response.Usage); e != nil {
+				if _, e := appendAssistant(tx, task.Conversation, cp.Request.Model, failed); e != nil {
 					return TaskTransition{}, e
 				}
 				return retryTransition(tx, task.Conversation, attempt, until, text)
 			})
 		}
-		return failRun(ctx, r, task, runEnd{reason: RunModelError, detail: text}, text, true)
+		return r.Commit(ctx, func(tx *Tx) (TaskTransition, error) {
+			if _, e := appendAssistant(tx, task.Conversation, cp.Request.Model, failed); e != nil {
+				return TaskTransition{}, e
+			}
+			return failRunTx(tx, r.h, task, runEnd{reason: RunModelError, detail: text}, text, false)
+		})
 	}
 	state, e := r.h.Snapshot(ctx)
 	if e != nil {
@@ -278,8 +282,19 @@ func requestGeneration(ctx context.Context, r *TaskRuntime, task TaskRecord, cp 
 			}
 		}
 	}
-	message := Message{Role: "assistant", Content: response.Content, Thinking: response.Thinking, ToolCalls: response.ToolCalls, Usage: response.Usage, DurationMs: &responseDurationMs, ProviderData: response.ProviderData}
-	if len(response.ToolCalls) > 0 {
+	stopReason := response.StopReason
+	if stopReason == "" {
+		stopReason = "stop"
+		if len(response.ToolCalls) > 0 {
+			stopReason = "toolUse"
+		}
+	}
+	// Record the requested level, as pi-agent-core's agent loop does.
+	message := Message{Role: "assistant", Content: response.Content, Thinking: response.Thinking, ToolCalls: response.ToolCalls, Usage: response.Usage,
+		DurationMs: &responseDurationMs, ProviderData: response.ProviderData, StopReason: stopReason, ThinkingLevel: cp.Request.ThinkingLevel}
+	// A tool round needs tool calls the model meant to make; an answer cut off
+	// at its output limit is an answer, and calls it was cut off in never run.
+	if stopReason == "toolUse" && len(response.ToolCalls) > 0 {
 		return startToolRound(ctx, r, task, cp, message)
 	}
 	var continuation string
@@ -694,8 +709,19 @@ func convertPartial(tx *Tx, task TaskRecord) error {
 	if partial == "" {
 		return nil
 	}
-	_, err = tx.Append(task.Conversation, Entry{Kind: "pi.assistant", Message: &Message{Role: "assistant", Content: partial, Aborted: true}})
+	var thinking string
+	var request struct {
+		ThinkingLevel string `json:"thinkingLevel"`
+	}
+	_ = json.Unmarshal(fields["request"], &request)
+	thinking = request.ThinkingLevel
+	_, err = tx.Append(task.Conversation, Entry{Kind: "pi.assistant", Message: abortedMessage(partial, thinking)})
 	return err
+}
+
+// abortedMessage is a committed partial of an attempt that did not finish.
+func abortedMessage(partial, thinkingLevel string) *Message {
+	return &Message{Role: "assistant", Content: partial, Aborted: true, StopReason: "aborted", ThinkingLevel: thinkingLevel}
 }
 
 // failNoModel ends the run: no model is configured. Its inputs settle

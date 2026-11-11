@@ -128,7 +128,7 @@ func contextFromState(s *State, cid ConversationID) ([]Message, error) {
 				if older.ID == e.ID {
 					break
 				}
-				if seen && older.Message != nil && !older.Message.Aborted {
+				if seen && older.Message != nil && contributesContext(older.Message) {
 					next = append(next, *older.Message)
 				}
 			}
@@ -137,7 +137,7 @@ func contextFromState(s *State, cid ConversationID) ([]Message, error) {
 			}
 			messages = next
 		default:
-			if e.Message != nil && !e.Message.Aborted {
+			if e.Message != nil && contributesContext(e.Message) {
 				messages = append(messages, *e.Message)
 			}
 		}
@@ -563,4 +563,10 @@ func (c *Conversation) Watch(ctx context.Context) (<-chan View, func(), error) {
 		}
 	}()
 	return out, func() { cancel(); stop() }, nil
+}
+
+// contributesContext excludes assistant attempts that did not finish: aborted
+// or failed messages never reach later model context (spec §2.1).
+func contributesContext(message *Message) bool {
+	return !message.Aborted && message.StopReason != "error" && message.StopReason != "aborted"
 }

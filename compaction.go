@@ -85,7 +85,7 @@ func (c *Conversation) Compact(ctx context.Context, instructions string) (TaskID
 	if rec.Busy != 0 {
 		cut = 0
 		for _, e := range entries {
-			if e.Message != nil && e.Message.Role == "assistant" && len(e.Message.ToolCalls) == 0 && !e.Message.Aborted {
+			if e.Message != nil && e.Message.Role == "assistant" && len(e.Message.ToolCalls) == 0 && contributesContext(e.Message) {
 				cut = e.ID
 			}
 		}

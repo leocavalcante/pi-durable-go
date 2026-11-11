@@ -222,6 +222,16 @@ func parseSSE(ctx context.Context, r io.Reader, onDelta func(string) error, prov
 			response.Usage.OutputTokens = chunk.Usage.CompletionTokens
 		}
 		for _, choice := range chunk.Choices {
+			if choice.FinishReason != nil {
+				switch *choice.FinishReason {
+				case "length":
+					response.StopReason = "length"
+				case "tool_calls", "function_call":
+					response.StopReason = "toolUse"
+				case "stop":
+					response.StopReason = "stop"
+				}
+			}
 			if choice.Delta.Content != "" {
 				response.Content += choice.Delta.Content
 				if onDelta != nil {

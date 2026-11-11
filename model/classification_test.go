@@ -123,7 +123,6 @@ func TestModelErrorClassificationPi(t *testing.T) {
 		{"overflow-error", modelErrorClass{false, true}},
 		{"error", modelErrorClass{false, false}},
 		{"unknown", modelErrorClass{false, false}},
-		{"length", modelErrorClass{false, false}},
 	} {
 		t.Run(tc.id, func(t *testing.T) {
 			_, err := p.Generate(context.Background(), piRequest(tc.id), nil)
