@@ -17,6 +17,9 @@ const (
 	ReportTaskInterrupted ReportKind = "task_interrupted"
 	// ReportHostError: a host callback (Report.Callback) failed, such as OnWake.
 	ReportHostError ReportKind = "host_error"
+	// ReportListenerError: a host commit observer (Harness.ObserveCommits)
+	// panicked; it stays attached and the commit stands.
+	ReportListenerError ReportKind = "listener_error"
 	// ReportExtensionError: extension code a task called failed, such as a
 	// prompt section or a hook; the task continued without it.
 	ReportExtensionError ReportKind = "extension_error"

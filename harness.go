@@ -3,6 +3,7 @@ package durable
 import (
 	"context"
 	"fmt"
+	"runtime/debug"
 	"sort"
 	"sync"
 	"time"
@@ -39,6 +40,9 @@ func Open(ctx context.Context, storage Storage, options HarnessOptions) (*Harnes
 	h.stopRegistry = h.registry.Subscribe(h.scheduler.kick)
 	session.failureHook = func(cause error) { h.report(Report{Kind: ReportStorageFailed, Err: cause}) }
 	session.afterClose = h.reports.closeAdmission
+	session.observerPanic = func(recovered any) {
+		h.report(Report{Kind: ReportListenerError, Err: &panicError{value: recovered, stack: debug.Stack()}})
+	}
 	session.afterCommit = func(state *State) {
 		h.scheduler.clearSettledMigrations(state)
 		h.countActive(state)
@@ -211,4 +215,14 @@ func (h *Harness) Task(ctx context.Context, id TaskID) (TaskRecord, error) {
 		return TaskRecord{}, ErrNotFound
 	}
 	return *cloneRecord(r), nil
+}
+
+// ObserveCommits calls observe with the changes of each commit (StateDelta),
+// in commit order, after the commit is stored and before watches see it: a
+// replica that applies them stays equal to storage. observe runs on the
+// Session line: it must return promptly and must not call Session or
+// Harness APIs. Each delta is its own detached copy. A panic is reported as
+// listener_error and the observer stays attached. detach stops it.
+func (h *Harness) ObserveCommits(observe func(*StateDelta)) (detach func()) {
+	return h.session.observeCommits(observe)
 }

@@ -42,6 +42,10 @@ type Session struct {
 	// fullWrite makes the next commit store the whole State: the loaded one
 	// was upgraded in memory.
 	fullWrite bool
+	// commitObservers get each published commit's changes, in order.
+	commitObservers map[*commitObserver]struct{}
+	// observerPanic reports an observer that panicked.
+	observerPanic func(any)
 }
 
 type stateWatcher struct {
@@ -202,6 +206,8 @@ func (s *Session) commitLocked(ctx context.Context, fn func(*Tx) error, internal
 	if s.afterCommit != nil {
 		s.afterCommit(candidate)
 	}
+	// Observers follow storage, including the unpublished close write-back.
+	s.notifyCommitObservers(delta, candidate)
 	if publish {
 		for w := range s.watchers {
 			s.offer(w, candidate)
@@ -511,4 +517,46 @@ func upgradeState(st *State) error {
 		st.Version = 3
 	}
 	return nil
+}
+
+type commitObserver struct{ observe func(*StateDelta) }
+
+// observeCommits attaches observe to every published commit (see
+// Harness.ObserveCommits); detach stops it.
+func (s *Session) observeCommits(observe func(*StateDelta)) func() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.commitObservers == nil {
+		s.commitObservers = map[*commitObserver]struct{}{}
+	}
+	o := &commitObserver{observe: observe}
+	s.commitObservers[o] = struct{}{}
+	return func() {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		delete(s.commitObservers, o)
+	}
+}
+
+// notifyCommitObservers gives each observer a detached copy of the commit's
+// changes. The caller holds s.mu.
+func (s *Session) notifyCommitObservers(delta *StateDelta, committed *State) {
+	if len(s.commitObservers) == 0 {
+		return
+	}
+	delta.Sequence = committed.Sequence
+	for o := range s.commitObservers {
+		detached, err := delta.Clone()
+		if err != nil {
+			return
+		}
+		func() {
+			defer func() {
+				if recovered := recover(); recovered != nil && s.observerPanic != nil {
+					s.observerPanic(recovered)
+				}
+			}()
+			o.observe(detached)
+		}()
+	}
 }
