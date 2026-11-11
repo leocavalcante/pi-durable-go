@@ -13,15 +13,59 @@ import (
 type generationInput struct {
 	Submissions []SubmissionID `json:"submissions,omitempty"`
 }
+
+// generationCheckpoint is pi.generation version 2. Phases: prepare, request,
+// retry (a backoff until Until, in Unix milliseconds), and tools. Attempt is
+// the 1-based model attempt of the current turn; zero reads as 1.
 type generationCheckpoint struct {
 	Phase     string       `json:"phase"`
+	Attempt   int          `json:"attempt,omitempty"`
+	Until     int64        `json:"until,omitempty"`
 	Request   ModelRequest `json:"request,omitempty"`
 	Partial   string       `json:"partial,omitempty"`
 	Turns     int          `json:"turns,omitempty"`
-	Retry     int          `json:"retry,omitempty"`
 	Children  []TaskID     `json:"children,omitempty"`
 	Assistant EntryID      `json:"assistant,omitempty"`
 }
+
+func (cp generationCheckpoint) attempt() int {
+	if cp.Attempt < 1 {
+		return 1
+	}
+	return cp.Attempt
+}
+
+// generationVersion is Go's own numbering of pi.generation's stored form.
+// Version 2 replaced version 1's retry count with a 1-based attempt and added
+// the retry phase; a version-1 Harness leaves version-2 records blocked.
+const generationVersion = 2
+
+// migrateGeneration accepts version-1 records: attempt = retry + 1, every
+// other field kept as stored.
+func migrateGeneration(from int, input, checkpoint json.RawMessage) (MigratedTask, error) {
+	if from != 1 {
+		return MigratedTask{}, fmt.Errorf("pi.generation has no migration from version %d", from)
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(checkpoint, &fields); err != nil || fields == nil {
+		return MigratedTask{}, fmt.Errorf("pi.generation version 1 checkpoint is not an object")
+	}
+	retry := 0
+	if raw, ok := fields["retry"]; ok {
+		if err := json.Unmarshal(raw, &retry); err != nil {
+			return MigratedTask{}, fmt.Errorf("pi.generation version 1 retry count: %w", err)
+		}
+		delete(fields, "retry")
+	}
+	attempt, err := json.Marshal(retry + 1)
+	if err != nil {
+		return MigratedTask{}, err
+	}
+	fields["attempt"] = attempt
+	migrated, err := json.Marshal(fields)
+	return MigratedTask{Input: input, Checkpoint: migrated}, err
+}
+
 type toolTaskInput struct {
 	Assistant EntryID  `json:"assistant"`
 	CallID    string   `json:"callId"`
@@ -46,9 +90,9 @@ func (tx *Tx) createGeneration(cid ConversationID, submissions []SubmissionID) (
 	return tx.CreateTask(cid, generationTaskDefinition(), input, TaskOptions{})
 }
 func generationTaskDefinition() TaskDefinition {
-	return TaskDefinition{Kind: "pi.generation", Version: 1, Initial: func(json.RawMessage) (json.RawMessage, error) {
-		return json.Marshal(generationCheckpoint{Phase: "prepare"})
-	}, Run: runGeneration, Abort: settleGenerationAbort}
+	return TaskDefinition{Kind: "pi.generation", Version: generationVersion, Initial: func(json.RawMessage) (json.RawMessage, error) {
+		return json.Marshal(generationCheckpoint{Phase: "prepare", Attempt: 1})
+	}, Run: runGeneration, Abort: settleGenerationAbort, Migrate: migrateGeneration}
 }
 func toolTaskDefinition() TaskDefinition {
 	return TaskDefinition{Kind: "pi.tool", Version: 1, Initial: func(json.RawMessage) (json.RawMessage, error) { return json.Marshal(toolCheckpoint{Phase: "call"}) }, Run: runTool, Abort: func(ctx context.Context, r *TaskRuntime, t TaskRecord) error {
@@ -67,11 +111,14 @@ func runGeneration(ctx context.Context, r *TaskRuntime, task TaskRecord) error {
 	}
 	switch cp.Phase {
 	case "prepare":
+		// A retry prepares the same turn again, so agent, section, and settings
+		// changes made during its backoff apply; only a first attempt is a turn.
+		attempt := cp.attempt()
 		max := r.h.options.Settings.MaxTurns
 		if max <= 0 {
 			max = 100
 		}
-		if cp.Turns >= max {
+		if attempt == 1 && cp.Turns >= max {
 			return failGeneration(ctx, r, task, input, fmt.Errorf("maximum generation turns (%d) exceeded", max))
 		}
 		state, err := r.h.Snapshot(ctx)
@@ -92,8 +139,11 @@ func runGeneration(ctx context.Context, r *TaskRuntime, task TaskRecord) error {
 		cp.Phase = "request"
 		cp.Request = request
 		cp.Partial = ""
-		cp.Retry = 0
-		cp.Turns++
+		cp.Attempt = attempt
+		cp.Until = 0
+		if attempt == 1 {
+			cp.Turns++
+		}
 		return r.Commit(ctx, func(tx *Tx) (TaskTransition, error) {
 			metadata, err := json.Marshal(struct {
 				Messages []Message  `json:"system"`
@@ -152,13 +202,12 @@ func runGeneration(ctx context.Context, r *TaskRuntime, task TaskRecord) error {
 			if ctx.Err() != nil {
 				return ctx.Err()
 			}
-			if cp.Retry < r.h.options.Settings.RetryMax {
-				cp.Retry++
-				delay := r.h.options.Settings.RetryDelay
-				if delay <= 0 {
-					delay = 250 * time.Millisecond
-				}
-				wake := r.h.now().Add(delay)
+			// The policy governs the next attempt, so it is read now. An
+			// overflow never retries: only a compaction could make it fit.
+			policy := r.h.options.Settings.Retry.resolve()
+			attempt := cp.attempt()
+			if !IsContextOverflowError(err, cp.Request.Model.Provider) && IsRetryableModelError(err) && policy.allows(attempt) {
+				until := retryDeadline(r.h.now(), retryDelayMs(policy, attempt))
 				return r.Commit(ctx, func(tx *Tx) (TaskTransition, error) {
 					if cp.Partial != "" {
 						if _, e := tx.Append(task.Conversation, Entry{Kind: "pi.assistant", Message: &Message{Role: "assistant", Content: cp.Partial, Aborted: true, Usage: response.Usage}}); e != nil {
@@ -168,9 +217,7 @@ func runGeneration(ctx context.Context, r *TaskRuntime, task TaskRecord) error {
 					if e := recordModelUsage(tx, task.Conversation, cp.Request.Model, response.Usage); e != nil {
 						return TaskTransition{}, e
 					}
-					cp.Partial = ""
-					data, e := json.Marshal(cp)
-					return TaskTransition{Status: "pending", Checkpoint: data, WakeAt: &wake}, e
+					return retryTransition(cp, attempt, until)
 				})
 			}
 			return failGeneration(ctx, r, task, input, err)
@@ -225,7 +272,7 @@ func runGeneration(ctx context.Context, r *TaskRuntime, task TaskRecord) error {
 					if _, err := tx.Append(task.Conversation, Entry{Kind: "pi.user", Message: &Message{Role: "user", Content: continuation}}); err != nil {
 						return TaskTransition{}, err
 					}
-					next, err := json.Marshal(generationCheckpoint{Phase: "prepare", Turns: cp.Turns})
+					next, err := json.Marshal(generationCheckpoint{Phase: "prepare", Attempt: 1, Turns: cp.Turns})
 					return TaskTransition{Status: "pending", Checkpoint: next}, err
 				}
 				return settleRun(tx, task, input, assistant, "", true)
@@ -314,13 +361,35 @@ func runGeneration(ctx context.Context, r *TaskRuntime, task TaskRecord) error {
 			if err != nil {
 				return TaskTransition{}, err
 			}
-			next, err := json.Marshal(generationCheckpoint{Phase: "prepare", Turns: cp.Turns})
+			next, err := json.Marshal(generationCheckpoint{Phase: "prepare", Attempt: 1, Turns: cp.Turns})
 			return TaskTransition{Status: "pending", Checkpoint: next}, err
+		})
+	case "retry":
+		// After the backoff. A phase that runs before until, after an early
+		// wake or a clock that moved backward, backs off again unchanged.
+		if cp.Until > r.h.now().UnixMilli() {
+			wake := time.UnixMilli(cp.Until).UTC()
+			return r.Commit(ctx, func(*Tx) (TaskTransition, error) {
+				return TaskTransition{Status: "pending", Checkpoint: task.Checkpoint, WakeAt: &wake}, nil
+			})
+		}
+		return r.Commit(ctx, func(*Tx) (TaskTransition, error) {
+			next, err := json.Marshal(generationCheckpoint{Phase: "prepare", Attempt: cp.attempt() + 1, Turns: cp.Turns})
+			return TaskTransition{Status: "running", Checkpoint: next}, err
 		})
 	default:
 		return fmt.Errorf("%w: generation phase %q", ErrInvalid, cp.Phase)
 	}
 }
+
+// retryTransition backs a failed attempt off until the retry deadline; the
+// next attempt prepares its request again (Pi Durable's retry phase).
+func retryTransition(cp generationCheckpoint, attempt int, until time.Time) (TaskTransition, error) {
+	next, err := json.Marshal(generationCheckpoint{Phase: "retry", Attempt: attempt, Until: until.UnixMilli(), Turns: cp.Turns})
+	wake := time.UnixMilli(until.UnixMilli()).UTC()
+	return TaskTransition{Status: "pending", Checkpoint: next, WakeAt: &wake}, err
+}
+
 func systemMessages(messages []Message) []Message {
 	var out []Message
 	for _, m := range messages {

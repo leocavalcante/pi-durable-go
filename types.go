@@ -317,9 +317,10 @@ type Extension struct {
 	WrapTools map[string]func(ToolDefinition) ToolDefinition
 }
 type Settings struct {
-	RetryMax   int
-	RetryDelay time.Duration
-	MaxTurns   int // zero defaults to 100; prevents unbounded runaway calls
+	// Retry is Pi Durable's settings.retry policy for generation and
+	// compaction model attempts, merged field by field over its default.
+	Retry    RetrySettings
+	MaxTurns int // zero defaults to 100; prevents unbounded runaway calls
 	// RestartLimit ends a task cut off this many times in a row by crashes,
 	// following Pi Durable's restartLimit number setting: values below 1 and NaN
 	// select the default of 5, fractions round down, and math.Inf(1) never ends
