@@ -23,7 +23,7 @@
 
 ## 2. Remaining work, in proposed order
 
-1. **Tool output limits.** `outputLimits` per tool (`maxBytes`, `maxLines`, head or tail retention), truncation diagnostics, and tool output throttling (`progress.outputIntervalMs`).
+1. **Tool output throttling.** `progress.outputIntervalMs` and dropped-size counters on running output. (Result bounds with `OutputLimits` and `truncated` diagnostics are done.)
 2. **`pi.inbox` document.** Queued items as an observable document, as upstream clients read them.
 3. **Entry and transcript reads.** `Conversation.entries(query, limit, cursor)` paging, conversation view windows, `ConversationTranscript`, and the task-graph watch.
 4. **Telemetry.** Spans and events through an optional host adapter, with `host_error` reports for a failing adapter.

@@ -312,6 +312,9 @@ type ToolDefinition struct {
 	// Callers says who may call the tool: "model", "tools" (nested calls
 	// through ToolRuntime.ExecuteTool), or both (empty, the default).
 	Callers []string
+	// OutputLimits bound the content of the tool's results; nil fields keep
+	// the defaults of 50 KiB and 2000 lines, retaining the beginning.
+	OutputLimits *OutputLimits
 	// Deferred tools are not offered to the model until loaded: until
 	// Agent.ModelTools names them, which a tool result's AddTools (from a
 	// tool such as tool_search) writes. Other tools can call them any time.
@@ -321,6 +324,14 @@ type ToolDefinition struct {
 	// otherwise get the result's content as a JSON string.
 	StructuredOutputSchema json.RawMessage
 	Execute                func(context.Context, json.RawMessage, *ToolRuntime) (ToolResult, error)
+}
+
+// OutputLimits bound a tool result's content: MaxBytes and MaxLines (zero
+// keeps the default), retaining the "head" (default) or the "tail".
+type OutputLimits struct {
+	MaxBytes int
+	MaxLines int
+	Retain   string
 }
 
 // ToolDiagnostic is a note the Harness or a tool attaches to a result:

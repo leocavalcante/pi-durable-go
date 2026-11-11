@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 type toolTaskInput struct {
@@ -389,8 +390,19 @@ func finishToolEnding(ctx context.Context, r *TaskRuntime, task TaskRecord, resu
 			}
 			return TaskTransition{Status: "terminal", Outcome: outcome}, nil
 		}
-		if len(result.Content) > 50*1024 {
-			result.Content = "[truncated]\n" + tailBytes(result.Content, 50*1024)
+		// Bound the content with the tool's limits; a truncation is a warning.
+		limits := OutputLimits{}
+		if def, ok := r.Registry().toolByName(task, input.Call.Name); ok && def.OutputLimits != nil {
+			limits = *def.OutputLimits
+		}
+		if bounded, lines, bytes := boundOutput(result.Content, limits); lines > 0 || bytes > 0 {
+			result.Content = bounded
+			kept := "beginning"
+			if limits.Retain == "tail" {
+				kept = "end"
+			}
+			result.Diagnostics = append(result.Diagnostics, ToolDiagnostic{Severity: "warn", Code: "truncated",
+				Message: fmt.Sprintf("Output truncated to its %s: %d lines, %d bytes dropped", kept, lines, bytes)})
 		}
 		details, err := json.Marshal(result)
 		if err != nil {
@@ -468,4 +480,68 @@ func appendToolResult(tx *Tx, cid ConversationID, call ToolCall, result ToolResu
 		return 0, err
 	}
 	return id, recordToolUsage(tx, cid, call.Name, result.Usage)
+}
+
+// Default result bounds (upstream DEFAULT_MAX_BYTES and DEFAULT_MAX_LINES).
+const (
+	defaultMaxOutputBytes = 50 * 1024
+	defaultMaxOutputLines = 2000
+)
+
+// boundOutput keeps whole lines from the head or the tail of text within
+// the limits, and reports how many lines and bytes it dropped. A single line
+// longer than the byte limit is cut at a rune boundary.
+func boundOutput(text string, limits OutputLimits) (string, int, int) {
+	maxBytes, maxLines := limits.MaxBytes, limits.MaxLines
+	if maxBytes <= 0 {
+		maxBytes = defaultMaxOutputBytes
+	}
+	if maxLines <= 0 {
+		maxLines = defaultMaxOutputLines
+	}
+	lines := strings.SplitAfter(text, "\n")
+	if lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1]
+	}
+	if len(text) <= maxBytes && len(lines) <= maxLines {
+		return text, 0, 0
+	}
+	tail := limits.Retain == "tail"
+	var kept []string
+	size := 0
+	for i := 0; i < len(lines) && len(kept) < maxLines; i++ {
+		line := lines[i]
+		if tail {
+			line = lines[len(lines)-1-i]
+		}
+		if size+len(line) > maxBytes {
+			if len(kept) == 0 { // one oversized line: keep what fits of it
+				if tail {
+					line = tailBytes(line, maxBytes)
+				} else {
+					cut := maxBytes
+					for cut > 0 && !utf8.RuneStart(line[cut]) {
+						cut--
+					}
+					line = line[:cut]
+				}
+				kept = append(kept, line)
+				size += len(line)
+			}
+			break
+		}
+		kept = append(kept, line)
+		size += len(line)
+	}
+	if tail {
+		for i, j := 0, len(kept)-1; i < j; i, j = i+1, j-1 {
+			kept[i], kept[j] = kept[j], kept[i]
+		}
+	}
+	bounded := strings.Join(kept, "")
+	droppedLines := len(lines) - len(kept)
+	if droppedLines == 0 && len(bounded) < len(text) {
+		droppedLines = 1 // part of a line
+	}
+	return bounded, droppedLines, len(text) - len(bounded)
 }
