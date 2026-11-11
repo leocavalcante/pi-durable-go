@@ -55,7 +55,7 @@ type toolTaskResult struct {
 // finishSlot marks a slot done and clears its running output.
 func finishSlot(slot *ToolSlot) {
 	slot.Status = "done"
-	slot.Output, slot.Details = "", nil
+	slot.Output, slot.Details, slot.DroppedBytes, slot.DroppedLines = "", nil, 0, 0
 }
 
 func toolTaskDefinition() TaskDefinition {
@@ -147,6 +147,10 @@ func (call *toolCall) fromSlot(ctx context.Context, r *TaskRuntime, task TaskRec
 					result.Content = slot.Output
 				}
 				result.Details = slot.Details
+				if slot.DroppedBytes > 0 {
+					result.Diagnostics = append(result.Diagnostics, ToolDiagnostic{Severity: "warn", Code: "truncated",
+						Message: fmt.Sprintf("Output truncated: %d lines, %d bytes dropped", slot.DroppedLines, slot.DroppedBytes)})
+				}
 			}
 		}
 	}

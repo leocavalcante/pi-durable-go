@@ -71,7 +71,13 @@ func (r *ToolRuntime) commitOutput(ctx context.Context, text string) error {
 			return TaskTransition{}, err
 		}
 		if err := r.updateLive(tx, func(slot *ToolSlot) {
-			slot.Output = tailBytes(slot.Output+text, maxToolOutputBytes)
+			combined := slot.Output + text
+			kept := tailBytes(combined, maxToolOutputBytes)
+			if dropped := combined[:len(combined)-len(kept)]; dropped != "" {
+				slot.DroppedBytes += len(dropped)
+				slot.DroppedLines += strings.Count(dropped, "\n")
+			}
+			slot.Output = kept
 		}); err != nil {
 			return TaskTransition{}, err
 		}
@@ -133,7 +139,7 @@ func tailBytes(s string, max int) string {
 // safe rerun reports from scratch, and shows the slot running again.
 func (r *ToolRuntime) clearProgress(tx *Tx) error {
 	return r.updateLive(tx, func(slot *ToolSlot) {
-		slot.Output, slot.Details = "", nil
+		slot.Output, slot.Details, slot.DroppedBytes, slot.DroppedLines = "", nil, 0, 0
 		slot.Status = "running"
 	})
 }

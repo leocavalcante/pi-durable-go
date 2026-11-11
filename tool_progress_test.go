@@ -318,3 +318,33 @@ func TestToolOutputIsThrottled(t *testing.T) {
 		t.Fatalf("result=%q", got)
 	}
 }
+
+func TestToolOutputCountsWhatItsBoundDrops(t *testing.T) {
+	published := make(chan struct{})
+	release := make(chan struct{})
+	registry := toolExtension("big", true, func(ctx context.Context, _ json.RawMessage, r *ToolRuntime) (ToolResult, error) {
+		line := strings.Repeat("y", 1023) + "\n"
+		for i := 0; i < 60; i++ {
+			if err := r.Output(ctx, line); err != nil {
+				return ToolResult{}, err
+			}
+		}
+		close(published)
+		<-release
+		return ToolResult{Content: "done"}, nil
+	})
+	h := taskTestHarness(t, HarnessOptions{Model: &toolCallingModel{name: "big"}, Registry: registry,
+		Settings: Settings{Progress: ProgressSettings{OutputIntervalMs: ptr(0.0)}}})
+	root, err := h.Root(context.Background(), ConversationOptions{Agent: Agent{Model: ModelRef{Provider: "fake", ID: "m"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sub := submit(t, root, SubmissionRequest{Content: "go"})
+	<-published
+	slot := toolSlot(t, h, root.ID(), toolTask(t, h).ID)
+	if len(slot.Output) != maxToolOutputBytes || slot.DroppedBytes != 60*1024-maxToolOutputBytes || slot.DroppedLines != 10 {
+		t.Fatalf("output=%d dropped=%d/%d", len(slot.Output), slot.DroppedBytes, slot.DroppedLines)
+	}
+	close(release)
+	waitSettled(t, h, sub)
+}

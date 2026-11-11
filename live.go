@@ -87,6 +87,10 @@ type ToolSlot struct {
 	// Output is the retained running output; Details the last details value.
 	Output  string          `json:"output,omitempty"`
 	Details json.RawMessage `json:"details,omitempty"`
+	// DroppedBytes and DroppedLines count running output the slot's bound
+	// dropped from its beginning.
+	DroppedBytes int `json:"droppedBytes,omitempty"`
+	DroppedLines int `json:"droppedLines,omitempty"`
 	// Entry is the result entry once done; absent when the tool task faulted
 	// or was orphaned.
 	Entry EntryID `json:"entry,omitempty"`

@@ -72,7 +72,7 @@ These need upstream subsystems Go does not have yet (plan 0002 §12.2):
 
 - `AfterResponse` sees only successful responses; a failed attempt is stored as an error entry (`StopReason: "error"` with its `ErrorMessage` and partial) that context derivation excludes.
 - A generation's phases are `prepare`, `request`, `retry`, `tools`, `finish`, and `drain`; there is no `poll` phase or deferred model handle.
-- Tool diagnostics are a flat list on `ToolResult` rendered in upstream's `<harness>` block. Results are bounded by `ToolDefinition.OutputLimits` (default 50 KiB and 2000 lines, head or tail) with a `truncated` warning; running output keeps its trailing 50 KiB without dropped-size counters, and its commits are throttled to `Settings.Progress.OutputIntervalMs` (default 100 ms), flushed when the call settles.
+- Tool diagnostics are a flat list on `ToolResult` rendered in upstream's `<harness>` block. Results are bounded by `ToolDefinition.OutputLimits` (default 50 KiB and 2000 lines, head or tail) with a `truncated` warning; running output keeps its trailing 50 KiB and counts what it dropped (`DroppedBytes`, `DroppedLines`, reported as a `truncated` warning on results built from the slot), and its commits are throttled to `Settings.Progress.OutputIntervalMs` (default 100 ms), flushed when the call settles.
 - Model context windows come from an optional `ContextWindowModel`: `model.Pi` reads Pi's catalog through the bridge, while `model.OpenAI` reports its `Window` field.
 - Partials are committed as plain text messages, without upstream's incremental argument and thinking changes; there are no deferred commits (`persistWithinMs`), and tool output is not throttled.
 
