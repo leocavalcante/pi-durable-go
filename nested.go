@@ -216,7 +216,7 @@ func settleNested(tx *Tx, input toolTaskInput, task TaskRecord, def *ToolDefinit
 	case def != nil && len(def.StructuredOutputSchema) > 0:
 		nested.StructuredOutput = result.StructuredOutput
 	case !harnessWritten:
-		nested.StructuredOutput, _ = json.Marshal(result.Content)
+		nested.StructuredOutput = unstructuredOutput(result)
 	}
 	if parent, err := tx.Task(input.Parent); err == nil && parent.Status != "terminal" {
 		calls, err := readNestedCalls(tx, input.Parent)
@@ -287,4 +287,29 @@ func abortNestedCalls(tx *Tx, caller TaskRecord) error {
 		}
 		return nil
 	})
+}
+
+// unstructuredOutput is what programs get from a tool without a schema
+// (upstream): its bounded output as a string when it is text, one image as
+// itself, and otherwise the content list.
+func unstructuredOutput(result ToolResult) json.RawMessage {
+	image := func(img ImageContent) map[string]string {
+		return map[string]string{"type": "image", "data": img.Data, "mimeType": img.MimeType}
+	}
+	var value any = result.Content
+	switch {
+	case len(result.Images) == 1 && result.Content == "":
+		value = image(result.Images[0])
+	case len(result.Images) > 0:
+		var blocks []any
+		if result.Content != "" {
+			blocks = append(blocks, map[string]string{"type": "text", "text": result.Content})
+		}
+		for _, img := range result.Images {
+			blocks = append(blocks, image(img))
+		}
+		value = blocks
+	}
+	data, _ := json.Marshal(value)
+	return data
 }

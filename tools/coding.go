@@ -31,16 +31,24 @@ func PowerShell(programs ...string) durable.Extension {
 		programs = []string{"pwsh", "powershell"}
 	}
 	return durable.Extension{Name: "powershell-tool", Tools: []durable.ToolDefinition{
-		{ToolSpec: durable.ToolSpec{Name: "powershell", Description: "Execute a PowerShell command in the current working directory. Returns combined stdout and stderr. Output is truncated to last 2000 lines or 50KB (whichever is hit first). If truncated, full output is saved to a temp file. Optionally provide a timeout in seconds.", Parameters: schema(`{"type":"object","required":["command"],"properties":{"command":{"type":"string","minLength":1,"description":"PowerShell command to execute"},"timeout":{"type":"number","description":"Timeout in seconds (optional, no default timeout)"}},"additionalProperties":false}`)}, Execute: powershellTool(programs)},
+		{ToolSpec: durable.ToolSpec{Name: "powershell", Description: "Execute a PowerShell command in the current working directory. Returns combined stdout and stderr. Output is truncated to last 2000 lines or 50KB (whichever is hit first). If truncated, full output is saved to a temp file. Optionally provide a timeout in seconds.", Parameters: schema(`{"type":"object","required":["command"],"properties":{"command":{"type":"string","minLength":1,"description":"PowerShell command to execute"},"timeout":{"type":"number","description":"Timeout in seconds (optional, no default timeout)"}},"additionalProperties":false}`)}, StructuredOutputSchema: shellOutputSchema, Execute: powershellTool(programs)},
 	}}
 }
 
+// What programs that call read receive: a text file's shown text, or an
+// image as {type, data, mimeType} (upstream readStructuredOutputSchema).
+var readOutputSchema = schema(`{"anyOf":[{"type":"string"},{"type":"object","required":["type","data","mimeType"],"properties":{"type":{"const":"image"},"data":{"type":"string"},"mimeType":{"type":"string"}}}]}`)
+
+// What programs that call bash or powershell receive (upstream
+// shellStructuredOutputSchema).
+var shellOutputSchema = schema(`{"type":"object","required":["output","truncated","exitCode"],"properties":{"output":{"type":"string","description":"Combined stdout and stderr: the retained tail, as the model sees it"},"truncated":{"type":"boolean","description":"Whether earlier output was dropped"},"fullOutputPath":{"type":"string","description":"File with the complete output, when it was spilled"},"exitCode":{"type":"number"}}}`)
+
 func Coding() durable.Extension {
 	return durable.Extension{Name: "coding-tools", Tools: []durable.ToolDefinition{
-		{ToolSpec: durable.ToolSpec{Name: "read", Description: "Read the contents of a file. Supports text files and images (jpg, png, gif, webp). Images are sent as attachments. For text files, output is truncated to 2000 lines or 50KB (whichever is hit first). Use offset/limit for large files. When you need the full file, continue with offset until complete.", Parameters: schema(`{"type":"object","required":["path"],"properties":{"path":{"type":"string","description":"Path to the file to read (relative or absolute)"},"offset":{"type":"integer","minimum":1,"description":"Line number to start reading from (1-indexed)"},"limit":{"type":"integer","minimum":0,"description":"Maximum number of lines to read"}},"additionalProperties":false}`)}, Execute: readTool},
+		{ToolSpec: durable.ToolSpec{Name: "read", Description: "Read the contents of a file. Supports text files and images (jpg, png, gif, webp). Images are sent as attachments. For text files, output is truncated to 2000 lines or 50KB (whichever is hit first). Use offset/limit for large files. When you need the full file, continue with offset until complete.", Parameters: schema(`{"type":"object","required":["path"],"properties":{"path":{"type":"string","description":"Path to the file to read (relative or absolute)"},"offset":{"type":"integer","minimum":1,"description":"Line number to start reading from (1-indexed)"},"limit":{"type":"integer","minimum":0,"description":"Maximum number of lines to read"}},"additionalProperties":false}`)}, StructuredOutputSchema: readOutputSchema, Execute: readTool},
 		{ToolSpec: durable.ToolSpec{Name: "write", Description: "Write content to a file. Creates the file if it doesn't exist, overwrites if it does. Automatically creates parent directories.", Parameters: schema(`{"type":"object","required":["path","content"],"properties":{"path":{"type":"string"},"content":{"type":"string"}},"additionalProperties":false}`)}, Execute: writeTool},
 		{ToolSpec: durable.ToolSpec{Name: "edit", Description: "Edit a single file using exact text replacement. Every edits[].oldText must match a unique, non-overlapping region of the original file. If two changes affect the same block or nearby lines, merge them into one edit instead of emitting overlapping edits. Do not include large unchanged regions just to connect distant changes.", Parameters: schema(`{"type":"object","required":["path","edits"],"properties":{"path":{"type":"string"},"edits":{"type":"array","minItems":1,"items":{"type":"object","required":["oldText","newText"],"properties":{"oldText":{"type":"string","minLength":1},"newText":{"type":"string"}},"additionalProperties":false}}},"additionalProperties":false}`)}, Execute: editTool},
-		{ToolSpec: durable.ToolSpec{Name: "bash", Description: "Execute a bash command in the current working directory. Returns combined stdout and stderr. Output is truncated to last 2000 lines or 50KB (whichever is hit first). If truncated, full output is saved to a temp file. Optionally provide a timeout in seconds.", Parameters: schema(`{"type":"object","required":["command"],"properties":{"command":{"type":"string","minLength":1,"description":"Bash command to execute"},"timeout":{"type":"number","description":"Timeout in seconds (optional, no default timeout)"}},"additionalProperties":false}`)}, Execute: bashTool},
+		{ToolSpec: durable.ToolSpec{Name: "bash", Description: "Execute a bash command in the current working directory. Returns combined stdout and stderr. Output is truncated to last 2000 lines or 50KB (whichever is hit first). If truncated, full output is saved to a temp file. Optionally provide a timeout in seconds.", Parameters: schema(`{"type":"object","required":["command"],"properties":{"command":{"type":"string","minLength":1,"description":"Bash command to execute"},"timeout":{"type":"number","description":"Timeout in seconds (optional, no default timeout)"}},"additionalProperties":false}`)}, StructuredOutputSchema: shellOutputSchema, Execute: bashTool},
 	}}
 }
 
@@ -315,11 +323,20 @@ func shellTool(ctx context.Context, raw json.RawMessage, rt *durable.ToolRuntime
 		diagnostics = append(diagnostics, durable.ToolDiagnostic{Severity: "warn", Code: "truncated",
 			Message: fmt.Sprintf("Output truncated to its end: %d lines, %d bytes dropped", droppedLines, droppedBytes)})
 	}
+	// Programs get the retained output with the exit code, also on an error.
+	output := map[string]any{"output": content, "truncated": droppedBytes > 0, "exitCode": res.ExitCode}
+	if spill.path != "" {
+		output["fullOutputPath"] = spill.path
+	}
+	structured, err := json.Marshal(output)
+	if err != nil {
+		return durable.ToolResult{}, err
+	}
 	if res.ExitCode != 0 {
 		diagnostics = append(diagnostics, durable.ToolDiagnostic{Severity: "error", Code: "exit_code", Message: fmt.Sprintf("Command exited with code %d", res.ExitCode)})
-		return durable.ToolResult{Content: content, IsError: true, Diagnostics: diagnostics}, nil
+		return durable.ToolResult{Content: content, StructuredOutput: structured, IsError: true, Diagnostics: diagnostics}, nil
 	}
-	return durable.ToolResult{Content: content, Diagnostics: diagnostics}, nil
+	return durable.ToolResult{Content: content, StructuredOutput: structured, Diagnostics: diagnostics}, nil
 }
 
 // outputSpill counts a command's whole output and, once it passes the read

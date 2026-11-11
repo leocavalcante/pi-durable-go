@@ -286,3 +286,53 @@ func TestPowerShellToolTriesProgramsInOrder(t *testing.T) {
 	}
 	t.Fatal("no tool result")
 }
+
+func TestCodingToolsGiveProgramsStructuredOutput(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "note.txt"), []byte("hello\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	var got []durable.NestedToolResult
+	caller := durable.Extension{Name: "caller", Tools: []durable.ToolDefinition{{
+		ToolSpec: durable.ToolSpec{Name: "program", Parameters: schema(`{"type":"object"}`)}, ReplaySafe: true,
+		Execute: func(ctx context.Context, _ json.RawMessage, rt *durable.ToolRuntime) (durable.ToolResult, error) {
+			for _, call := range []struct{ name, args string }{{"read", `{"path":"note.txt"}`}, {"bash", `{"command":"echo out; exit 2"}`}} {
+				result, err := rt.ExecuteTool(ctx, call.name, json.RawMessage(call.args), durable.NestedCallOptions{})
+				if err != nil {
+					return durable.ToolResult{}, err
+				}
+				got = append(got, result)
+			}
+			return durable.ToolResult{Content: "done"}, nil
+		},
+	}}}
+	registry := durable.NewRegistry()
+	for _, extension := range []durable.Extension{Coding(), caller} {
+		if err := registry.Install(extension); err != nil {
+			t.Fatal(err)
+		}
+	}
+	h, err := durable.Open(ctx, durable.NewMemoryStorage(), durable.HarnessOptions{Registry: registry, Model: codingModel{name: "program", args: json.RawMessage(`{}`)},
+		Environment: func(c durable.ConversationRecord) (durable.ExecutionEnv, error) { return NewLocalEnv(c.Agent.Cwd) }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer h.Close(context.Background())
+	root, err := h.Root(ctx, durable.ConversationOptions{Agent: durable.Agent{Cwd: dir}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sub, err := root.Submit(ctx, durable.SubmissionRequest{Content: "run"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := sub.Wait(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || string(got[0].StructuredOutput) != `"hello\n"` ||
+		string(got[1].StructuredOutput) != `{"exitCode":2,"output":"out\n","truncated":false}` || !got[1].IsError {
+		t.Fatalf("nested results=%+v", got)
+	}
+}

@@ -103,3 +103,19 @@ func TestIdentityReachesRequestsWithoutBeingStored(t *testing.T) {
 		t.Fatal("the identity was stored")
 	}
 }
+
+func TestUnstructuredOutputForPrograms(t *testing.T) {
+	png := ImageContent{MimeType: "image/png", Data: "AA=="}
+	for _, tc := range []struct {
+		result ToolResult
+		want   string
+	}{
+		{ToolResult{Content: "text"}, `"text"`},
+		{ToolResult{Images: []ImageContent{png}}, `{"data":"AA==","mimeType":"image/png","type":"image"}`},
+		{ToolResult{Content: "see", Images: []ImageContent{png}}, `[{"text":"see","type":"text"},{"data":"AA==","mimeType":"image/png","type":"image"}]`},
+	} {
+		if got := string(unstructuredOutput(tc.result)); got != tc.want {
+			t.Errorf("unstructuredOutput(%+v)=%s, want %s", tc.result, got, tc.want)
+		}
+	}
+}

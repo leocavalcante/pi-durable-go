@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/base64"
 	"encoding/binary"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -215,9 +216,15 @@ func readImage(r io.Reader, size int64, path, mimeType string, vision bool) (dur
 	if !vision {
 		note += " The current model does not support images; it sees a placeholder instead."
 	}
+	image := durable.ImageContent{MimeType: mimeType, Data: base64.StdEncoding.EncodeToString(data)}
+	structured, err := json.Marshal(map[string]string{"type": "image", "data": image.Data, "mimeType": image.MimeType})
+	if err != nil {
+		return durable.ToolResult{}, err
+	}
 	return durable.ToolResult{
-		Images:      []durable.ImageContent{{MimeType: mimeType, Data: base64.StdEncoding.EncodeToString(data)}},
-		Diagnostics: []durable.ToolDiagnostic{{Severity: "info", Code: "image", Message: note}},
+		Images:           []durable.ImageContent{image},
+		StructuredOutput: structured,
+		Diagnostics:      []durable.ToolDiagnostic{{Severity: "info", Code: "image", Message: note}},
 	}, nil
 }
 

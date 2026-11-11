@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -219,5 +220,9 @@ func readText(r io.Reader, path string, offset int, limit *int) (durable.ToolRes
 		diagnostics = append(diagnostics, durable.ToolDiagnostic{Severity: "info",
 			Message: fmt.Sprintf("%d more lines in file. Use offset=%d to continue.", remaining, startLine+*userLimitedLines+1)})
 	}
-	return durable.ToolResult{Content: output, Diagnostics: diagnostics}, nil
+	structured, err := json.Marshal(output)
+	if err != nil {
+		return durable.ToolResult{}, err
+	}
+	return durable.ToolResult{Content: output, StructuredOutput: structured, Diagnostics: diagnostics}, nil
 }
