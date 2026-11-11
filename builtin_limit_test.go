@@ -154,7 +154,9 @@ func TestCrashLoopToolCutOffEndsWithErrorResult(t *testing.T) {
 		<-ctx.Done()
 		return ToolResult{}, ctx.Err()
 	})
-	hosts := newCrashHosts(t, nil, HarnessOptions{Model: &toolCallingModel{name: "stream"}, Registry: registry, OnReport: log.add, Settings: Settings{RestartLimit: 2}})
+	// Commit each output at once: the test crashes right after it.
+	hosts := newCrashHosts(t, nil, HarnessOptions{Model: &toolCallingModel{name: "stream"}, Registry: registry, OnReport: log.add,
+		Settings: Settings{RestartLimit: 2, Progress: ProgressSettings{OutputIntervalMs: ptr(0.0)}}})
 	h := hosts.open(nil)
 	root, err := h.Root(ctx, ConversationOptions{Agent: Agent{Model: ModelRef{Provider: "fake", ID: "m"}}})
 	if err != nil {

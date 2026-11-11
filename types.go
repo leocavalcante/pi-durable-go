@@ -496,6 +496,9 @@ type ProgressSettings struct {
 	// PartialIntervalMs: a streamed partial answer is committed to
 	// pi.live.generation.message at most this often (default 100).
 	PartialIntervalMs *float64
+	// OutputIntervalMs: running tool output is committed to its slot at
+	// most this often (default 100); 0 commits each Output call at once.
+	OutputIntervalMs *float64
 }
 
 type HarnessOptions struct {

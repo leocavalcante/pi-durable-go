@@ -23,7 +23,7 @@
 
 ## 2. Remaining work, in proposed order
 
-1. **Tool output throttling.** `progress.outputIntervalMs` and dropped-size counters on running output. (Result bounds with `OutputLimits` and `truncated` diagnostics are done.)
+1. **Running output counters.** `droppedBytes`/`droppedLines` on slots. (Result bounds, `truncated` diagnostics, and throttled output commits are done.)
 2. **Transcript reads.** Conversation view windows and `ConversationTranscript`. (`Conversation.ScanEntries` pages raw history; `Harness.TaskGraph` and `WatchTaskGraph` show live tasks.)
 3. **Telemetry.** Spans and events through an optional host adapter, with `host_error` reports for a failing adapter.
 4. **I: storage.** Indexed records instead of whole snapshots, group commit, and deferred commits (`persistWithinMs`). This is the largest change: whole-snapshot commits cost grows with history.

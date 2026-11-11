@@ -279,6 +279,9 @@ func runTool(ctx context.Context, r *TaskRuntime, task TaskRecord) error {
 	started := time.Now()
 	result, executeErr := def.Execute(ctx, cp.Arguments, runtime)
 	runtime.executed.Store(true)
+	if err := runtime.stopOutput(ctx); err != nil && ctx.Err() == nil {
+		runtime.Report(err)
+	}
 	durationMs := time.Since(started).Milliseconds()
 	if ctx.Err() != nil {
 		return ctx.Err()

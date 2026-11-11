@@ -104,7 +104,8 @@ func TestToolProgressIsNotTaskProgress(t *testing.T) {
 		<-finish
 		return ToolResult{}, nil
 	})
-	h := taskTestHarness(t, HarnessOptions{Model: &toolCallingModel{name: "stream"}, Registry: registry, Settings: Settings{RestartLimit: inf()}})
+	h := taskTestHarness(t, HarnessOptions{Model: &toolCallingModel{name: "stream"}, Registry: registry,
+		Settings: Settings{RestartLimit: inf(), Progress: ProgressSettings{OutputIntervalMs: ptr(0.0)}}})
 	root, err := h.Root(ctx, ConversationOptions{Agent: Agent{Model: ModelRef{Provider: "fake", ID: "m"}}})
 	if err != nil {
 		t.Fatal(err)
@@ -174,7 +175,8 @@ func TestToolProgressRerunsAndInterruptions(t *testing.T) {
 				}
 				return ToolResult{}, nil
 			})
-			hosts := newCrashHosts(t, nil, HarnessOptions{Model: &toolCallingModel{name: "effect"}, Registry: registry})
+			hosts := newCrashHosts(t, nil, HarnessOptions{Model: &toolCallingModel{name: "effect"}, Registry: registry,
+				Settings: Settings{Progress: ProgressSettings{OutputIntervalMs: ptr(0.0)}}})
 			h = hosts.open(nil)
 			var err error
 			root, err = h.Root(ctx, ConversationOptions{Agent: Agent{Model: ModelRef{Provider: "fake", ID: "m"}}})
@@ -283,5 +285,36 @@ func TestToolProgressLegacyCheckpointOutput(t *testing.T) {
 	}
 	if _, err := migrateTool(2, nil, nil); err == nil {
 		t.Fatal("migrated from an unknown version")
+	}
+}
+
+func TestToolOutputIsThrottled(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	var before uint64
+	var commits uint64
+	registry := toolExtension("chatty", true, func(ctx context.Context, _ json.RawMessage, r *ToolRuntime) (ToolResult, error) {
+		state, _ := r.Harness().Snapshot(ctx)
+		before = state.Sequence
+		for i := 0; i < 50; i++ {
+			if err := r.Output(ctx, "x"); err != nil {
+				return ToolResult{}, err
+			}
+		}
+		state, _ = r.Harness().Snapshot(ctx)
+		commits = state.Sequence - before
+		return ToolResult{}, nil
+	})
+	h := taskTestHarness(t, HarnessOptions{Model: &toolCallingModel{name: "chatty"}, Registry: registry})
+	root, err := h.Root(ctx, ConversationOptions{Agent: Agent{Model: ModelRef{Provider: "fake", ID: "m"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitSettled(t, h, submit(t, root, SubmissionRequest{Content: "go"}))
+	if commits > 5 {
+		t.Fatalf("%d commits for 50 throttled outputs", commits)
+	}
+	if got := toolResultEntry(t, h, root.ID()).Message.Content; got != strings.Repeat("x", 50) {
+		t.Fatalf("result=%q", got)
 	}
 }

@@ -5,7 +5,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
+	"sync"
 	"sync/atomic"
+	"time"
 	"unicode/utf8"
 )
 
@@ -18,15 +21,50 @@ type ToolRuntime struct {
 	nested, noProgress bool
 	executed           atomic.Bool  // Execute returned: no more nested calls
 	sequence           atomic.Int64 // default nested call keys of this attempt
+	output             outputThrottle
 }
 
 // maxToolOutputBytes bounds a running tool's committed output, keeping the tail.
 const maxToolOutputBytes = 50 * 1024
 
-// Output appends committed progress to the call's pi.live slot, keeping the
-// trailing 50 KiB. It is presentation, not task progress: the checkpoint is
-// unchanged, so output does not reset the task's crash count.
+// Output appends progress to the call's pi.live slot, keeping the trailing
+// 50 KiB. It is presentation, not task progress: the checkpoint is
+// unchanged, so output does not reset the task's crash count. Commits are
+// throttled to Settings.Progress.OutputIntervalMs (default 100 ms), with one
+// in flight; the call's result flushes what is pending, while a crash loses
+// at most about one interval. With an interval of 0, each call commits.
 func (r *ToolRuntime) Output(ctx context.Context, text string) error {
+	if err := r.check(); err != nil {
+		return err
+	}
+	interval := 100 * time.Millisecond
+	if ms := r.h.settings().Progress.OutputIntervalMs; ms != nil && *ms >= 0 {
+		interval = time.Duration(*ms * float64(time.Millisecond))
+	}
+	if interval == 0 {
+		return r.commitOutput(ctx, text)
+	}
+	r.output.mu.Lock()
+	defer r.output.mu.Unlock()
+	r.output.pending.WriteString(text)
+	if !r.output.armed && !r.output.stopped {
+		r.output.armed = true
+		r.output.disarm = r.SetTimer(r.flushOutput, interval)
+	}
+	return nil
+}
+
+// outputThrottle buffers running output between throttled commits.
+type outputThrottle struct {
+	mu       sync.Mutex
+	pending  strings.Builder
+	armed    bool
+	stopped  bool
+	disarm   func()
+	inFlight sync.WaitGroup
+}
+
+func (r *ToolRuntime) commitOutput(ctx context.Context, text string) error {
 	return r.Commit(ctx, func(tx *Tx) (TaskTransition, error) {
 		task, err := tx.Task(r.ID)
 		if err != nil {
@@ -39,6 +77,44 @@ func (r *ToolRuntime) Output(ctx context.Context, text string) error {
 		}
 		return TaskTransition{Status: "running", Checkpoint: task.Checkpoint}, nil
 	})
+}
+
+func (r *ToolRuntime) flushOutput() {
+	r.output.mu.Lock()
+	text := r.output.pending.String()
+	r.output.pending.Reset()
+	r.output.armed = false
+	if text == "" || r.output.stopped {
+		r.output.mu.Unlock()
+		return
+	}
+	r.output.inFlight.Add(1)
+	r.output.mu.Unlock()
+	if err := r.commitOutput(context.Background(), text); err != nil && r.check() == nil {
+		r.Report(err)
+	}
+	r.output.inFlight.Done()
+}
+
+// stopOutput ends throttling and commits what is still pending, so the
+// result reads every output the tool produced.
+func (r *ToolRuntime) stopOutput(ctx context.Context) error {
+	r.output.mu.Lock()
+	r.output.stopped = true
+	disarm := r.output.disarm
+	r.output.mu.Unlock()
+	if disarm != nil {
+		disarm()
+	}
+	r.output.inFlight.Wait()
+	r.output.mu.Lock()
+	text := r.output.pending.String()
+	r.output.pending.Reset()
+	r.output.mu.Unlock()
+	if text == "" {
+		return nil
+	}
+	return r.commitOutput(ctx, text)
 }
 
 // tailBytes keeps at most max trailing bytes of s, starting at a rune boundary.
