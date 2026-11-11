@@ -47,6 +47,23 @@ func (r *TaskRuntime) Report(err error) {
 	r.h.report(r.taskReport(ReportTaskError, err, ""))
 }
 
+// ReportExtension reports a failure of extension code the task called, such
+// as a section or hook, as extension_error about that extension.
+func (r *TaskRuntime) ReportExtension(err error, extension string) {
+	r.reportExtension(err, extension)
+}
+
+// ReportHost reports a failure of a host callback the task called, such as
+// the environment builder ("env"), as host_error.
+func (r *TaskRuntime) ReportHost(err error, callback string) {
+	if err == nil || r.check() != nil {
+		return
+	}
+	report := r.taskReport(ReportHostError, err, "")
+	report.Callback, report.Extension = callback, ""
+	r.h.report(report)
+}
+
 func (r *TaskRuntime) taskReport(kind ReportKind, err error, reason string) Report {
 	return Report{Kind: kind, Err: err, Reason: reason, Extension: r.extension,
 		Task: &ReportTask{ID: r.ID, Kind: r.kind, Conversation: r.conversation}}

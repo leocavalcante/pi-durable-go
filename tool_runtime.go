@@ -147,5 +147,9 @@ func (r *ToolRuntime) Env() (ExecutionEnv, error) {
 	if c == nil {
 		return nil, ErrNotFound
 	}
-	return r.h.options.Environment(*c)
+	env, err := r.h.options.Environment(*c)
+	if err != nil {
+		r.ReportHost(err, "env")
+	}
+	return env, err
 }

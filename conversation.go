@@ -485,7 +485,8 @@ func (c *Conversation) Abort(ctx context.Context, includeBackground bool) error 
 			return err
 		}
 	}
-	return nil
+	// Upstream resolves once the scope is idle.
+	return c.WaitForIdle(ctx)
 }
 func viewFromState(state *State, id ConversationID) (View, error) {
 	rec := state.Conversations[id]
