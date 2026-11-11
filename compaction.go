@@ -173,7 +173,7 @@ func runCompaction(ctx context.Context, r *TaskRuntime, task TaskRecord) error {
 		if r.h.options.Model == nil {
 			return failCompaction(ctx, r, task, "No model is configured", RunNoModel)
 		}
-		response, err := r.h.options.Model.Generate(ctx, input.Request, func(string) error { return nil })
+		response, err := r.h.generate(ctx, input.Request, func(string) error { return nil })
 		if err != nil {
 			if ctx.Err() != nil {
 				return ctx.Err()
@@ -469,7 +469,7 @@ func summarizeCompaction(ctx context.Context, r *TaskRuntime, task TaskRecord, i
 		{Role: "system", Content: summarizationSystemPrompt},
 		{Role: "user", Content: summaryPrompt(summarized, input.Instructions)},
 	}}
-	response, err := r.h.options.Model.Generate(ctx, request, func(string) error { return nil })
+	response, err := r.h.generate(ctx, request, func(string) error { return nil })
 	if err != nil {
 		if ctx.Err() != nil {
 			return ctx.Err()

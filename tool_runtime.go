@@ -259,6 +259,16 @@ func (r *ToolRuntime) Env() (ExecutionEnv, error) {
 
 // DeferredTools are the enabled, model-callable deferred tools this call's
 // conversation does not offer yet: what a tool search loads.
+// Model is the Harness model for requests a tool makes itself, with the same
+// catalog, credentials, and identity as generation (upstream api.models);
+// nil without a model.
+func (r *ToolRuntime) Model() Model {
+	if r.h.options.Model == nil {
+		return nil
+	}
+	return harnessModel{h: r.h}
+}
+
 // AcceptsImages reports whether the conversation's model takes images
 // (ImageInputModel); true when unknown. Tools that return images say when the
 // model will see a placeholder instead.

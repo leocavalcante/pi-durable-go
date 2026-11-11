@@ -135,4 +135,9 @@ func (h *Harness) report(report Report) {
 		return
 	}
 	h.reports.enqueue(report)
+	// Upstream counts every report by kind (pi.durable.reports). A report
+	// about the telemetry adapter itself is not counted through it again.
+	if metrics := h.metrics(); metrics != nil && report.Callback != "telemetry" {
+		h.telemetryCall(func() { metrics.Add("pi.durable.reports", 1, map[string]any{"type": string(report.Kind)}) })
+	}
 }

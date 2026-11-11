@@ -1,6 +1,7 @@
 package model
 
 import (
+	"context"
 	"encoding/json"
 	"testing"
 
@@ -35,5 +36,26 @@ func TestPiBridgeSendsImageBlocksAndReadsImageInput(t *testing.T) {
 	}
 	if !p.AcceptsImages(durable.ModelRef{Provider: "fake", ID: "vision"}) || p.AcceptsImages(durable.ModelRef{Provider: "fake", ID: "text-only"}) {
 		t.Fatal("image input not read from the catalog")
+	}
+}
+
+func TestPiBridgePassesTheIdentity(t *testing.T) {
+	p := fakePi(t)
+	req := piRequest("inspect")
+	req.Identity = &durable.ClientIdentity{UserAgent: json.RawMessage(`"short"`), Version: "9.9"}
+	response, err := p.Generate(context.Background(), req, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var inspect struct {
+		Options struct {
+			Identity map[string]any `json:"identity"`
+		} `json:"options"`
+	}
+	if err := json.Unmarshal([]byte(response.Content), &inspect); err != nil {
+		t.Fatal(err)
+	}
+	if inspect.Options.Identity["userAgent"] != "short" || inspect.Options.Identity["version"] != "9.9" {
+		t.Fatalf("identity=%v", inspect.Options.Identity)
 	}
 }

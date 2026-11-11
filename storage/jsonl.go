@@ -48,6 +48,38 @@ func OpenJSONL(ctx context.Context, directory string) (durable.Storage, error) {
 	return s, nil
 }
 
+// OpenJSONLReadOnly opens a log as a viewer of a directory another process
+// may be writing (upstream's readOnly JSONL open): it creates, locks, and
+// writes nothing, skips a torn final line in memory instead of truncating
+// it, holds the State committed at open, and rejects every commit with
+// durable.ErrReadOnly. A missing log is an empty store. A recovery that read
+// a line a writer was replacing is retried once.
+func OpenJSONLReadOnly(ctx context.Context, directory string) (durable.Storage, error) {
+	path := filepath.Join(directory, "snapshots.jsonl")
+	var err error
+	for attempt := 0; attempt < 2; attempt++ {
+		if err = ctx.Err(); err != nil {
+			return nil, err
+		}
+		s := &jsonlStorage{unlock: func() error { return nil }, path: path, readOnly: true}
+		f, openErr := os.Open(path)
+		if errors.Is(openErr, os.ErrNotExist) {
+			return s, nil
+		}
+		if openErr != nil {
+			return nil, openErr
+		}
+		s.file = f
+		err = s.recover()
+		closeErr := f.Close()
+		s.file = nil
+		if err == nil {
+			return s, closeErr
+		}
+	}
+	return nil, err
+}
+
 type jsonlStorage struct {
 	mu     sync.Mutex
 	file   *os.File
@@ -55,7 +87,9 @@ type jsonlStorage struct {
 	state  *durable.State
 	closed bool
 	path   string
-	size   int64 // bytes of complete lines in the file
+	// readOnly storage holds the State read at open and writes nothing.
+	readOnly bool
+	size     int64 // bytes of complete lines in the file
 	// snapshotSize is the size of the log's last whole-State line; the
 	// delta lines after it make up the rest.
 	snapshotSize int64
@@ -98,6 +132,9 @@ func (s *jsonlStorage) Commit(ctx context.Context, expected uint64, next *durabl
 
 // commitState appends a whole-State line; the caller holds s.mu.
 func (s *jsonlStorage) commitState(ctx context.Context, expected uint64, next *durable.State) error {
+	if s.readOnly {
+		return &durable.RejectedError{Err: durable.ErrReadOnly}
+	}
 	if s.closed {
 		return &durable.RejectedError{Err: durable.ErrClosed}
 	}
@@ -145,6 +182,9 @@ func (s *jsonlStorage) commitState(ctx context.Context, expected uint64, next *d
 func (s *jsonlStorage) CommitDelta(ctx context.Context, expected uint64, delta *durable.StateDelta) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.readOnly {
+		return &durable.RejectedError{Err: durable.ErrReadOnly}
+	}
 	if s.closed {
 		return &durable.RejectedError{Err: durable.ErrClosed}
 	}
@@ -300,6 +340,9 @@ func (s *jsonlStorage) recover() error {
 		}
 	}
 	s.size = good
+	if s.readOnly {
+		return nil // a torn tail is skipped in memory, never cut
+	}
 	info, err := s.file.Stat()
 	if err != nil {
 		return err
@@ -326,8 +369,10 @@ func (s *jsonlStorage) Close() error {
 	if e := s.unlock(); e != nil {
 		errs = append(errs, e)
 	}
-	if e := s.file.Close(); e != nil {
-		errs = append(errs, e)
+	if s.file != nil {
+		if e := s.file.Close(); e != nil {
+			errs = append(errs, e)
+		}
 	}
 	return errors.Join(errs...)
 }

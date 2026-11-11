@@ -311,7 +311,7 @@ func requestGeneration(ctx context.Context, r *TaskRuntime, task TaskRecord, cp 
 	cp.Partial = ""
 	stream := newPartialStream(r, task, attempt)
 	started := time.Now()
-	response, err := r.h.options.Model.Generate(ctx, cp.Request, stream.delta)
+	response, err := r.h.generate(ctx, cp.Request, stream.delta)
 	stream.stop()
 	partial := stream.text()
 	responseDurationMs := time.Since(started).Milliseconds()

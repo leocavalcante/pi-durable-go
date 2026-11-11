@@ -202,6 +202,7 @@ async function main() {
       // in provider SDK retries (OAuth refresh remains Pi's responsibility).
       maxRetries: 0,
       transport: "sse",
+      ...(request.identity ? { identity: request.identity } : {}),
     });
     let result;
     for await (const event of stream) {

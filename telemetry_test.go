@@ -22,11 +22,19 @@ type recordingTelemetry struct {
 	active  map[string]float64
 	phases  int
 	metrics bool
+	reports map[string]float64
 }
 
 func (r *recordingTelemetry) Add(name string, delta float64, attributes map[string]any) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if name == "pi.durable.reports" {
+		if r.reports == nil {
+			r.reports = map[string]float64{}
+		}
+		r.reports[attributes["type"].(string)] += delta
+		return
+	}
 	if r.active == nil {
 		r.active = map[string]float64{}
 	}
@@ -193,4 +201,25 @@ func TestTelemetryReportEventsOnThePhaseSpan(t *testing.T) {
 		}
 	}
 	t.Fatal("no pi.durable.report event on the phase span")
+}
+
+func TestTelemetryCountsReports(t *testing.T) {
+	telemetry := &recordingTelemetry{}
+	definition := TaskDefinition{Kind: "app.counted", Version: 1, Run: func(ctx context.Context, r *TaskRuntime, _ TaskRecord) error {
+		r.Report(errors.New("noted"))
+		return r.Commit(ctx, func(*Tx) (TaskTransition, error) {
+			return TaskTransition{Status: "terminal", Outcome: &Outcome{Status: OutcomeCompleted}}, nil
+		})
+	}}
+	registry := NewRegistry()
+	installTasks(t, registry, "counted", definition)
+	h := taskTestHarness(t, HarnessOptions{Telemetry: telemetry, Registry: registry})
+	id := createTaskForTest(t, h, definition)
+	h.Resume()
+	waitForTask(t, h, id, func(task TaskRecord) bool { return task.Status == "terminal" })
+	telemetry.mu.Lock()
+	defer telemetry.mu.Unlock()
+	if telemetry.reports["task_error"] != 1 {
+		t.Fatalf("reports=%v", telemetry.reports)
+	}
 }

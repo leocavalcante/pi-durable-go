@@ -55,8 +55,9 @@ func spanOf(ctx context.Context) *span {
 
 // TelemetryMetrics is optionally implemented by a Telemetry adapter to
 // receive upstream's metrics: the up-down counter "pi.durable.tasks.active"
-// (attribute task, the kind) and the histogram "pi.durable.phase.duration"
-// in milliseconds (attributes task, phase, outcome).
+// (attribute task, the kind), the counter "pi.durable.reports" (attribute
+// type, the report kind), and the histogram "pi.durable.phase.duration" in
+// milliseconds (attributes task, phase, outcome).
 type TelemetryMetrics interface {
 	Add(name string, delta float64, attributes map[string]any)
 	Record(name string, value float64, attributes map[string]any)

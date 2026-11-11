@@ -12,6 +12,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"runtime"
 	"strings"
 
 	durable "github.com/leocavalcante/pi-durable-go"
@@ -156,6 +157,9 @@ func (o OpenAI) Generate(ctx context.Context, req durable.ModelRequest, onDelta 
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Accept", "text/event-stream")
+	if ua := userAgent(req.Identity); ua != "" {
+		httpReq.Header.Set("User-Agent", ua)
+	}
 	if o.APIKey != "" {
 		httpReq.Header.Set("Authorization", "Bearer "+o.APIKey)
 	}
@@ -428,4 +432,29 @@ func completionsURL(base string) (string, error) {
 	}
 	u.Path = path
 	return u.String(), nil
+}
+
+// userAgent is pi-ai's User-Agent for a request identity: "short" is pi,
+// {"custom": value} is the value, and "detailed" (the default) names the
+// version and the Go runtime. Without an identity the HTTP client's default
+// stays. Provider attribution headers are not sent.
+func userAgent(identity *durable.ClientIdentity) string {
+	if identity == nil {
+		return ""
+	}
+	var mode string
+	if json.Unmarshal(identity.UserAgent, &mode) == nil && mode == "short" {
+		return "pi"
+	}
+	var custom struct {
+		Custom *string `json:"custom"`
+	}
+	if json.Unmarshal(identity.UserAgent, &custom) == nil && custom.Custom != nil {
+		return *custom.Custom
+	}
+	name := "pi"
+	if identity.Version != "" {
+		name += "/" + identity.Version
+	}
+	return fmt.Sprintf("%s (%s; go/%s; %s)", name, runtime.GOOS, strings.TrimPrefix(runtime.Version(), "go"), runtime.GOARCH)
 }

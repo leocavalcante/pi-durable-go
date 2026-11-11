@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	durable "github.com/leocavalcante/pi-durable-go"
@@ -56,5 +57,27 @@ func TestOpenAISendsImagesLikePiAI(t *testing.T) {
 		`{"content":"(tool image omitted: model does not support images)","role":"tool","tool_call_id":"c1"},{"content":"(no tool output)","role":"tool","tool_call_id":"c2"}]`
 	if string(got) != want {
 		t.Fatalf("placeholder messages:\n%s\nwant\n%s", got, want)
+	}
+}
+
+func TestOpenAISendsTheIdentityUserAgent(t *testing.T) {
+	var agents []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		agents = append(agents, r.Header.Get("User-Agent"))
+		_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"ok\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n"))
+	}))
+	defer server.Close()
+	for _, identity := range []*durable.ClientIdentity{
+		{UserAgent: json.RawMessage(`"short"`)},
+		{UserAgent: json.RawMessage(`{"custom":"my-app/2"}`)},
+		{Version: "1.2.3"},
+	} {
+		req := durable.ModelRequest{Model: durable.ModelRef{ID: "m"}, Identity: identity}
+		if _, err := (OpenAI{BaseURL: server.URL}).Generate(context.Background(), req, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(agents) != 3 || agents[0] != "pi" || agents[1] != "my-app/2" || !strings.HasPrefix(agents[2], "pi/1.2.3 (") {
+		t.Fatalf("user agents=%q", agents)
 	}
 }

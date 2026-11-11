@@ -152,6 +152,22 @@ func (h *Harness) settings() Settings {
 
 func (h *Harness) Snapshot(ctx context.Context) (*State, error) { return h.session.Snapshot(ctx) }
 
+// generate sends a model request with the Harness identity.
+func (h *Harness) generate(ctx context.Context, req ModelRequest, onDelta func(string) error) (ModelResponse, error) {
+	if req.Identity == nil {
+		req.Identity = h.options.Identity
+	}
+	return h.options.Model.Generate(ctx, req, onDelta)
+}
+
+// harnessModel is the Harness model as tools see it: requests carry the
+// Harness identity.
+type harnessModel struct{ h *Harness }
+
+func (m harnessModel) Generate(ctx context.Context, req ModelRequest, onDelta func(string) error) (ModelResponse, error) {
+	return m.h.generate(ctx, req, onDelta)
+}
+
 // read returns the committed State for internal reading. It is shared with
 // the Session and every other reader: never mutate it or its records. Public
 // callers get Snapshot's detached copy.

@@ -386,6 +386,20 @@ type ModelRequest struct {
 	ThinkingLevel string     `json:"thinkingLevel,omitempty"`
 	Messages      []Message  `json:"messages"`
 	Tools         []ToolSpec `json:"tools,omitempty"`
+	// Identity is HarnessOptions.Identity, set as the request is sent.
+	Identity *ClientIdentity `json:"identity,omitempty"`
+}
+
+// ClientIdentity is pi-ai's ClientIdentity: how model requests identify the
+// calling app to providers. Its fields are plain pi-ai JSON.
+type ClientIdentity struct {
+	// UserAgent is "short", "detailed" (the default), or {"custom": "..."}.
+	UserAgent json.RawMessage `json:"userAgent,omitempty"`
+	// Attribution is {"name", "url", "categories"} for provider attribution
+	// headers; null turns off attribution.
+	Attribution json.RawMessage `json:"attribution,omitempty"`
+	// Version is the version in the detailed User-Agent.
+	Version string `json:"version,omitempty"`
 }
 type ModelResponse struct {
 	Content   string     `json:"content"`
@@ -544,6 +558,9 @@ type HarnessOptions struct {
 	OnWake func(Wake)
 	// Telemetry receives content-free spans; see Telemetry.
 	Telemetry Telemetry
+	// Identity is set on every model request through the Harness, including
+	// those tools make through ToolRuntime.Model (pi-ai's ClientIdentity).
+	Identity *ClientIdentity
 	// ReadOnly opens for reading only, as a viewer of a session another
 	// process drives. Open recovers nothing: a running task stays as committed.
 	// Every commit with writes fails with ErrReadOnly before it reaches

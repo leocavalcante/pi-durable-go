@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -273,5 +274,55 @@ func BenchmarkSQLiteCommitWithHistory(b *testing.B) {
 		}); err != nil {
 			b.Fatal(err)
 		}
+	}
+}
+
+func TestJSONLReadOnlyOpenWritesNothing(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	if st, err := OpenJSONLReadOnly(ctx, filepath.Join(dir, "missing")); err != nil {
+		t.Fatal(err)
+	} else if state, err := st.Load(ctx); err != nil || state != nil {
+		t.Fatalf("missing log state=%v error=%v", state, err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "missing")); !os.IsNotExist(err) {
+		t.Fatal("a read-only open created its directory")
+	}
+	writer, err := OpenJSONL(ctx, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := runHistory(t, writer)
+	path := filepath.Join(dir, "snapshots.jsonl")
+	// A writer's torn final line, as another process may be appending.
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.WriteString(`{"delta":{"sequ`); err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+	before, _ := os.ReadFile(path)
+	viewer, err := OpenJSONLReadOnly(ctx, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := viewer.Load(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sameState(t, want, got)
+	h, err := durable.Open(ctx, viewer, durable.HarnessOptions{ReadOnly: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer h.Close(ctx)
+	if err := viewer.Commit(ctx, got.Sequence, got); !errors.Is(err, durable.ErrReadOnly) {
+		t.Fatalf("commit error=%v", err)
+	}
+	after, _ := os.ReadFile(path)
+	if string(after) != string(before) {
+		t.Fatal("the read-only open changed the log")
 	}
 }
