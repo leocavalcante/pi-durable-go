@@ -60,7 +60,7 @@ func TestRetryPolicyCompactionRetriesTransientError(t *testing.T) {
 		t.Fatal(err)
 	}
 	until := clock.unixMilliAfter(2000)
-	if backoff.Status != "pending" || cp.Phase != "retry" || cp.Attempt != 1 || cp.Until != until || backoff.WakeAt.UnixMilli() != until {
+	if backoff.Status != "sleeping" || cp.Phase != "retry" || cp.Attempt != 1 || cp.Until != until || backoff.WakeAt.UnixMilli() != until {
 		t.Fatalf("backoff=%+v checkpoint=%+v", backoff, cp)
 	}
 	time.Sleep(50 * time.Millisecond)

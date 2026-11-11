@@ -181,9 +181,10 @@ func TestCrashLoopRuntimeCommitProgress(t *testing.T) {
 				if err != nil {
 					return TaskTransition{}, err
 				}
+				// A sleep with a new deadline is a new state.
 				tr := sameRestartTransition(task, task.Checkpoint)
 				wake := time.Now().UTC().Add(2 * time.Hour)
-				tr.WakeAt = &wake
+				tr.Status, tr.WakeAt = "sleeping", &wake
 				return tr, nil
 			})
 		}, want: 0},

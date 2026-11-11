@@ -585,7 +585,7 @@ func TestTaskOrphanOwnedWorkDrainsBeforeOwnerOrphan(t *testing.T) {
 		t.Fatal(err)
 	}
 	h.Resume()
-	waitForOrphanTask(t, h, child, func(task TaskRecord) bool { return task.Status == "waiting" })
+	waitForOrphanTask(t, h, child, func(task TaskRecord) bool { return task.Status == "sleeping" })
 	result, err := h.AbortTask(ctx, parent)
 	if err != nil || result != AbortMarked {
 		t.Fatalf("AbortTask owner=(%q, %v)", result, err)

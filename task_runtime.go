@@ -128,6 +128,12 @@ func (r *TaskRuntime) Commit(ctx context.Context, change func(*Tx) (TaskTransiti
 			return err
 		}
 		if r.aborting && transition.Status != "running" && transition.Status != "terminal" {
+			if transition.Status == "sleeping" || transition.WakeAt != nil {
+				return fmt.Errorf("%w: Abort handler of task %d cannot sleep", ErrInvalid, r.ID)
+			}
+			if transition.Status == "waiting" {
+				return fmt.Errorf("%w: Abort handler of task %d cannot wait", ErrInvalid, r.ID)
+			}
 			return fmt.Errorf("%w: abort handlers cannot yield or wait", ErrInvalid)
 		}
 		if err := applyTransition(tx, current, transition, r.h.now()); err != nil {
@@ -159,6 +165,27 @@ func sameTaskState(a, b *TaskRecord) bool {
 		slices.Equal(a.WaitOn, b.WaitOn) && a.WaitPolicy == b.WaitPolicy &&
 		(a.WakeAt == nil && b.WakeAt == nil || a.WakeAt != nil && b.WakeAt != nil && a.WakeAt.Equal(*b.WakeAt))
 }
+
+// SleepUntil commits a sleep: the task holds no invocation until the Harness
+// clock reaches until, then resumes at checkpoint (nil keeps the current one).
+// It returns once the sleep is stored; the phase should return right after.
+// An abort mark ends a sleep at once. Committing a "sleeping" transition with
+// WakeAt is the same sleep, for one that must commit with other writes.
+func (r *TaskRuntime) SleepUntil(ctx context.Context, until time.Time, checkpoint json.RawMessage) error {
+	return r.Commit(ctx, func(tx *Tx) (TaskTransition, error) {
+		if checkpoint == nil {
+			current, err := tx.Task(r.ID)
+			if err != nil {
+				return TaskTransition{}, err
+			}
+			checkpoint = current.Checkpoint
+		}
+		return TaskTransition{Status: "sleeping", Checkpoint: checkpoint, WakeAt: &until}, nil
+	})
+}
+
+// Now reads the Harness clock, which sleeping tasks store deadlines on.
+func (r *TaskRuntime) Now() time.Time { return r.h.now() }
 
 func (r *TaskRuntime) Complete(ctx context.Context, outcome Outcome) error {
 	return r.Commit(ctx, func(*Tx) (TaskTransition, error) { return TaskTransition{Status: "terminal", Outcome: &outcome}, nil })
@@ -319,12 +346,30 @@ func validateTaskOutcome(out Outcome) error {
 
 func applyTransition(tx *Tx, task *TaskRecord, tr TaskTransition, now time.Time) error {
 	switch tr.Status {
-	case "pending", "running", "waiting", "terminal":
+	case "pending", "running", "waiting", "sleeping", "terminal":
 	default:
 		return fmt.Errorf("%w: task transition %q", ErrInvalid, tr.Status)
 	}
 	if tr.Checkpoint != nil && !json.Valid(tr.Checkpoint) {
 		return fmt.Errorf("%w: task checkpoint JSON", ErrInvalid)
+	}
+	// Go previously slept as pending or waiting with a deadline and nothing
+	// to wait on; that form is a sleep. Upstream waits have no deadline.
+	if tr.WakeAt != nil && (tr.Status == "pending" || tr.Status == "waiting" && len(tr.WaitOn) == 0) {
+		tr.Status = "sleeping"
+	}
+	switch tr.Status {
+	case "sleeping":
+		if tr.WakeAt == nil || tr.WakeAt.IsZero() {
+			return fmt.Errorf("%w: Task %d cannot sleep without a time to wake", ErrInvalid, task.ID)
+		}
+		tr.WaitOn, tr.WaitPolicy = nil, ""
+	case "waiting":
+		if tr.WakeAt != nil {
+			return fmt.Errorf("%w: Task %d cannot wait with a deadline; sleep or wait", ErrInvalid, task.ID)
+		}
+	case "running":
+		tr.WakeAt = nil
 	}
 	if tr.Status == "waiting" {
 		if tr.WaitPolicy != "" && tr.WaitPolicy != "allSettled" && tr.WaitPolicy != "failFast" {

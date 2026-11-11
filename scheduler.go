@@ -340,7 +340,7 @@ func (s *Scheduler) reserve(id TaskID) error {
 			if len(ownedLive(tx.state, id)) != 0 {
 				return errNoChange
 			}
-		} else if (t.Status != "pending" && t.Status != "waiting") || len(liveWaits(tx.state, t)) != 0 || t.WakeAt != nil && s.h.now().Before(*t.WakeAt) || belowCancellationIntent(tx.state, t) {
+		} else if (t.Status != "pending" && t.Status != "waiting" && t.Status != "sleeping") || len(liveWaits(tx.state, t)) != 0 || t.WakeAt != nil && s.h.now().Before(*t.WakeAt) || belowCancellationIntent(tx.state, t) {
 			return errNoChange
 		}
 		// Work cut off restartLimit times in a row would run forever: an abort

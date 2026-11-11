@@ -401,7 +401,7 @@ func runGeneration(ctx context.Context, r *TaskRuntime, task TaskRecord) error {
 		if cp.Until > r.h.now().UnixMilli() {
 			wake := time.UnixMilli(cp.Until).UTC()
 			return r.Commit(ctx, func(*Tx) (TaskTransition, error) {
-				return TaskTransition{Status: "pending", Checkpoint: task.Checkpoint, WakeAt: &wake}, nil
+				return TaskTransition{Status: "sleeping", Checkpoint: task.Checkpoint, WakeAt: &wake}, nil
 			})
 		}
 		return r.Commit(ctx, func(*Tx) (TaskTransition, error) {
@@ -418,7 +418,7 @@ func runGeneration(ctx context.Context, r *TaskRuntime, task TaskRecord) error {
 func retryTransition(cp generationCheckpoint, attempt int, until time.Time) (TaskTransition, error) {
 	next, err := json.Marshal(generationCheckpoint{Phase: "retry", Attempt: attempt, Until: until.UnixMilli(), Turns: cp.Turns})
 	wake := time.UnixMilli(until.UnixMilli()).UTC()
-	return TaskTransition{Status: "pending", Checkpoint: next, WakeAt: &wake}, err
+	return TaskTransition{Status: "sleeping", Checkpoint: next, WakeAt: &wake}, err
 }
 
 func systemMessages(messages []Message) []Message {

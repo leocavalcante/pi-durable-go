@@ -161,7 +161,7 @@ func runCompaction(ctx context.Context, r *TaskRuntime, task TaskRecord) error {
 				}
 				wake := time.UnixMilli(until).UTC()
 				return r.Commit(ctx, func(*Tx) (TaskTransition, error) {
-					return TaskTransition{Status: "pending", Checkpoint: next, WakeAt: &wake}, nil
+					return TaskTransition{Status: "sleeping", Checkpoint: next, WakeAt: &wake}, nil
 				})
 			}
 			return r.Complete(ctx, Outcome{Status: OutcomeFailed, Error: diagnostic(err.Error())})
@@ -196,7 +196,7 @@ func runCompaction(ctx context.Context, r *TaskRuntime, task TaskRecord) error {
 		if checkpoint.Until > r.h.now().UnixMilli() {
 			wake := time.UnixMilli(checkpoint.Until).UTC()
 			return r.Commit(ctx, func(*Tx) (TaskTransition, error) {
-				return TaskTransition{Status: "pending", Checkpoint: task.Checkpoint, WakeAt: &wake}, nil
+				return TaskTransition{Status: "sleeping", Checkpoint: task.Checkpoint, WakeAt: &wake}, nil
 			})
 		}
 		next, err := json.Marshal(compactionCheckpoint{Phase: "request", Attempt: checkpoint.attempt() + 1})

@@ -142,7 +142,7 @@ func TestRetryPolicyGenerationRetriesTransientErrorAndPreparesAgain(t *testing.T
 	backoff := waitForTask(t, h, id, func(task TaskRecord) bool { return generationPhase(task).Phase == "retry" })
 	cp := generationPhase(backoff)
 	until := clock.unixMilliAfter(2000)
-	if backoff.Status != "pending" || cp.Attempt != 1 || cp.Until != until || backoff.WakeAt == nil || backoff.WakeAt.UnixMilli() != until || cp.Turns != 1 {
+	if backoff.Status != "sleeping" || cp.Attempt != 1 || cp.Until != until || backoff.WakeAt == nil || backoff.WakeAt.UnixMilli() != until || cp.Turns != 1 {
 		t.Fatalf("backoff=%+v checkpoint=%+v, want attempt 1 until %d", backoff, cp, until)
 	}
 	view, err := root.View(ctx)
@@ -289,7 +289,7 @@ func TestRetryPolicyGenerationRetryBeforeUntilBacksOffAgain(t *testing.T) {
 	id, sub := seedGeneration(t, h, root.ID(), generationVersion, checkpoint, nil)
 	h.Resume()
 	waiting := waitForTask(t, h, id, func(task TaskRecord) bool { return task.WakeAt != nil })
-	if waiting.Status != "pending" || waiting.WakeAt.UnixMilli() != until || !jsonEqual(waiting.Checkpoint, json.RawMessage(checkpoint)) {
+	if waiting.Status != "sleeping" || waiting.WakeAt.UnixMilli() != until || !jsonEqual(waiting.Checkpoint, json.RawMessage(checkpoint)) {
 		t.Fatalf("early retry=%+v checkpoint=%s", waiting, waiting.Checkpoint)
 	}
 	if len(model.calls()) != 0 {
