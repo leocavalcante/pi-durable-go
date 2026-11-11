@@ -202,6 +202,30 @@ func (r *TaskRuntime) SleepUntil(ctx context.Context, until time.Time, checkpoin
 	})
 }
 
+// Entries reads the raw history of the task's conversation, fork-aware,
+// between minID and maxID inclusive (0: unbounded). Compaction never changes
+// entries, so an ID-bounded range reads the same before and after one.
+func (r *TaskRuntime) Entries(ctx context.Context, minID, maxID EntryID) ([]Entry, error) {
+	if err := r.check(); err != nil {
+		return nil, err
+	}
+	state, err := r.h.Snapshot(ctx)
+	if err != nil {
+		return nil, err
+	}
+	entries, err := entriesFromState(state, r.conversation)
+	if err != nil {
+		return nil, err
+	}
+	out := entries[:0]
+	for _, e := range entries {
+		if (minID == 0 || e.ID >= minID) && (maxID == 0 || e.ID <= maxID) {
+			out = append(out, e)
+		}
+	}
+	return out, nil
+}
+
 // Now reads the Harness clock, which sleeping tasks store deadlines on.
 func (r *TaskRuntime) Now() time.Time { return r.h.now() }
 

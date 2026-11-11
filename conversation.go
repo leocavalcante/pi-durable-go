@@ -55,6 +55,9 @@ func (h *Harness) Conversation(ctx context.Context, id ConversationID) (*Convers
 	return &Conversation{h: h, id: id}, nil
 }
 func (c *Conversation) Configure(ctx context.Context, agent Agent) error {
+	if agent.MaxTurns < 0 {
+		return fmt.Errorf("%w: MaxTurns must be 1 or more, or 0 for no bound", ErrInvalid)
+	}
 	return c.h.Commit(ctx, func(tx *Tx) error {
 		rec, err := tx.Conversation(c.id)
 		if err != nil {
@@ -313,6 +316,27 @@ func (c *Conversation) Fork(ctx context.Context, at EntryID, opts ConversationOp
 	return &Conversation{h: c.h, id: id}, nil
 }
 
+// SubmitTx admits a submission inside the caller's commit, with Submit's
+// rules, and returns its ID: the admission is stored with that commit, or
+// not at all when the callback fails later or the commit fails. A rejection
+// (ErrBusy, ErrIdle) returns before any write, so the callback may handle it.
+// Call Resume after the commit for the run it starts to make progress.
+func (c *Conversation) SubmitTx(tx *Tx, request SubmissionRequest) (SubmissionID, error) {
+	if err := tx.check(); err != nil {
+		return 0, err
+	}
+	if request.Type == "" {
+		request.Type = "input"
+	}
+	if request.WhenBusy == "follow-up" {
+		request.WhenBusy = "followUp"
+	}
+	if err := validateSubmission(request); err != nil {
+		return 0, err
+	}
+	return c.h.admitSubmission(tx, c.id, request)
+}
+
 // Submission is durable admission. Cancelling Wait does not cancel its work.
 type Submission struct {
 	h  *Harness
@@ -337,35 +361,8 @@ func (c *Conversation) Submit(ctx context.Context, request SubmissionRequest) (*
 	if request.WhenBusy == "follow-up" {
 		request.WhenBusy = "followUp" // the earlier Go spelling
 	}
-	switch request.Type {
-	case "input":
-		if request.WhenBusy != "" && request.WhenBusy != "followUp" && request.WhenBusy != "steer" && request.WhenBusy != "reject" {
-			return nil, fmt.Errorf("%w: busy mode", ErrInvalid)
-		}
-		if request.WhenIdle != "" && request.WhenIdle != "reject" {
-			return nil, fmt.Errorf("%w: idle mode", ErrInvalid)
-		}
-	case "write", "continue":
-		if request.WhenBusy != "" || request.WhenIdle != "" {
-			return nil, fmt.Errorf("%w: busy and idle modes apply to input only", ErrInvalid)
-		}
-		if request.Type == "continue" && (request.Content != "" || request.Entry != nil) {
-			return nil, fmt.Errorf("%w: a continue has no content or entry", ErrInvalid)
-		}
-	default:
-		return nil, fmt.Errorf("%w: submission type", ErrInvalid)
-	}
-	if request.Type == "write" && (request.Entry == nil || request.Entry.Kind == "") {
-		return nil, fmt.Errorf("%w: write requires entry", ErrInvalid)
-	}
-	if request.Type == "input" && request.Entry != nil {
-		entry := request.Entry
-		if entry.Kind == "" || strings.HasPrefix(entry.Kind, "pi.") || entry.Message != nil || entry.ID != 0 || entry.Conversation != 0 || entry.Parent != 0 || entry.Sequence != 0 || !entry.CreatedAt.IsZero() {
-			return nil, fmt.Errorf("%w: input entry must contain only a non-reserved kind and data", ErrInvalid)
-		}
-		if len(entry.Data) > 0 && !json.Valid(entry.Data) {
-			return nil, fmt.Errorf("%w: input entry data must be JSON", ErrInvalid)
-		}
+	if err := validateSubmission(request); err != nil {
+		return nil, err
 	}
 	// Submitting asks for progress: the run it starts needs scheduling.
 	c.h.Resume()
@@ -565,4 +562,39 @@ func (c *Conversation) Watch(ctx context.Context) (<-chan View, func(), error) {
 // or failed messages never reach later model context (spec §2.1).
 func contributesContext(message *Message) bool {
 	return !message.Aborted && message.StopReason != "error" && message.StopReason != "aborted"
+}
+
+// validateSubmission checks a submission's type, modes, and entry.
+func validateSubmission(request SubmissionRequest) error {
+	switch request.Type {
+	case "input":
+		if request.WhenBusy != "" && request.WhenBusy != "followUp" && request.WhenBusy != "steer" && request.WhenBusy != "reject" {
+			return fmt.Errorf("%w: busy mode", ErrInvalid)
+		}
+		if request.WhenIdle != "" && request.WhenIdle != "reject" {
+			return fmt.Errorf("%w: idle mode", ErrInvalid)
+		}
+	case "write", "continue":
+		if request.WhenBusy != "" || request.WhenIdle != "" {
+			return fmt.Errorf("%w: busy and idle modes apply to input only", ErrInvalid)
+		}
+		if request.Type == "continue" && (request.Content != "" || request.Entry != nil) {
+			return fmt.Errorf("%w: a continue has no content or entry", ErrInvalid)
+		}
+	default:
+		return fmt.Errorf("%w: submission type", ErrInvalid)
+	}
+	if request.Type == "write" && (request.Entry == nil || request.Entry.Kind == "") {
+		return fmt.Errorf("%w: write requires entry", ErrInvalid)
+	}
+	if request.Type == "input" && request.Entry != nil {
+		entry := request.Entry
+		if entry.Kind == "" || strings.HasPrefix(entry.Kind, "pi.") || entry.Message != nil || entry.ID != 0 || entry.Conversation != 0 || entry.Parent != 0 || entry.Sequence != 0 || !entry.CreatedAt.IsZero() {
+			return fmt.Errorf("%w: input entry must contain only a non-reserved kind and data", ErrInvalid)
+		}
+		if len(entry.Data) > 0 && !json.Valid(entry.Data) {
+			return fmt.Errorf("%w: input entry data must be JSON", ErrInvalid)
+		}
+	}
+	return nil
 }
