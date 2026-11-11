@@ -4,15 +4,41 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 )
 
 type compactionInput struct {
 	Request ModelRequest `json:"request"`
 	Cut     EntryID      `json:"cut"`
 }
+
+// compactionCheckpoint is pi.compaction version 2. Phases: request (the
+// pinned summary request), retry (a backoff until Until, in Unix
+// milliseconds), and publish. Attempt is 1-based; zero reads as 1.
 type compactionCheckpoint struct {
 	Phase   string `json:"phase"`
+	Attempt int    `json:"attempt,omitempty"`
+	Until   int64  `json:"until,omitempty"`
 	Summary string `json:"summary,omitempty"`
+}
+
+func (cp compactionCheckpoint) attempt() int {
+	if cp.Attempt < 1 {
+		return 1
+	}
+	return cp.Attempt
+}
+
+// compactionVersion is Go's own numbering of pi.compaction's stored form.
+// Version 2 added the retry phase and attempt; version-1 records read as
+// attempt 1 unchanged, and a version-1 Harness leaves version 2 blocked.
+const compactionVersion = 2
+
+func migrateCompaction(from int, input, checkpoint json.RawMessage) (MigratedTask, error) {
+	if from != 1 {
+		return MigratedTask{}, fmt.Errorf("pi.compaction has no migration from version %d", from)
+	}
+	return MigratedTask{Input: input, Checkpoint: checkpoint}, nil
 }
 
 // CompactionExtension is retained for legacy registration; built-in resolution
@@ -23,9 +49,12 @@ func CompactionExtension() Extension {
 }
 func compactionTaskDefinition() TaskDefinition {
 	return TaskDefinition{
-		Kind: "pi.compaction", Version: 1,
-		Initial: func(json.RawMessage) (json.RawMessage, error) { return json.RawMessage(`{"phase":"request"}`), nil },
+		Kind: "pi.compaction", Version: compactionVersion,
+		Initial: func(json.RawMessage) (json.RawMessage, error) {
+			return json.RawMessage(`{"phase":"request","attempt":1}`), nil
+		},
 		Run:     runCompaction,
+		Migrate: migrateCompaction,
 		Abort: func(ctx context.Context, r *TaskRuntime, t TaskRecord) error {
 			return r.Complete(ctx, Outcome{Status: OutcomeAborted})
 		},
@@ -112,6 +141,21 @@ func runCompaction(ctx context.Context, r *TaskRuntime, task TaskRecord) error {
 			if ctx.Err() != nil {
 				return ctx.Err()
 			}
+			// Same policy and classification as a generation, without the
+			// overflow check (Pi Durable §8.7); read when the attempt failed.
+			policy := r.h.options.Settings.Retry.resolve()
+			attempt := checkpoint.attempt()
+			if IsRetryableModelError(err) && policy.allows(attempt) {
+				until := retryDeadline(r.h.now(), retryDelayMs(policy, attempt)).UnixMilli()
+				next, err := json.Marshal(compactionCheckpoint{Phase: "retry", Attempt: attempt, Until: until})
+				if err != nil {
+					return err
+				}
+				wake := time.UnixMilli(until).UTC()
+				return r.Commit(ctx, func(*Tx) (TaskTransition, error) {
+					return TaskTransition{Status: "pending", Checkpoint: next, WakeAt: &wake}, nil
+				})
+			}
 			return r.Complete(ctx, Outcome{Status: OutcomeFailed, Error: diagnostic(err.Error())})
 		}
 		next, err := json.Marshal(compactionCheckpoint{Phase: "publish", Summary: response.Content})
@@ -137,6 +181,22 @@ func runCompaction(ctx context.Context, r *TaskRuntime, task TaskRecord) error {
 				return TaskTransition{}, err
 			}
 			return TaskTransition{Status: "pending", Checkpoint: next}, nil
+		})
+	case "retry":
+		// After the backoff: the next attempt resends the same pinned request.
+		// A phase run before until backs off again unchanged.
+		if checkpoint.Until > r.h.now().UnixMilli() {
+			wake := time.UnixMilli(checkpoint.Until).UTC()
+			return r.Commit(ctx, func(*Tx) (TaskTransition, error) {
+				return TaskTransition{Status: "pending", Checkpoint: task.Checkpoint, WakeAt: &wake}, nil
+			})
+		}
+		next, err := json.Marshal(compactionCheckpoint{Phase: "request", Attempt: checkpoint.attempt() + 1})
+		if err != nil {
+			return err
+		}
+		return r.Commit(ctx, func(*Tx) (TaskTransition, error) {
+			return TaskTransition{Status: "running", Checkpoint: next}, nil
 		})
 	case "publish":
 		return r.Commit(ctx, func(tx *Tx) (TaskTransition, error) {
