@@ -65,6 +65,20 @@ Accounting leaves State version 2 unchanged. The first open counts `running` rec
 
 `Settings.Retry` ports `settings.retry`: pointer fields merge over the default (enabled, 3 retries, 2,000 ms doubling base delay, 60,000 ms cap) with JavaScript number semantics, and `retryDelayMs` keeps pi-ai's safe-integer replacement and cap. A generation retries only a transient error that is not a context overflow while `attempt <= MaxRetries`, keeping the failed attempt's partial as an aborted entry, backing off in a `retry` phase, and preparing the request again afterwards; a retry phase run before its deadline backs off again. `IsRetryableModelError` and `IsContextOverflowError` port pi-ai v1.5.2's pattern lists verbatim, with RE2 rewrites of two lookaround patterns and JavaScript's `\s` class; error types can answer through `Retryable()` and `ContextOverflow()`. `model.OpenAI` classifies the status and error text pi-ai would report before sanitizing it, and `model.Pi` returns the installed pi-ai's own classification. Compaction summaries retry under the same policy without the overflow check, resending their pinned request from a `retry` phase. Go numbers its own built-in versions: `pi.generation` 2 migrates version-1 records (`attempt = retry + 1`) and `pi.compaction` 2 accepts version-1 records unchanged (a missing attempt reads as 1). Backoffs are `pending` records with `WakeAt` rather than durable `sleeping` tasks. `RetryMax` and `RetryDelay` are removed.
 
+### Remaining crash-loop and retry differences
+
+These need upstream subsystems Go does not have yet (plan 0002 §12.2):
+
+- There is no `pi.live` run state: no `runFailure`, no generation attempt or retry note, and no `compactions`/`compactionFailure`.
+- Run failures other than `faulted`, orphan reasons, `interrupted`, `restart_limit`, and cut-off `aborted` keep free-text reasons instead of codes such as `model_error` or `no_model`.
+- Messages have no stop reason or error message: a failed attempt is kept as its partial (an aborted entry), and `AfterResponse` sees only successful responses. A `length` stop is an adapter error rather than an answer.
+- One generation task serves a whole run (`prepare`, `request`, `retry`, `tools`); there are no `poll`/`finish`/`drain` phases or deferred model handles.
+- Tool results written by the Harness have no structured diagnostics and no `afterTool` hooks; the `restart_limit` result uses Go's result form.
+- No automatic or overflow compaction, so an overflow fails the run.
+- Settings are static per Harness rather than function-valued.
+- Backoffs are `pending` with `WakeAt`, polled every 20 ms, not durable `sleeping` tasks with wakeups.
+- Generation partials live in the checkpoint rather than `pi.live.generation.message`.
+
 ## Deliberate differences and remaining work
 
 ### Storage, transactions, and observation
@@ -95,7 +109,8 @@ This table highlights compatibility changes since the previous runtime reference
 |---|---|---|
 | Task outcomes, step faults, migration and blocked reasons, phase handover, `orphaned` settlement, abort results, outcome reads, and inspection states | Through 1.5.2; several gaps predate v1.3.0 | Implemented as described above; Go-specific pending yield, install identities, optional nil abort handler, and cleanup differences remain. |
 | Typed reports and task errors | 1.4.0, 1.5.0 | Partial: six task/session report kinds are implemented with queued delivery; `extension_error`, `host_error`, `listener_error`, and idle-wait are missing. |
-| Crash-loop guard, restart limit, `task_interrupted`, and counting interrupted model requests as failed attempts | 1.4.0, 1.5.0 | Partial: restart counts, resets, clean-close write-back, scheduler enforcement for extension tasks and abort handlers, and `task_interrupted` are implemented. Built-in run endings and request charging remain missing. `AbandonOnRestart` is not a restart limit. |
+| Crash-loop guard, restart limit, `task_interrupted`, and counting interrupted model requests as failed attempts | 1.4.0, 1.5.0 | Implemented ([plan 0002](docs/plans/0002-crash-loop-guard-and-interrupted-requests.md)): counts, resets, clean-close write-back, scheduler and built-in limit endings, `task_interrupted`, and request charging. Without `pi.live` run/compaction state, structured tool diagnostics, or after-tool hooks on Harness-written results; see below. `AbandonOnRestart` is not a restart limit. |
+| `settings.retry` policy and pi-ai transient/overflow classification | Before the previous reference | Implemented for generation and compaction; backoffs are `pending` with `WakeAt`, not durable `sleeping`. |
 | Full wait-cycle validation across wait and ownership edges | 1.2.0 | Missing; only local wait constraints are checked. |
 | Durable `sleeping`, `sleepUntil`, timers, wake API; `afterFailedRun`; `pi.live.runFailure`; continue-submission/idle policies and per-conversation `maxTurns` | 1.4.0, 1.5.0 | Missing. Go has `WakeAt` with polling and a global `Settings.MaxTurns` safeguard, but no durable sleeping status, wake API, or upstream run-failure model; failed runs keep queued work. |
 | Conversation submission hooks, run-end/provider hooks, task/host entry access | 1.5.0 | Missing. |

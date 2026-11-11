@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Status | In progress: M0–M4 complete; M5–M6 pending (§12.1) |
+| Status | Implemented on `main` (M0–M6); see the implementation record. Remaining differences are listed in §12.2 |
 | Date | 2026-11-11 |
 | Compatibility target | Pi **v1.5.2**: `@earendil-works/pi-durable` and `@earendil-works/pi-ai` 1.5.2, tag `v1.5.2`, commit `b4afdddf44e059c67ccf5097e5317d913521b470` (unchanged from plan 0001) |
 | Depends on | [Plan 0001](0001-task-outcomes-and-definition-lifecycle.md), merged to `main` |
@@ -79,7 +79,15 @@ Four commits, as planned; `RetryMax` and `RetryDelay` were removed with the gene
 
 `tool_progress_test.go` and `builtin_limit_test.go` cover output that does not reset counts, safe/unsafe recovery and legacy output, real crash loops of a streaming tool, an unsafe tool, a blocked prepare section, and a compaction request, plus seeded cut-offs of every other phase with salvage at and past the limit.
 
-M5–M6 remain unimplemented: crashed model requests still resend.
+### M5: Interrupted model requests
+
+`chargeInterruptedRequest` runs in the generation's `request` phase after the limit check whenever `Restarts > 0`: one commit converts the committed partial to an aborted entry and either backs off at `retry` (no classification, no usage) or ends the run through `settleRunFailure` with `interrupted` and upstream's text. The charge commit changes state and so resets the count; the limit bounds a charge that keeps crashing. `interrupted_request_test.go` covers the default-policy charge and retry without the aborted partial in the next context, an exhausted policy (`MaxRetries: 1`, two crashes, no request after the second, `task_interrupted` with `Restarts: 1`), disabled retries, a crash followed by an open/close before the charge (charged once), and generations that were backing off or waiting for tools (not counted, while their running tool is). The clean-close recovery test still resends.
+
+### M6: Documentation
+
+`README.md` now has "Crashes, clean closes, and the restart limit", "Model retries", and "Upgrading" subsections under "Persistence and recovery", and its `Close` bullet notes that a stopped request is resent. `COMPATIBILITY.md` marks the crash-loop row implemented, adds the retry-policy row, and lists every §12.2 difference. `model/README.md` documents adapter classification.
+
+Validation of the final state on Go 1.24.3: `make check`; the §10 race suite with `-count=20`; storage and model race suites with `-count=5`; the installed-SDK tests; `git diff --check`. `rg -n 'RetryMax|RetryDelay' --glob '*.go'` and `rg -n 'cp\.Output\s*\+?=' generation.go tool_runtime.go` find nothing; the non-test `Restarts` writes are reconciliation and the §6.4 resets only. npm `latest` and the GitHub Latest release were still v1.5.2.
 
 ## 2. Compatibility target
 
