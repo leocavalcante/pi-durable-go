@@ -101,7 +101,7 @@ func taskGraphOf(state *State, inspection HarnessInspection) TaskGraph {
 // WatchTaskGraph delivers the task graph after each commit that changes it,
 // coalescing to the latest; stop ends the watch.
 func (h *Harness) WatchTaskGraph(ctx context.Context) (<-chan TaskGraph, func(), error) {
-	states, stop, err := h.session.Watch(ctx)
+	states, stop, err := h.session.watchShared(ctx)
 	if err != nil {
 		return nil, nil, err
 	}

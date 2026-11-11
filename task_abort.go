@@ -98,7 +98,7 @@ func (s *Scheduler) wait(ctx context.Context, id TaskID) (TaskRecord, error) {
 				return TaskRecord{}, ErrNotFound
 			}
 			if t.Status == "terminal" {
-				return *t, nil
+				return *cloneRecord(t), nil
 			}
 		}
 	}

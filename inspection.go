@@ -39,10 +39,8 @@ func (h *Harness) Inspect(ctx context.Context) (HarnessInspection, error) {
 	if err := ctx.Err(); err != nil {
 		return HarnessInspection{}, err
 	}
-	state, err := cloneState(h.session.state)
-	if err != nil {
-		return HarnessInspection{}, err
-	}
+	// The committed State is read in place; only returned records are copied.
+	state := h.session.state
 	snapshot := h.registry.Snapshot()
 	h.scheduler.mu.Lock()
 	out := HarnessInspection{Scheduling: h.scheduler.stateLocked()}
@@ -64,7 +62,7 @@ func (h *Harness) Inspect(ctx context.Context) (HarnessInspection, error) {
 		if task.Status == "terminal" {
 			continue
 		}
-		item := TaskInspection{Record: *task}
+		item := TaskInspection{Record: *cloneRecord(task)}
 		live := liveWaits(state, task)
 		switch {
 		case active[id]:
@@ -74,7 +72,8 @@ func (h *Harness) Inspect(ctx context.Context) (HarnessInspection, error) {
 		case len(live) > 0:
 			item.State = TaskInspectionState{Kind: "waiting", On: live}
 		case !task.AbortRequested && task.WakeAt != nil && now.Before(*task.WakeAt):
-			item.State = TaskInspectionState{Kind: "sleeping", Until: task.WakeAt}
+			until := *task.WakeAt
+			item.State = TaskInspectionState{Kind: "sleeping", Until: &until}
 		case task.AbortRequested && task.AbortReason != "restart":
 			item.State.Kind = "pending"
 		default:
@@ -94,7 +93,7 @@ func (h *Harness) Inspect(ctx context.Context) (HarnessInspection, error) {
 	}
 	for _, sub := range state.Submissions {
 		if sub.Status == "queued" || sub.Status == "placed" {
-			out.Submissions = append(out.Submissions, *sub)
+			out.Submissions = append(out.Submissions, *cloneRecord(sub))
 		}
 	}
 	sort.Slice(out.Submissions, func(i, j int) bool { return out.Submissions[i].ID < out.Submissions[j].ID })

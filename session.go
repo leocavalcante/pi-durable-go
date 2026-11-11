@@ -48,6 +48,9 @@ type stateWatcher struct {
 	ch     chan *State
 	done   chan struct{}
 	closed bool
+	// shared watchers get the committed State itself (internal readers that
+	// derive detached values); the others get copies.
+	shared bool
 }
 
 func NewSession(ctx context.Context, storage Storage, now func() time.Time) (*Session, error) {
@@ -305,6 +308,16 @@ func firstDifference(before, after []byte) string {
 }
 
 func (s *Session) Watch(ctx context.Context) (<-chan *State, func(), error) {
+	return s.watch(ctx, false)
+}
+
+// watchShared is Watch for internal readers: it delivers the committed State
+// itself, which they must not mutate, instead of a copy per commit.
+func (s *Session) watchShared(ctx context.Context) (<-chan *State, func(), error) {
+	return s.watch(ctx, true)
+}
+
+func (s *Session) watch(ctx context.Context, shared bool) (<-chan *State, func(), error) {
 	if err := s.Err(); err != nil {
 		return nil, nil, err
 	}
@@ -317,12 +330,15 @@ func (s *Session) Watch(ctx context.Context) (<-chan *State, func(), error) {
 		s.mu.Unlock()
 		return nil, nil, err
 	}
-	initial, err := cloneState(s.state)
-	if err != nil {
-		s.mu.Unlock()
-		return nil, nil, err
+	initial := s.state
+	if !shared {
+		var err error
+		if initial, err = cloneState(s.state); err != nil {
+			s.mu.Unlock()
+			return nil, nil, err
+		}
 	}
-	w := &stateWatcher{ch: make(chan *State, 1), done: make(chan struct{})}
+	w := &stateWatcher{ch: make(chan *State, 1), done: make(chan struct{}), shared: shared}
 	w.ch <- initial
 	s.watchers[w] = struct{}{}
 	var once sync.Once
@@ -360,7 +376,7 @@ func (s *Session) watchWait(ctx context.Context) (<-chan *State, func(), error) 
 	}
 	ready := make(chan registration, 1)
 	go func() {
-		states, _, err := s.Watch(bound)
+		states, _, err := s.watchShared(bound)
 		ready <- registration{states: states, err: err}
 	}()
 	select {
@@ -380,9 +396,12 @@ func (s *Session) watchWait(ctx context.Context) (<-chan *State, func(), error) 
 }
 
 func (s *Session) offer(w *stateWatcher, state *State) {
-	v, err := cloneState(state)
-	if err != nil {
-		return
+	v := state
+	if !w.shared {
+		var err error
+		if v, err = cloneState(state); err != nil {
+			return
+		}
 	}
 	select {
 	case w.ch <- v:

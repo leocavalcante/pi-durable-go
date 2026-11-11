@@ -44,7 +44,7 @@ func (c *Conversation) WatchWindow(ctx context.Context, window ConversationWindo
 	if window.Min < 1 || window.Max < window.Min {
 		return nil, nil, fmt.Errorf("%w: window bounds", ErrInvalid)
 	}
-	states, stopWatch, err := c.h.session.Watch(ctx)
+	states, stopWatch, err := c.h.session.watchShared(ctx)
 	if err != nil {
 		return nil, nil, err
 	}

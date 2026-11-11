@@ -210,7 +210,7 @@ func WatchDocument(ctx context.Context, h *Harness, def DocumentDefinition, id u
 	if err := validateDocument(def); err != nil {
 		return nil, nil, err
 	}
-	states, stop, err := h.session.Watch(ctx)
+	states, stop, err := h.session.watchShared(ctx)
 	if err != nil {
 		return nil, nil, err
 	}

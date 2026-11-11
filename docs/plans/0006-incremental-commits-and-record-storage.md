@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Status | In progress: M1 and M2 done |
+| Status | M1 and M2 done; M3 (group commit) deferred |
 | Compatibility target | Pi Durable **v1.5.2** (tag `v1.5.2`, commit `b4afdddf44e059c67ccf5097e5317d913521b470`) |
 | Roadmap item | I (plan 0005 §2) |
 | Main code areas | `session.go`, `tx.go`, `documents.go`, `ownership.go`, `types.go`, `memory.go`, `storage/sqlite.go`, `storage/jsonl.go` |
@@ -73,6 +73,9 @@ Each milestone passes `make check` before it is pushed.
 - **M1** (`cow.go`): shallow candidates, `mut*` accessors behind every `Tx` accessor and internal write, per-record strict JSON detachment, `Harness.read` for internal reads, detached `Entry`/`Message` copies from `entriesFromState`, a read-only `cascadePending`, and `verifyCommittedState` on for every package test (`verify_main_test.go`). With 5,000 one-KiB entries in memory storage, an internal read went from 217 ms to 152 ns and a one-entry commit from 761 ms to 160 ms; the rest is `MemoryStorage` copying the whole State, which M2 removes.
 
 - **M2** (`delta.go`): `StateDelta` (header fields, changed records, sorted removed keys) and `DeltaStorage`, collected while detaching. Memory storage applies a cloned delta; SQLite keeps `durable_header` and `durable_records` (one row per record) and converts an earlier single-row database inside its first write's transaction, so opening never writes, and reports errors before `COMMIT` as rejections; JSONL appends `{"delta": ...}` lines after a whole-State line, recovers them in order, and compacts once they outweigh it and 1 MiB. A State upgraded in memory at open is written whole by the first commit, which the test-only check caught. The check also compares memory storage with the committed State after every commit. With 5,000 one-KiB entries, a one-entry commit takes 1.2 ms in memory storage (761 ms before plan 0006) and 3.1 ms in SQLite (1.1 s before).
+
+- **Shared watches**: waits and derived watches (`Conversation.Watch` and `View`, `WatchDocument`, `WatchWindow`, `WatchTaskGraph`, `Submission.Wait`, idle and task waits) and `Inspect` read the committed State through `watchShared` and copy only the records they return; `Snapshot` and `Session.Watch` keep whole copies.
+- **M3 deferred**: with deltas, a commit costs about one storage sync, and grouping would relax the storage sequence contract (one write for several sequence numbers) that third-party backends rely on. Group commit stays open until a workload needs it.
 
 ## 6. Risks
 

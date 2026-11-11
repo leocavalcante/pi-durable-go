@@ -426,7 +426,7 @@ func (s *Submission) Wait(ctx context.Context) (SubmissionRecord, error) {
 				return SubmissionRecord{}, ErrNotFound
 			}
 			if rec.Status == "done" || rec.Status == "unanswered" {
-				return *rec, nil
+				return *cloneRecord(rec), nil
 			}
 		}
 	}
@@ -501,20 +501,21 @@ func viewFromState(state *State, id ConversationID) (View, error) {
 	if err != nil {
 		return View{}, err
 	}
-	view := View{Sequence: state.Sequence, Conversation: *rec, Entries: entries, Documents: map[string]json.RawMessage{}}
+	// Everything returned is detached: state may be the shared committed one.
+	view := View{Sequence: state.Sequence, Conversation: *cloneRecord(rec), Entries: entries, Documents: map[string]json.RawMessage{}}
 	for _, t := range state.Tasks {
 		if t.Conversation == id && t.Status != "terminal" {
-			view.Tasks = append(view.Tasks, *t)
+			view.Tasks = append(view.Tasks, *cloneRecord(t))
 		}
 	}
 	for _, s := range state.Submissions {
 		if s.Conversation == id && (s.Status == "queued" || s.Status == "placed") {
-			view.Inbox = append(view.Inbox, *s)
+			view.Inbox = append(view.Inbox, *cloneRecord(s))
 		}
 	}
 	for _, d := range state.Documents {
 		if d.Scope == "conversation" && d.ScopeID == uint64(id) {
-			view.Documents[d.Kind] = d.Value
+			view.Documents[d.Kind] = cloneRaw(d.Value)
 		}
 	}
 	sort.Slice(view.Tasks, func(i, j int) bool { return view.Tasks[i].ID < view.Tasks[j].ID })
@@ -522,14 +523,14 @@ func viewFromState(state *State, id ConversationID) (View, error) {
 	return view, nil
 }
 func (c *Conversation) View(ctx context.Context) (View, error) {
-	s, err := c.h.Snapshot(ctx)
+	s, err := c.h.read(ctx)
 	if err != nil {
 		return View{}, err
 	}
 	return viewFromState(s, c.id)
 }
 func (c *Conversation) Watch(ctx context.Context) (<-chan View, func(), error) {
-	states, stop, err := c.h.session.Watch(ctx)
+	states, stop, err := c.h.session.watchShared(ctx)
 	if err != nil {
 		return nil, nil, err
 	}
