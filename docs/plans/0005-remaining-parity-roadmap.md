@@ -29,9 +29,8 @@
 
 1. **Positional system updates (spec §7.4).** Upstream records prompt sections and tool declarations as positional `pi.system` messages (PR #9548 `SystemMessage` patches with `toolsAdded`/`toolsRemoved`, rebaselined after a head marker with `ContextEdit` omissions), replays them to know what the model saw, and lets pi-ai send them positionally or fold them. Go renders one leading system message per request and journals the result. Porting needs a system-message model, context-edit omissions, replay in context derivation, and both adapters; it changes what providers cache, not what a run does.
 2. **Group commit.** Deferred in [plan 0006](0006-incremental-commits-and-record-storage.md): it would replace per-commit storage cancellation semantics that the Session's failure rules and tests encode, for throughput only.
-3. **Trace propagation.** Opaque telemetry carriers stored on submissions and tasks, so queued inputs and reopened tasks keep their trace (`TaskOptions.trace`, creation-time links).
-4. **Image order.** Images interleaved with text in one message.
-5. **Environment parity.** The `env` package's bounded binary and directory readers and file watching. Hosts can use the Go standard library directly; tools need none of them today.
+3. **Image order.** Images interleaved with text in one message.
+4. **Environment parity.** The `env` package's bounded binary and directory readers and file watching. Hosts can use the Go standard library directly; tools need none of them today.
 
 ## 3. Not planned
 

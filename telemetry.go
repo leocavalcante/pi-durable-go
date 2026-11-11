@@ -53,6 +53,28 @@ func spanOf(ctx context.Context) *span {
 	return sp
 }
 
+// TelemetryPropagation is optionally implemented by a Telemetry adapter to
+// carry traces across queues and restarts (upstream propagation): Inject
+// returns an opaque JSON carrier of the span ctx carries (nil for none), and
+// Extract returns a context, derived from ctx, whose span continues a
+// carrier. Submissions store the carrier of their admission span, tasks the
+// carrier they were created with, and phase spans continue it.
+type TelemetryPropagation interface {
+	Inject(ctx context.Context) json.RawMessage
+	Extract(ctx context.Context, carrier json.RawMessage) context.Context
+}
+
+// TelemetryLinker is optionally implemented by a TelemetrySpan that records
+// links to other traces, such as a task's creation-time links.
+type TelemetryLinker interface {
+	AddLink(carrier json.RawMessage)
+}
+
+func (h *Harness) propagation() TelemetryPropagation {
+	propagation, _ := h.options.Telemetry.(TelemetryPropagation)
+	return propagation
+}
+
 // TelemetryMetrics is optionally implemented by a Telemetry adapter to
 // receive upstream's metrics: the up-down counter "pi.durable.tasks.active"
 // (attribute task, the kind), the counter "pi.durable.reports" (attribute
@@ -127,6 +149,15 @@ func (s *span) set(attributes map[string]any) {
 func (s *span) event(name string, attributes map[string]any) {
 	if s != nil {
 		s.h.telemetryCall(func() { s.span.AddEvent(name, attributes) })
+	}
+}
+
+func (s *span) link(carrier json.RawMessage) {
+	if s == nil || len(carrier) == 0 {
+		return
+	}
+	if linker, ok := s.span.(TelemetryLinker); ok {
+		s.h.telemetryCall(func() { linker.AddLink(carrier) })
 	}
 }
 

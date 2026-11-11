@@ -126,7 +126,23 @@ func (s *Scheduler) runInvocation(id TaskID, inv *taskInvocation, resolved resol
 		if attempt > 0 {
 			attributes["attempt"] = attempt
 		}
-		phaseCtx, sp := s.h.span(inv.ctx, "pi.durable.phase", attributes)
+		parent := inv.ctx
+		if propagation := s.h.propagation(); propagation != nil && len(record.Trace) > 0 {
+			s.h.telemetryCall(func() {
+				if extracted := propagation.Extract(inv.ctx, record.Trace); extracted != nil {
+					parent = extracted
+				}
+			})
+			if parent.Done() != inv.ctx.Done() {
+				parent = inv.ctx // an extraction must keep the invocation's cancellation
+			}
+		}
+		phaseCtx, sp := s.h.span(parent, "pi.durable.phase", attributes)
+		if first && len(record.Links) > 0 && s.linkOnce(id) {
+			for _, link := range record.Links {
+				sp.link(link)
+			}
+		}
 		inv.span.Store(sp)
 		started := time.Now()
 		phaseErr = containPanic(func() error {

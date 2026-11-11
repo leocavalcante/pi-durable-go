@@ -2,6 +2,7 @@ package durable
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"runtime/debug"
 	"sort"
@@ -93,6 +94,13 @@ func (h *Harness) commit(ctx context.Context, change func(*Tx) error, internal b
 				if sub.Status == "done" || sub.Status == "unanswered" {
 					settledBefore[id] = true
 				}
+			}
+		}
+		if propagation := h.propagation(); propagation != nil {
+			tx.trace = func() json.RawMessage {
+				var carrier json.RawMessage
+				h.telemetryCall(func() { carrier = propagation.Inject(ctx) })
+				return carrier
 			}
 		}
 		tx.created = func(tx *Tx, id ConversationID) error {

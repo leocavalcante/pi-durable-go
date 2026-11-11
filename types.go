@@ -200,6 +200,9 @@ type SubmissionRecord struct {
 	Reason    string          `json:"reason,omitempty"`
 	Detail    json.RawMessage `json:"detail,omitempty"`
 	CreatedAt time.Time       `json:"createdAt"`
+	// Trace is the telemetry carrier of the admission span; absent without
+	// propagation.
+	Trace json.RawMessage `json:"trace,omitempty"`
 }
 
 type TaskRecord struct {
@@ -227,6 +230,10 @@ type TaskRecord struct {
 	Memos     map[string]json.RawMessage `json:"memos,omitempty"`
 	StartedAt *time.Time                 `json:"startedAt,omitempty"`
 	EndedAt   *time.Time                 `json:"endedAt,omitempty"`
+	// Trace and Links are the task's telemetry carrier and creation-time
+	// links (TaskOptions); absent without propagation.
+	Trace json.RawMessage   `json:"trace,omitempty"`
+	Links []json.RawMessage `json:"links,omitempty"`
 }
 
 const (
@@ -261,6 +268,13 @@ type TaskOptions struct {
 	// scheduling. Opening for inspection alone does not mark it. Use for work
 	// whose creator waits only in memory and cannot resume after a restart.
 	AbandonOnRestart bool
+	// Trace is the telemetry carrier the task's phase spans continue
+	// (TelemetryPropagation). Empty inherits the creator's span; with
+	// TraceRoot, the task starts at the adapter root with no carrier.
+	Trace     json.RawMessage
+	TraceRoot bool
+	// Links are carriers linked to the spans of the task's first invocation.
+	Links []json.RawMessage
 }
 type TaskTransition struct {
 	Status     string

@@ -16,6 +16,9 @@ type Tx struct {
 	active  bool
 	now     func() time.Time
 	created func(*Tx, ConversationID) error
+	// trace injects the telemetry carrier of the commit's span, for records
+	// that inherit it; nil without propagation.
+	trace func() json.RawMessage
 }
 
 func (tx *Tx) check() error {
@@ -172,8 +175,17 @@ func (tx *Tx) CreateTask(cid ConversationID, def TaskDefinition, input json.RawM
 	if !json.Valid(checkpoint) {
 		return 0, fmt.Errorf("%w: checkpoint JSON", ErrInvalid)
 	}
+	trace := opts.Trace
+	if len(trace) == 0 && !opts.TraceRoot && tx.trace != nil {
+		trace = tx.trace() // inherit the creator's span
+	}
+	var links []json.RawMessage
+	for _, link := range opts.Links {
+		links = append(links, append(json.RawMessage(nil), link...))
+	}
 	id := TaskID(tx.id())
-	tx.state.Tasks[id] = &TaskRecord{ID: id, Conversation: cid, Kind: def.Kind, Version: def.Version, Owner: opts.Owner, Background: opts.Background, AbandonOnRestart: opts.AbandonOnRestart, Status: "pending", Input: append(json.RawMessage(nil), input...), Checkpoint: append(json.RawMessage(nil), checkpoint...)}
+	tx.state.Tasks[id] = &TaskRecord{ID: id, Conversation: cid, Kind: def.Kind, Version: def.Version, Owner: opts.Owner, Background: opts.Background, AbandonOnRestart: opts.AbandonOnRestart, Status: "pending", Input: append(json.RawMessage(nil), input...), Checkpoint: append(json.RawMessage(nil), checkpoint...),
+		Trace: append(json.RawMessage(nil), trace...), Links: links}
 	return id, nil
 }
 

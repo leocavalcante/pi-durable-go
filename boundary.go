@@ -106,7 +106,21 @@ func queueModeOf(item *SubmissionRecord) string { return queueMode(item.Request)
 // generation takes pi.live.run. It removes runFailure unless keepFailure, as
 // a run started in the commit that ended the failed one keeps its failure.
 func startRun(tx *Tx, cid ConversationID, live *LiveState, inputs []SubmissionID, first EntryID, keepFailure bool) error {
-	id, err := tx.createGeneration(cid)
+	// A run's generation continues its first input's trace (or starts at the
+	// root) and links the other inputs' traces, as upstream does.
+	options := TaskOptions{TraceRoot: true}
+	for index, sid := range inputs {
+		sub := tx.state.Submissions[sid]
+		if sub == nil || len(sub.Trace) == 0 {
+			continue
+		}
+		if index == 0 {
+			options.Trace, options.TraceRoot = sub.Trace, false
+		} else {
+			options.Links = append(options.Links, sub.Trace)
+		}
+	}
+	id, err := tx.CreateTask(cid, generationTaskDefinition(), json.RawMessage(`{}`), options)
 	if err != nil {
 		return err
 	}
@@ -268,6 +282,9 @@ func (h *Harness) admitSubmission(tx *Tx, cid ConversationID, request Submission
 	create := func(status string) *SubmissionRecord {
 		id := SubmissionID(tx.id())
 		sub := &SubmissionRecord{ID: id, Conversation: cid, Request: request, Status: status, CreatedAt: tx.clock()}
+		if tx.trace != nil {
+			sub.Trace = tx.trace()
+		}
 		tx.state.Submissions[id] = sub
 		return sub
 	}

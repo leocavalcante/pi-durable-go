@@ -53,6 +53,8 @@ type Scheduler struct {
 	timer      *wakeTimer // guarded by mu
 	lastWake   *Wake      // last value OnWake accepted; waker goroutine only
 	wakeClosed chan struct{}
+	// linked are tasks whose creation-time links a span got in this process.
+	linked map[TaskID]bool
 }
 
 var errNoChange = errors.New("durable: no scheduler write")
@@ -494,4 +496,20 @@ func (h *Harness) reconcile(ctx context.Context) error {
 		h.scheduler.mu.Unlock()
 	}
 	return err
+}
+
+// linkOnce reports whether a task's creation-time links are still to be
+// attached in this process: to the first phase span of its first invocation
+// here.
+func (s *Scheduler) linkOnce(id TaskID) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.linked == nil {
+		s.linked = map[TaskID]bool{}
+	}
+	if s.linked[id] {
+		return false
+	}
+	s.linked[id] = true
+	return true
 }
