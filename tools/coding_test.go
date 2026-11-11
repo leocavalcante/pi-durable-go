@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -112,8 +113,35 @@ func TestCodingReadWarnsOnOversizedLine(t *testing.T) {
 		t.Fatal(err)
 	}
 	result, _ := runCoding(t, dir, "read", `{"path":"long"}`)
-	if result.IsError || len(result.Content) == 0 || !strings.Contains(result.Content, "truncated") || len(result.Content) > maxReadBytes {
-		t.Fatalf("read result error=%v bytes=%d", result.IsError, len(result.Content))
+	shown, notes, _ := strings.Cut(result.Content, "\n<harness>\n")
+	if result.IsError || len(shown) != maxReadBytes || !strings.Contains(notes, "[warn] Line 1 is 100.0KB, exceeds the 50.0KB limit; showing its first 50.0KB. Use bash: sed -n '1p' long | tail -c +51201") {
+		t.Fatalf("read result error=%v bytes=%d notes=%q", result.IsError, len(shown), notes)
+	}
+}
+
+func TestCodingReadPagesLikeUpstream(t *testing.T) {
+	dir := t.TempDir()
+	var text strings.Builder
+	for i := 1; i <= 2500; i++ {
+		fmt.Fprintf(&text, "line %d\n", i)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "many"), []byte(text.String()), 0600); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct{ args, first, last, note string }{
+		{`{"path":"many"}`, "line 1", "line 2000", "[info] Showing lines 1-2000 of 2501. Use offset=2001 to continue."},
+		{`{"path":"many","offset":2001}`, "line 2001", "line 2500", ""},
+		{`{"path":"many","offset":10,"limit":5}`, "line 10", "line 14", "[info] 2487 more lines in file. Use offset=15 to continue."},
+	} {
+		result, _ := runCoding(t, dir, "read", tc.args)
+		shown, notes, _ := strings.Cut(result.Content, "\n<harness>\n")
+		lines := strings.Split(strings.TrimSuffix(shown, "\n"), "\n")
+		if result.IsError || lines[0] != tc.first || lines[len(lines)-1] != tc.last || !strings.Contains(notes, tc.note) || tc.note == "" && notes != "" {
+			t.Fatalf("%s: first=%q last=%q notes=%q", tc.args, lines[0], lines[len(lines)-1], notes)
+		}
+	}
+	if result, _ := runCoding(t, dir, "read", `{"path":"many","offset":3000}`); !result.IsError || !strings.Contains(result.Content, "Offset 3000 is beyond end of file (2501 lines total)") {
+		t.Fatalf("beyond: %+v", result)
 	}
 }
 func TestLocalWritePreservesExistingSymlinkTarget(t *testing.T) {

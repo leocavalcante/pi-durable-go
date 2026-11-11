@@ -68,6 +68,14 @@ func (e *LocalEnv) ReadFile(ctx context.Context, path string) ([]byte, error) {
 	return os.ReadFile(e.resolve(path))
 }
 
+// OpenFile opens path for streaming reads (FileOpener).
+func (e *LocalEnv) OpenFile(ctx context.Context, path string) (io.ReadCloser, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return os.Open(e.resolve(path))
+}
+
 // WriteFile atomically replaces path using a temporary file in its directory.
 // Relative paths are based at CWD. Existing permissions are retained.
 func (e *LocalEnv) WriteFile(ctx context.Context, path string, data []byte) error {

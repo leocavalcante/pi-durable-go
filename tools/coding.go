@@ -20,7 +20,7 @@ const maxReadLines = 2000
 // interrupted operations may have had effects and are never silently retried.
 func Coding() durable.Extension {
 	return durable.Extension{Name: "coding-tools", Tools: []durable.ToolDefinition{
-		{ToolSpec: durable.ToolSpec{Name: "read", Description: "Read a text file. Output is truncated to 2000 lines or 50KB (whichever comes first). Use offset/limit for large files.", Parameters: schema(`{"type":"object","required":["path"],"properties":{"path":{"type":"string"},"offset":{"type":"integer","minimum":1},"limit":{"type":"integer","minimum":0}},"additionalProperties":false}`)}, Execute: readTool},
+		{ToolSpec: durable.ToolSpec{Name: "read", Description: "Read the contents of a file. For text files, output is truncated to 2000 lines or 50KB (whichever is hit first). Use offset/limit for large files. When you need the full file, continue with offset until complete.", Parameters: schema(`{"type":"object","required":["path"],"properties":{"path":{"type":"string","description":"Path to the file to read (relative or absolute)"},"offset":{"type":"integer","minimum":1,"description":"Line number to start reading from (1-indexed)"},"limit":{"type":"integer","minimum":0,"description":"Maximum number of lines to read"}},"additionalProperties":false}`)}, Execute: readTool},
 		{ToolSpec: durable.ToolSpec{Name: "write", Description: "Write content to a file, creating parent directories and atomically replacing the destination.", Parameters: schema(`{"type":"object","required":["path","content"],"properties":{"path":{"type":"string"},"content":{"type":"string"}},"additionalProperties":false}`)}, Execute: writeTool},
 		{ToolSpec: durable.ToolSpec{Name: "edit", Description: "Replace unique, exact text regions. Every replacement matches the original file and must not overlap another edit.", Parameters: schema(`{"type":"object","required":["path","edits"],"properties":{"path":{"type":"string"},"edits":{"type":"array","minItems":1,"items":{"type":"object","required":["oldText","newText"],"properties":{"oldText":{"type":"string","minLength":1},"newText":{"type":"string"}},"additionalProperties":false}}},"additionalProperties":false}`)}, Execute: editTool},
 		{ToolSpec: durable.ToolSpec{Name: "bash", Description: "Execute a POSIX shell command in the working directory. CWD is not a sandbox. Output is limited to a 64 KiB tail.", Parameters: schema(`{"type":"object","required":["command"],"properties":{"command":{"type":"string","minLength":1}},"additionalProperties":false}`)}, Execute: bashTool},
@@ -105,53 +105,22 @@ func readTool(ctx context.Context, raw json.RawMessage, rt *durable.ToolRuntime)
 	if err != nil {
 		return durable.ToolResult{}, err
 	}
-	data, err := e.ReadFile(ctx, a.Path)
-	if err != nil {
-		return durable.ToolResult{}, err
-	}
-	text := strings.ToValidUTF8(string(data), "�")
-	lines := strings.Split(text, "\n")
-	if strings.HasSuffix(text, "\n") {
-		lines = lines[:len(lines)-1]
-	}
-	start := a.Offset
-	if start > 0 {
-		start--
-	}
-	if start >= len(lines) && len(lines) > 0 {
-		return durable.ToolResult{}, fmt.Errorf("offset %d is beyond end of file (%d lines total)", a.Offset, len(lines))
-	}
-	if start > len(lines) {
-		return durable.ToolResult{}, fmt.Errorf("offset %d is beyond end of file (%d lines total)", a.Offset, len(lines))
-	}
-	end := len(lines)
-	if a.Limit != nil && start+*a.Limit < end {
-		end = start + *a.Limit
-	}
-	selected := strings.Join(lines[start:end], "\n")
-	if end > start && strings.HasSuffix(text, "\n") && end == len(lines) {
-		selected += "\n"
-	}
-	return result(truncateRead(selected))
-}
-func truncateRead(text string) string {
-	const marker = "\n[Output truncated; use offset/limit for more.]"
-	lines := strings.Split(strings.TrimSuffix(text, "\n"), "\n")
-	truncated := len(lines) > maxReadLines
-	if truncated {
-		text = strings.Join(lines[:maxReadLines-1], "\n")
-	}
-	if len(text) > maxReadBytes {
-		truncated = true
-		text = strings.ToValidUTF8(text[:maxReadBytes-len(marker)], "")
-	}
-	if truncated {
-		if len(text) > maxReadBytes-len(marker) {
-			text = strings.ToValidUTF8(text[:maxReadBytes-len(marker)], "")
+	var reader io.Reader
+	if opener, ok := e.(FileOpener); ok {
+		file, err := opener.OpenFile(ctx, a.Path)
+		if err != nil {
+			return durable.ToolResult{}, err
 		}
-		return text + marker
+		defer file.Close()
+		reader = file
+	} else {
+		data, err := e.ReadFile(ctx, a.Path)
+		if err != nil {
+			return durable.ToolResult{}, err
+		}
+		reader = bytes.NewReader(data)
 	}
-	return text
+	return readText(reader, a.Path, a.Offset, a.Limit)
 }
 
 func writeTool(ctx context.Context, raw json.RawMessage, rt *durable.ToolRuntime) (durable.ToolResult, error) {
