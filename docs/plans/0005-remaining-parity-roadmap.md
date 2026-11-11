@@ -20,13 +20,13 @@
 | H (part): throttled partials in `pi.live.generation.message` | `generation.go` |
 | J (most): stop reasons, error entries, thinking levels, length answers, `AfterRun` with `finish`/`drain`, handoff continuation | `generation.go` |
 | Read-only open, `SettingsFunc`, `SubmitTx`, `TaskRuntime.Entries`, `pi.inbox`, tool output limits | `session.go`, `harness.go`, `conversation.go`, `inbox.go`, `tool_task.go` |
+| Entry paging, view windows, client transcript, task graph, telemetry spans, JSONL compaction | `conversation.go`, `view.go`, `transcript.go`, `task_graph.go`, `telemetry.go`, `storage/jsonl.go` |
 
 ## 2. Remaining work, in proposed order
 
-1. **Client transcript.** `ConversationTranscript`, the client-side layer that merges view windows with gaps (`loadEarlier`, `fillGap`, `resume`). (`Conversation.ScanEntries`, `WatchWindow`, `Harness.TaskGraph`, and `WatchTaskGraph` are done.)
-2. **Telemetry events and metrics.** Upstream's events and metrics on top of the submit and phase spans `HarnessOptions.Telemetry` receives.
-3. **I: storage.** Indexed records instead of whole snapshots, group commit, and deferred commits (`persistWithinMs`). This is the largest change: whole-snapshot commits cost grows with history.
-4. **Environment parity.** The `env` package's bounded binary and directory readers, file watching, and PowerShell, in `tools`.
+1. **Telemetry events and metrics.** Upstream's events and metrics on top of the submit and phase spans `HarnessOptions.Telemetry` receives.
+2. **I: storage.** Indexed records instead of whole snapshots, group commit, and deferred commits (`persistWithinMs`). This is the largest change: whole-snapshot commits cost grows with history.
+3. **Environment parity.** The `env` package's bounded binary and directory readers, file watching, and PowerShell, in `tools`.
 
 ## 3. Not planned
 
