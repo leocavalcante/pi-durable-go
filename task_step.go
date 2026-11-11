@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 )
 
 func detachedTask(task *TaskRecord) (TaskRecord, error) {
@@ -125,7 +126,8 @@ func (s *Scheduler) runInvocation(id TaskID, inv *taskInvocation, resolved resol
 		if attempt > 0 {
 			attributes["attempt"] = attempt
 		}
-		_, sp := s.h.span(inv.ctx, "pi.durable.phase", attributes)
+		phaseCtx, sp := s.h.span(inv.ctx, "pi.durable.phase", attributes)
+		started := time.Now()
 		phaseErr = containPanic(func() error {
 			if inv.aborting {
 				if resolved.Definition.Abort == nil {
@@ -136,7 +138,7 @@ func (s *Scheduler) runInvocation(id TaskID, inv *taskInvocation, resolved resol
 			if resolved.Definition.Run == nil {
 				return fmt.Errorf("task has no Run handler")
 			}
-			return resolved.Definition.Run(inv.ctx, r, record)
+			return resolved.Definition.Run(phaseCtx, r, record)
 		})
 		if after, err := s.h.Task(context.Background(), id); err == nil {
 			outcome := after.Status
@@ -151,6 +153,12 @@ func (s *Scheduler) runInvocation(id TaskID, inv *taskInvocation, resolved resol
 				}
 			}
 			sp.set(map[string]any{"outcome": outcome})
+			if metrics := s.h.metrics(); metrics != nil {
+				elapsed := float64(time.Since(started)) / float64(time.Millisecond)
+				s.h.telemetryCall(func() {
+					metrics.Record("pi.durable.phase.duration", elapsed, map[string]any{"task": record.Kind, "phase": phase, "outcome": outcome})
+				})
+			}
 		}
 		sp.end(phaseErr)
 		first = false

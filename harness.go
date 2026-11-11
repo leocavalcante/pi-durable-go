@@ -3,6 +3,8 @@ package durable
 import (
 	"context"
 	"fmt"
+	"sort"
+	"sync"
 	"time"
 )
 
@@ -14,6 +16,8 @@ type Harness struct {
 	scheduler    *Scheduler
 	stopRegistry func()
 	reports      *reportQueue
+	activeMu     sync.Mutex
+	active       map[string]int // pi.durable.tasks.active per kind, as reported
 }
 
 func Open(ctx context.Context, storage Storage, options HarnessOptions) (*Harness, error) {
@@ -37,6 +41,7 @@ func Open(ctx context.Context, storage Storage, options HarnessOptions) (*Harnes
 	session.afterClose = h.reports.closeAdmission
 	session.afterCommit = func(state *State) {
 		h.scheduler.clearSettledMigrations(state)
+		h.countActive(state)
 		// Every adopted commit may make work runnable or change the wake.
 		h.scheduler.kick()
 	}
@@ -45,6 +50,7 @@ func Open(ctx context.Context, storage Storage, options HarnessOptions) (*Harnes
 		<-h.scheduler.done
 		h.scheduler.writeBackStopped()
 		h.stopRegistry()
+		h.countActive(nil) // a closed Harness holds no tasks
 	}
 	if options.ReadOnly {
 		session.readOnly = true
@@ -57,6 +63,11 @@ func Open(ctx context.Context, storage Storage, options HarnessOptions) (*Harnes
 		_ = session.closeContext(ctx)
 		return nil, err
 	}
+	if h.metrics() != nil {
+		if state, err := h.Snapshot(ctx); err == nil {
+			h.countActive(state)
+		}
+	}
 	h.scheduler.kick() // offer the first Wake after open
 	return h, nil
 }
@@ -67,7 +78,9 @@ func (h *Harness) commit(ctx context.Context, change func(*Tx) error, internal b
 	if h == nil || h.session == nil {
 		return ErrClosed
 	}
-	return h.session.commit(ctx, func(tx *Tx) error {
+	sp := spanOf(ctx)
+	var appended []map[string]any
+	err := h.session.commit(ctx, func(tx *Tx) error {
 		tx.created = func(tx *Tx, id ConversationID) error {
 			if h.options.ConversationCreated != nil {
 				return h.options.ConversationCreated(tx, id)
@@ -79,12 +92,27 @@ func (h *Harness) commit(ctx context.Context, change func(*Tx) error, internal b
 				return err
 			}
 		}
+		if sp != nil {
+			appended = appended[:0]
+			for _, e := range tx.state.Entries {
+				if e.Sequence == tx.state.Sequence+1 {
+					appended = append(appended, map[string]any{"entry.id": uint64(e.ID), "entry.kind": e.Kind})
+				}
+			}
+		}
 		// Derived in the same commit: pi.inbox mirrors the queued submissions.
 		if h.options.ReadOnly {
 			return nil
 		}
 		return syncInboxes(tx)
 	}, internal)
+	if err == nil {
+		sort.Slice(appended, func(i, j int) bool { return appended[i]["entry.id"].(uint64) < appended[j]["entry.id"].(uint64) })
+		for _, attributes := range appended {
+			sp.event("pi.durable.entry", attributes)
+		}
+	}
+	return err
 }
 func (h *Harness) now() time.Time { return h.options.Now().UTC() }
 

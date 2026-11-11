@@ -33,10 +33,71 @@ func (h *Harness) span(ctx context.Context, name string, attributes map[string]a
 	if !h.telemetryCall(func() { next, started = telemetry.StartSpan(ctx, name, attributes) }) || started == nil {
 		return ctx, nil
 	}
-	if next == nil {
+	// Keep the caller's cancellation: an adapter context that is not
+	// derived from it is not used.
+	if next == nil || next.Done() != ctx.Done() {
 		next = ctx
 	}
-	return next, &span{h: h, span: started}
+	sp := &span{h: h, span: started}
+	return context.WithValue(next, spanKey{}, sp), sp
+}
+
+type spanKey struct{}
+
+// spanOf returns the span a context carries, or nil.
+func spanOf(ctx context.Context) *span {
+	if ctx == nil {
+		return nil
+	}
+	sp, _ := ctx.Value(spanKey{}).(*span)
+	return sp
+}
+
+// TelemetryMetrics is optionally implemented by a Telemetry adapter to
+// receive upstream's metrics: the up-down counter "pi.durable.tasks.active"
+// (attribute task, the kind) and the histogram "pi.durable.phase.duration"
+// in milliseconds (attributes task, phase, outcome).
+type TelemetryMetrics interface {
+	Add(name string, delta float64, attributes map[string]any)
+	Record(name string, value float64, attributes map[string]any)
+}
+
+func (h *Harness) metrics() TelemetryMetrics {
+	metrics, _ := h.options.Telemetry.(TelemetryMetrics)
+	return metrics
+}
+
+// countActive keeps pi.durable.tasks.active equal to the live tasks per
+// kind of the latest snapshot this Harness committed or loaded.
+func (h *Harness) countActive(state *State) {
+	metrics := h.metrics()
+	if metrics == nil {
+		return
+	}
+	counts := map[string]int{}
+	if state != nil {
+		for _, task := range state.Tasks {
+			if task.Status != "terminal" {
+				counts[task.Kind]++
+			}
+		}
+	}
+	h.activeMu.Lock()
+	defer h.activeMu.Unlock()
+	if h.active == nil {
+		h.active = map[string]int{}
+	}
+	for kind, n := range counts {
+		if delta := n - h.active[kind]; delta != 0 {
+			h.telemetryCall(func() { metrics.Add("pi.durable.tasks.active", float64(delta), map[string]any{"task": kind}) })
+		}
+	}
+	for kind, n := range h.active {
+		if _, ok := counts[kind]; !ok && n != 0 {
+			h.telemetryCall(func() { metrics.Add("pi.durable.tasks.active", float64(-n), map[string]any{"task": kind}) })
+		}
+	}
+	h.active = counts
 }
 
 func (h *Harness) telemetryCall(call func()) (ok bool) {

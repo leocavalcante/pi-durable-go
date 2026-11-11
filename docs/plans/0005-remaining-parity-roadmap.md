@@ -24,7 +24,7 @@
 
 ## 2. Remaining work, in proposed order
 
-1. **Telemetry events and metrics.** Upstream's events and metrics on top of the submit and phase spans `HarnessOptions.Telemetry` receives.
+1. **Remaining telemetry events.** `pi.durable.submission`, `pi.durable.report`, and `pi.durable.replay`. (Spans, entry and checkpoint events, and both metrics are done.)
 2. **I: storage.** Indexed records instead of whole snapshots, group commit, and deferred commits (`persistWithinMs`). This is the largest change: whole-snapshot commits cost grows with history.
 3. **Environment parity.** The `env` package's bounded binary and directory readers, file watching, and PowerShell, in `tools`.
 

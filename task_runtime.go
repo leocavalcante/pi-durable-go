@@ -113,6 +113,7 @@ func (r *TaskRuntime) Commit(ctx context.Context, change func(*Tx) (TaskTransiti
 		return ErrInvalid
 	}
 	var interrupted *Report
+	phaseChange := ""
 	err := r.h.Commit(ctx, func(tx *Tx) error {
 		interrupted = nil
 		if err := r.check(); err != nil {
@@ -160,6 +161,13 @@ func (r *TaskRuntime) Commit(ctx context.Context, change func(*Tx) (TaskTransiti
 		if !sameTaskState(&previous, current) {
 			current.Restarts = 0
 		}
+		if current.Status == "running" {
+			if before, _ := checkpointPhase(previous.Checkpoint); before != "" {
+				if after, _ := checkpointPhase(current.Checkpoint); after != before {
+					phaseChange = after
+				}
+			}
+		}
 		// A task that ends for crashes says so, so a host keeps a crash-loop
 		// signal: task_interrupted with the count from before this commit. A
 		// held (completing) outcome is reported when it is committed.
@@ -174,6 +182,9 @@ func (r *TaskRuntime) Commit(ctx context.Context, change func(*Tx) (TaskTransiti
 	})
 	if err == nil && interrupted != nil {
 		r.h.report(*interrupted)
+	}
+	if err == nil && phaseChange != "" {
+		spanOf(ctx).event("pi.durable.checkpoint", map[string]any{"phase": phaseChange})
 	}
 	return err
 }

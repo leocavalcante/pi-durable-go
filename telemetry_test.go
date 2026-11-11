@@ -9,13 +9,34 @@ import (
 type recordedSpan struct {
 	name       string
 	attributes map[string]any
+	events     []string
 	ended      bool
 }
 
 type recordingTelemetry struct {
-	mu    sync.Mutex
-	spans []*recordedSpan
-	panic bool
+	mu      sync.Mutex
+	spans   []*recordedSpan
+	panic   bool
+	active  map[string]float64
+	phases  int
+	metrics bool
+}
+
+func (r *recordingTelemetry) Add(name string, delta float64, attributes map[string]any) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.active == nil {
+		r.active = map[string]float64{}
+	}
+	r.active[attributes["task"].(string)] += delta
+}
+
+func (r *recordingTelemetry) Record(name string, value float64, attributes map[string]any) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if name == "pi.durable.phase.duration" && value >= 0 && attributes["outcome"] != nil {
+		r.phases++
+	}
 }
 
 func (r *recordingTelemetry) StartSpan(ctx context.Context, name string, attributes map[string]any) (context.Context, TelemetrySpan) {
@@ -44,7 +65,16 @@ func (s *recordingSpan) SetAttributes(attributes map[string]any) {
 		s.span.attributes[k] = v
 	}
 }
-func (s *recordingSpan) AddEvent(string, map[string]any) {}
+func (s *recordingSpan) AddEvent(name string, attributes map[string]any) {
+	s.owner.mu.Lock()
+	defer s.owner.mu.Unlock()
+	switch name {
+	case "pi.durable.entry":
+		s.span.events = append(s.span.events, name+":"+attributes["entry.kind"].(string))
+	case "pi.durable.checkpoint":
+		s.span.events = append(s.span.events, name+":"+attributes["phase"].(string))
+	}
+}
 func (s *recordingSpan) End(error) {
 	s.owner.mu.Lock()
 	defer s.owner.mu.Unlock()
@@ -80,6 +110,20 @@ func TestTelemetrySpansForSubmissionsAndPhases(t *testing.T) {
 	}
 	if request != nil && request.attributes["outcome"] != "done" {
 		t.Fatalf("request span=%+v", request)
+	}
+	if len(submitSpan.events) == 0 || submitSpan.events[0] != "pi.durable.entry:pi.user" {
+		t.Fatalf("submit events=%v", submitSpan.events)
+	}
+	if telemetry.phases == 0 {
+		t.Fatal("no phase durations")
+	}
+	for kind, n := range telemetry.active {
+		if n != 0 {
+			t.Fatalf("%s still active: %v", kind, n)
+		}
+	}
+	if len(telemetry.active) == 0 {
+		t.Fatal("tasks.active never counted")
 	}
 }
 
