@@ -180,14 +180,23 @@ func editTool(ctx context.Context, raw json.RawMessage, rt *durable.ToolRuntime)
 	for i, edit := range a.Edits {
 		edits[i] = textEdit{edit.OldText, edit.NewText}
 	}
-	_, updated, err := applyEditsToNormalizedContent(normalizeToLF(text), edits, a.Path)
+	base, updated, err := applyEditsToNormalizedContent(normalizeToLF(text), edits, a.Path)
 	if err != nil {
 		return durable.ToolResult{}, err
 	}
 	if err := e.WriteFile(ctx, a.Path, []byte(bom+restoreLineEndings(updated, ending))); err != nil {
 		return durable.ToolResult{}, err
 	}
-	return result(fmt.Sprintf("Successfully replaced %d block(s) in %s.", len(a.Edits), a.Path))
+	diff, firstChanged := generateDiffString(base, updated, 4)
+	details := map[string]any{"diff": diff, "patch": generateUnifiedPatch(a.Path, base, updated, 4)}
+	if firstChanged > 0 {
+		details["firstChangedLine"] = firstChanged
+	}
+	data, err := json.Marshal(details)
+	if err != nil {
+		return durable.ToolResult{}, err
+	}
+	return durable.ToolResult{Content: fmt.Sprintf("Successfully replaced %d block(s) in %s.", len(a.Edits), a.Path), Details: data}, nil
 }
 
 func bashTool(ctx context.Context, raw json.RawMessage, rt *durable.ToolRuntime) (durable.ToolResult, error) {
