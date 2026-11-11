@@ -117,7 +117,7 @@ This table highlights compatibility changes since the previous runtime reference
 | v1.2+ tool suite: nested/structured tools, tool callers and selection, deferred search/codemode, `afterTool`, and unoffered-call tasks | 1.2.0–1.5.0 | Missing; see Agent execution above. |
 | Group commit, deferred commits, progress throttling, Chord observers/views/watch events | 1.5.0 | Missing; Go commits whole snapshots and watches coalesced latest state. |
 | `SessionEnd` tagged by `kind` | 1.5.0 | Implemented as `SessionEnd.Kind`. |
-| `HarnessOptions.readOnly`, read-only JSONL open, identity/model/settings callbacks and telemetry | 1.4.0–1.5.1 | Missing. |
+| `HarnessOptions.readOnly`, read-only JSONL open, identity/model/settings callbacks and telemetry | 1.4.0–1.5.1 | Partial: `HarnessOptions.ReadOnly` opens without recovery or scheduling and refuses commits with writes (`ErrReadOnly`); storage-level read-only opens, identity/model/settings callbacks, and telemetry are missing. |
 | Compaction model overrides and per-conversation settings | 1.4.0, 1.5.1 | Implemented with automatic threshold and overflow compaction. |
 | Document `checkpointWhen` and indexed/delta document storage | 1.4.0–1.5.1 | Missing. |
 | `Tx.submission(id)` | 1.5.1 | Present as `Tx.Submission`. |

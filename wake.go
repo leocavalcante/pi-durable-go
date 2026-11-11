@@ -31,7 +31,7 @@ func (w Wake) equal(other Wake) bool {
 // platform alarm, arms from it and calls Resume when woken; see
 // HarnessOptions.OnWake.
 func (h *Harness) Wake() Wake {
-	if h == nil || h.Err() != nil {
+	if h == nil || h.Err() != nil || h.options.ReadOnly {
 		return Wake{}
 	}
 	state, err := h.Snapshot(context.Background())

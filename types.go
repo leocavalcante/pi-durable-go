@@ -22,6 +22,8 @@ var (
 	ErrBusy     = errors.New("durable: conversation busy")
 	ErrInvalid  = errors.New("durable: invalid operation")
 	ErrBlocked  = errors.New("durable: missing or incompatible definition")
+	// ErrReadOnly refuses writes and scheduling of a read-only Harness.
+	ErrReadOnly = errors.New("durable: read-only Harness")
 )
 
 // RejectedError certifies a storage write was not applied. Other write errors
@@ -452,6 +454,12 @@ type HarnessOptions struct {
 	// Resume when it fires. It must not block; a panic is reported as
 	// host_error and the value is offered again at the next change.
 	OnWake func(Wake)
+	// ReadOnly opens for reading only, as a viewer of a session another
+	// process drives. Open recovers nothing: a running task stays as committed.
+	// Every commit with writes fails with ErrReadOnly before it reaches
+	// storage, and scheduling never starts; reads and watches work. Wake is
+	// always inactive and OnWake is never called.
+	ReadOnly bool
 	// OnReport receives best-effort FIFO diagnostics on an independent worker.
 	// Shutdown does not join delivery. Handlers should return promptly.
 	OnReport func(Report)

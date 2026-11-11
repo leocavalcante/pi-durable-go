@@ -77,7 +77,7 @@ if err != nil { store.Close(); return err }
 h.Resume()
 ```
 
-Import `github.com/leocavalcante/pi-durable-go/storage`. Reinstall application extensions on each reopen; `Open` restores built-in definitions. `Resume`, submission, or a task/submission wait starts scheduling; opening alone does not.
+`HarnessOptions.ReadOnly` opens a viewer of a session another process drives: it recovers nothing, never schedules, and refuses commits with writes with `ErrReadOnly`. Import `github.com/leocavalcante/pi-durable-go/storage`. Reinstall application extensions on each reopen; `Open` restores built-in definitions. `Resume`, submission, or a task/submission wait starts scheduling; opening alone does not.
 
 Submissions follow upstream's admission rules. An `input` starts a run in an idle conversation or, while one runs, queues as a follow-up (default), joins the run at its next tool boundary (`WhenBusy: "steer"`), or is refused (`"reject"`, `ErrBusy`); `WhenIdle: "reject"` refuses input to an idle conversation (`ErrIdle`). A `write` appends an entry, at once or at the next boundary. A `continue` starts a run on the context as it is, for example after a failed run; a busy conversation refuses it. Statuses are `queued`, `placed` (with its `Entry`), `done` (with its `Answer`), and `unanswered` (with a `Reason` code and optional JSON `Detail`). Boundaries place queued items one at a time or all at once (`Settings.SteeringMode`, `FollowUpMode`).
 

@@ -35,6 +35,8 @@ type Session struct {
 	afterCommit func(*State)
 	// Installed before the Harness can schedule; called off the commit line.
 	beforeClose func()
+	// readOnly rejects every commit with writes with ErrReadOnly.
+	readOnly bool
 }
 
 type stateWatcher struct {
@@ -145,6 +147,22 @@ func (s *Session) commitLocked(ctx context.Context, fn func(*Tx) error, internal
 	}()
 	if err != nil {
 		return err
+	}
+	if s.readOnly {
+		// A commit that writes nothing passes; one with writes is refused
+		// before it reaches storage, and nothing is adopted.
+		current, err := json.Marshal(s.state)
+		if err != nil {
+			return err
+		}
+		next, err := json.Marshal(candidate)
+		if err != nil {
+			return err
+		}
+		if !bytes.Equal(current, next) {
+			return fmt.Errorf("%w: a commit with writes refused", ErrReadOnly)
+		}
+		return nil
 	}
 	if s.state.Sequence == ^uint64(0) {
 		return fmt.Errorf("%w: sequence space exhausted", ErrInvalid)

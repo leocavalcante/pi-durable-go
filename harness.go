@@ -46,6 +46,10 @@ func Open(ctx context.Context, storage Storage, options HarnessOptions) (*Harnes
 		h.scheduler.writeBackStopped()
 		h.stopRegistry()
 	}
+	if options.ReadOnly {
+		session.readOnly = true
+		return h, nil // recovers nothing, schedules nothing
+	}
 	go h.scheduler.wakeLoop()
 	if err = h.reconcile(ctx); err != nil {
 		// Cleanup continues after a cancelled Open without forcing that caller
@@ -79,8 +83,11 @@ func (h *Harness) commit(ctx context.Context, change func(*Tx) error, internal b
 func (h *Harness) now() time.Time { return h.options.Now().UTC() }
 
 func (h *Harness) Snapshot(ctx context.Context) (*State, error) { return h.session.Snapshot(ctx) }
+
+// Resume enables task scheduling and starts a pass. A read-only Harness
+// never schedules.
 func (h *Harness) Resume() {
-	if h == nil {
+	if h == nil || h.options.ReadOnly {
 		return
 	}
 	h.scheduler.resume()
