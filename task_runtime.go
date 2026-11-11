@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"sort"
 	"sync/atomic"
 	"time"
@@ -106,6 +107,16 @@ func (r *TaskRuntime) Commit(ctx context.Context, change func(*Tx) (TaskTransiti
 		if !r.aborting && (current.AbortRequested || belowCancellationIntent(tx.state, current)) {
 			return context.Canceled
 		}
+		// Capture before change: a callback can mutate the current record's
+		// slices and deadline through Tx.Task. Memos and documents are not
+		// task state and must not reset the crash count.
+		previous := *current
+		previous.Checkpoint = append(json.RawMessage(nil), current.Checkpoint...)
+		previous.WaitOn = append([]TaskID(nil), current.WaitOn...)
+		if current.WakeAt != nil {
+			wakeAt := *current.WakeAt
+			previous.WakeAt = &wakeAt
+		}
 		transition, err := change(tx)
 		if err != nil {
 			return err
@@ -116,9 +127,22 @@ func (r *TaskRuntime) Commit(ctx context.Context, change func(*Tx) (TaskTransiti
 		if r.aborting && transition.Status != "running" && transition.Status != "terminal" {
 			return fmt.Errorf("%w: abort handlers cannot yield or wait", ErrInvalid)
 		}
-		return applyTransition(tx, current, transition, r.h.now())
+		if err := applyTransition(tx, current, transition, r.h.now()); err != nil {
+			return err
+		}
+		if !sameTaskState(&previous, current) {
+			current.Restarts = 0
+		}
+		return nil
 	})
 }
+
+func sameTaskState(a, b *TaskRecord) bool {
+	return a.Status == b.Status && jsonEqual(a.Checkpoint, b.Checkpoint) &&
+		slices.Equal(a.WaitOn, b.WaitOn) && a.WaitPolicy == b.WaitPolicy &&
+		(a.WakeAt == nil && b.WakeAt == nil || a.WakeAt != nil && b.WakeAt != nil && a.WakeAt.Equal(*b.WakeAt))
+}
+
 func (r *TaskRuntime) Complete(ctx context.Context, outcome Outcome) error {
 	return r.Commit(ctx, func(*Tx) (TaskTransition, error) { return TaskTransition{Status: "terminal", Outcome: &outcome}, nil })
 }
@@ -308,6 +332,7 @@ func applyTransition(tx *Tx, task *TaskRecord, tr TaskTransition, now time.Time)
 		}
 		task.Outcome = tr.Outcome
 		task.Memos = nil
+		task.Restarts = 0
 		if tr.Outcome.Status != "completed" {
 			markOwned(tx.state, task.ID, "")
 		}

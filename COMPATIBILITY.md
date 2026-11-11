@@ -1,6 +1,6 @@
 # Upstream compatibility
 
-**Current reference:** Pi Durable v1.5.2, the latest release confirmed on 2026-11-10 from npm `latest` and the GitHub Latest release. Tag [`v1.5.2`](https://github.com/earendil-works/pi/tree/v1.5.2) points to commit [`b4afdddf44e059c67ccf5097e5317d913521b470`](https://github.com/earendil-works/pi/commit/b4afdddf44e059c67ccf5097e5317d913521b470). The previous runtime comparison was the v1.3.0-era commit `4954d760504c11df9b2cbdc040346107b6a8153d`; the original Go port base remains v1.1.0. See [NOTICE](NOTICE) for provenance.
+**Current reference:** Pi Durable v1.5.2, the latest release confirmed on 2026-11-11 from npm `latest` and the GitHub Latest release. Tag [`v1.5.2`](https://github.com/earendil-works/pi/tree/v1.5.2) points to commit [`b4afdddf44e059c67ccf5097e5317d913521b470`](https://github.com/earendil-works/pi/commit/b4afdddf44e059c67ccf5097e5317d913521b470). The previous runtime comparison was the v1.3.0-era commit `4954d760504c11df9b2cbdc040346107b6a8153d`; the original Go port base remains v1.1.0. See [NOTICE](NOTICE) for provenance.
 
 This is an independent semantic Go port of selected runtime contracts, not a line-by-line translation, a complete replacement, or an upstream-conformance claim. Upstream's TypeScript APIs, Chord protocol, and storage files are not interchangeable with this package. The independent Go suite does not run or establish compatibility with the upstream TypeScript conformance suite.
 
@@ -51,6 +51,14 @@ State v2 adds outcome and submission diagnostic fields. State v1 can be loaded a
 
 Uncertain storage errors still fail and seal the Session. Scheduler bookkeeping writes also fail the Session on errors, including a certified `RejectedError`, because the scheduler cannot safely continue after a failed internal decision. The exception is caller cancellation before storage admission or a certified-unapplied write for that cancelled call. Ordinary caller commits retain the `RejectedError` rollback-without-poisoning contract. `SessionEnd.Reason` is now `SessionEnd.Kind`.
 
+### Restart accounting and clean close
+
+`TaskRecord.Restarts` is an optional scheduler-owned count. Open increments it only for surviving `running` tasks (including abort invocations) and rewrites those tasks to `pending`. Other statuses and backoff deadlines are unchanged. Changed task state, new/upgraded abort marks, and held or terminal outcomes clear the count; structurally identical checkpoints, documents, memos, reservation, migration, and handover do not.
+
+A clean close joins local invocations, then writes stopped tasks still `running` back to `pending` on the Session line without counting them. The write follows admitted commits, preserves their marks/checkpoints/memos/counts, runs no user callbacks, and publishes nothing. A failed Session writes nothing. Any close write-back error fails the Session and queues `storage_failed`; as upstream, `Close` returns only the backend close error, while `WaitClosed` exposes the first failure. An uncertain write can have applied: only reopening establishes the durable record.
+
+Accounting leaves State version 2 unchanged. The first open counts `running` records even when an older build's clean close left them that way. Older State-v2 binaries can open the store, but their snapshot writes drop `restarts`. Restart-limit enforcement, built-in limit endings, `task_interrupted`, and interrupted-request retry charging remain unimplemented ([plan 0002](docs/plans/0002-crash-loop-guard-and-interrupted-requests.md), milestones 2–5). A model request interrupted by a crash is still resent.
+
 ## Deliberate differences and remaining work
 
 ### Storage, transactions, and observation
@@ -81,7 +89,7 @@ This table highlights compatibility changes since the previous runtime reference
 |---|---|---|
 | Task outcomes, step faults, migration and blocked reasons, phase handover, `orphaned` settlement, abort results, outcome reads, and inspection states | Through 1.5.2; several gaps predate v1.3.0 | Implemented as described above; Go-specific pending yield, install identities, optional nil abort handler, and cleanup differences remain. |
 | Typed reports and task errors | 1.4.0, 1.5.0 | Partial: five task/session report kinds are implemented with queued delivery; `extension_error`, `host_error`, `listener_error`, and idle-wait are missing. |
-| Crash-loop guard, restart limit, `task_interrupted`, and counting interrupted model requests as failed attempts | 1.4.0, 1.5.0 | Missing. `AbandonOnRestart` is implemented but is not a restart limit. |
+| Crash-loop guard, restart limit, `task_interrupted`, and counting interrupted model requests as failed attempts | 1.4.0, 1.5.0 | Partial: restart counts, resets, and clean-close write-back are implemented. Limits, interruption reports, and request charging remain missing. `AbandonOnRestart` is not a restart limit. |
 | Full wait-cycle validation across wait and ownership edges | 1.2.0 | Missing; only local wait constraints are checked. |
 | Durable `sleeping`, `sleepUntil`, timers, wake API; `afterFailedRun`; `pi.live.runFailure`; continue-submission/idle policies and per-conversation `maxTurns` | 1.4.0, 1.5.0 | Missing. Go has `WakeAt` with polling and a global `Settings.MaxTurns` safeguard, but no durable sleeping status, wake API, or upstream run-failure model; failed runs keep queued work. |
 | Conversation submission hooks, run-end/provider hooks, task/host entry access | 1.5.0 | Missing. |

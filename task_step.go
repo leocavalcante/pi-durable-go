@@ -135,6 +135,7 @@ func (s *Scheduler) runInvocation(id TaskID, inv *taskInvocation, resolved resol
 func (s *Scheduler) fault(tx *Tx, t *TaskRecord, cause error) error {
 	t.Outcome = &Outcome{Status: OutcomeFaulted, Error: diagnostic(cause.Error())}
 	t.Memos = nil
+	t.Restarts = 0
 	markOwned(tx.state, t.ID, "")
 	if len(ownedLive(tx.state, t.ID)) != 0 {
 		t.Status = "completing"

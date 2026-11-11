@@ -67,6 +67,9 @@ func markAbortTreeReason(state *State, id TaskID, reason string) {
 	if task.AbortRequested && task.AbortReason == "" {
 		reason = ""
 	}
+	if !task.AbortRequested || task.AbortReason != reason {
+		task.Restarts = 0
+	}
 	task.AbortRequested = true
 	task.AbortReason = reason
 	markOwned(state, id, cancellationReason(task))
@@ -93,6 +96,7 @@ func markOwned(state *State, id TaskID, reason string) bool {
 		}
 		task.AbortRequested = true
 		task.AbortReason = reason
+		task.Restarts = 0
 		changed = true
 	}
 	// The owner's own conversation keeps its queue. Only scopes below it are

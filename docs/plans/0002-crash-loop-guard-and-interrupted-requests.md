@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Status | Accepted; implementation authorized 2026-11-11 (§12.1) |
+| Status | In progress: M0 complete, M1 implemented for review; M2–M6 pending (§12.1) |
 | Date | 2026-11-11 |
 | Compatibility target | Pi **v1.5.2**: `@earendil-works/pi-durable` and `@earendil-works/pi-ai` 1.5.2, tag `v1.5.2`, commit `b4afdddf44e059c67ccf5097e5317d913521b470` (unchanged from plan 0001) |
 | Depends on | [Plan 0001](0001-task-outcomes-and-definition-lifecycle.md), merged to `main` |
@@ -30,9 +30,36 @@ This is a port: every rule follows the TypeScript implementation at the pinned t
 - **Reports.** Hosts receive `task_interrupted` reports, and `task_faulted` reports with reason `restart_limit`.
 - **Persistence.** As upstream does, `Restarts` is an optional record field, with no change to the storage format. When this plan changes a built-in task's stored checkpoint, that built-in definition gets a new version with a migration. An older build then leaves such tasks blocked as `task_too_old` instead of misreading them.
 
+## Implementation record
+
+### M0: Preconditions
+
+Plan 0001 was published on `main` as `fb700b4`; this accepted plan followed as `41a7f2e`. Formatting, vet, all tests, all race tests, the expanded 20-repeat task race suite, and the installed Pi SDK tests passed before that push. The manual npm/GitHub drift check still targets v1.5.2. `AGENTS.md` remains unchanged pending its separately required approval.
+
+### M1: Restart accounting
+
+Implemented on `feat/task-restart-accounting` for its milestone pull request; no dependent milestone has started.
+
+- `TaskRecord.Restarts` is optional and scheduler-owned. Reconciliation counts every surviving `running` task; State version 2 and built-in definition versions are unchanged.
+- Runtime commits compare detached state captured before the callback, including mutable checkpoint/wait slices and deadlines. New task state, outcomes (including held outcomes), and new/upgraded abort marks reset counts. Memo/document/entry writes and scheduler reservation/migration/handover/cancellation releases preserve them.
+- Close joins invocations and privately writes stopped `running` tasks back to `pending` after admitted commits, keeping their other fields and publishing nothing. Capture in `finishInvocation` covers the seal/join window. Failure shutdown and cancelled-open cleanup write nothing.
+- Write-back errors fail the Session and report `storage_failed`, including certified rejection and errors wrapping the internal no-change sentinel. `Close` still returns only the backend close error. Tests cover both unapplied and uncertain-but-applied writes; the failed Session never adopts an uncertain candidate.
+- `close_write_back_test.go`, `task_restart_accounting_test.go`, and `storage/task_restart_test.go` cover accounting, resets, shutdown races, repeated opens, legacy optional fields, and SQLite/JSONL persistence. Existing clean-close generation/tool recovery tests now assert zero restart counts before scheduling.
+- The fake-SDK recovery integration test now registers cleanup before its first submission, so a failure cannot leak its first Harness or Node process. Its deadline is a 60-second hang bound for several Node starts and SQLite reopen, not a response-latency assertion.
+- `README.md` and `COMPATIBILITY.md` document M1 and explicitly retain the missing limit, interruption-report, retry-policy, and charge behavior for M2–M5.
+
+Validation on Go 1.24.3:
+
+- `make check` passed with `GOMAXPROCS=2 GOFLAGS=-p=1` to limit package concurrency on the loaded host. Earlier parallel runs hit existing wall-clock deadlines; the focused failures passed in isolation, and the final full check and five-repeat storage/model race runs passed after the integration-test cleanup/budget fix above.
+- The §10 targeted race suite passed with `-count=20`; storage and model race suites passed with `-count=5`.
+- Independent read-only review found no actionable M1 correctness issues against the pinned TypeScript source.
+- `git diff --check` passed; the non-test counter writes were audited against §6.4.
+
+M2–M6 remain unimplemented. In particular, M1 only counts crashes: it does not cut off tasks or charge/retry model attempts.
+
 ## 2. Compatibility target
 
-Rechecked before publication on 2026-11-11 at 12:53 UTC:
+Rechecked before M1 publication on 2026-11-11 at 13:38 UTC:
 
 - npm `latest` for `@earendil-works/pi-durable`, `@earendil-works/pi-coding-agent`, and `@earendil-works/pi-ai` is 1.5.2;
 - the GitHub **Latest** release is `v1.5.2` (2026-11-10), commit `b4afdddf…`.
@@ -115,7 +142,7 @@ References are to the v1.5.2 specification unless another file is named.
 1. **Count.** `TaskRecord.restarts` counts the times in a row a crash cut the task off without a state change since. An absent value means zero, and a close does not count (§5.1 `TaskRecord`; §5.4 "Restarts").
 2. **Open.** Open rewrites every surviving `running` task to `pending` with `restarts` one higher, whichever build wrote it, and dispatches nothing. Other statuses are unchanged (§5.4; `scheduler.ts` `open()`).
 3. **Close.** After joining the invocations it stopped, close writes the tasks still `running` back to `pending` without counting them. It does this on the Session line, after commits admitted before the seal, and a failed Session writes nothing. If that write fails:
-   - the tasks stay `running`, so the next open counts them;
+   - if the write was not applied, the tasks stay `running`, so the next open counts them; an uncertain error may instead leave the write applied, and only reopening establishes which;
    - `join()` swallows the error;
    - the storage guard fails the Session and reports `storage_failed`;
    - `close()` still resolves unless the backend's own close fails, and `closed` settles `{ kind: "failed" }`.
@@ -211,9 +238,9 @@ Opening and closing without resuming counts each surviving task once. Those task
 
 ### 6.3 A clean close writes stopped tasks back
 
-Today, `Close` seals admission and `Scheduler.close` cancels invocations. `runInvocation` then skips its release write because the Session is sealed, so the stopped tasks stay `running`.
+Before M1, `Close` sealed admission and `Scheduler.close` cancelled invocations. `runInvocation` then skipped its release write because the Session was sealed, so the stopped tasks stayed `running`.
 
-**Stopped set.** When the Session is sealed or failed (`h.Err() != nil`), `finishInvocation` records the task ID in `Scheduler.stopped`, under `Scheduler.mu`. No reservation can commit after the seal, so this captures upstream's set: every invocation stopped by the close. It also captures an invocation that ends between the seal and `Scheduler.close`. Concurrent goroutines make that window real, so capturing only at `Scheduler.close`, as upstream's single-threaded `join()` does, would miss such invocations. A cancelled `Open` has no invocations, so it writes nothing and cannot erase crash evidence that its reconciliation did not count.
+**Stopped set.** When the Session is sealed or failed (`h.Err() != nil`), `finishInvocation` records the task ID in `Scheduler.stopped`, under `Scheduler.mu`. Sealing prevents new reservation admission; already-admitted commits settle before close joins invocations. This captures upstream's set: every invocation stopped by the close. It also captures an invocation that ends between the seal and `Scheduler.close`. Concurrent goroutines make that window real, so capturing only at `Scheduler.close`, as upstream's single-threaded `join()` does, would miss such invocations. A cancelled `Open` has no invocations, so it writes nothing and cannot erase crash evidence that its reconciliation did not count.
 
 **Write.** `beforeClose` runs, in order: `scheduler.close()`, `<-scheduler.done`, `scheduler.writeBackStopped()`, and `stopRegistry()`. `writeBackStopped` calls a new private `Session.writeAtClose(fn)`, which:
 
@@ -225,9 +252,9 @@ Today, `Close` seals admission and `Scheduler.close` cancels invocations. `runIn
 - uses `context.Background()`, and fails the Session through `failLocked` on any storage error, including a certified rejection;
 - runs `afterCommit` on success.
 
-**Result of a failed write-back, as upstream:** the Session fails, a `storage_failed` report is queued, and the backend still closes. `Close` returns only the backend close error, so it returns nil when only the write-back failed. `WaitClosed` and `Done` show `SessionEnd{Kind: "failed"}` with the cause, and the tasks stay `running` for the next open to count.
+**Result of a failed write-back, as upstream:** the Session fails, a `storage_failed` report is queued, and the backend still closes. `Close` returns only the backend close error, so it returns nil when only the write-back failed. `WaitClosed` and `Done` show `SessionEnd{Kind: "failed"}` with the cause. If the write did not apply, the tasks stay `running` for the next open to count. An uncertain write may have applied; the failed Session never adopts a guess, and only reopening establishes the durable record.
 
-A failure shutdown writes nothing, so its tasks are counted at the next open, as after a crash. A `Close(ctx)` that times out keeps cleaning up. If the process exits before the write-back lands, its tasks count as cut off.
+A failure shutdown writes nothing, so its remaining `running` tasks are counted at the next open, as after a crash. A `Close(ctx)` that times out keeps cleaning up. If the process exits before the write-back lands, its tasks count as cut off.
 
 ### 6.4 What starts the count over
 
@@ -599,7 +626,7 @@ Fake models and tools honor cancellation, so the dead Harness's goroutines exit.
 | 1 | Open counts only `running` tasks, including tasks running abort handlers. `pending`, `waiting`, `completing`, and backing-off tasks are untouched. Opening and closing without resuming counts once, and later opens do not count again. | §5.4; "does not charge a generation that sleeps in a retry or waits for its tools" |
 | 1 | A store written by an earlier Go build has its `running` records counted at the first open, and `State.Version` stays 2. SQLite and JSONL round-trip `restarts`. | §5.4 `open()`; Go storage |
 | 1 | After a clean close stops a run, no `running` record remains and nothing is counted. Reopening resends the request; the existing recovery test also asserts `Restarts == 0`. | "resends after a clean close: a close is not a crash" |
-| 1 | The write-back keeps an abort mark committed just before close. If the write-back fails in storage, `Close` returns nil while the backend close succeeds; `WaitClosed` reports `SessionEnd{Kind: "failed"}`; `storage_failed` is reported; and the tasks stay `running` and are counted at the next open. A failure shutdown writes nothing. | `join()`; `session.ts` `writeAtClose()` and `close()` |
+| 1 | The write-back keeps an abort mark committed just before close. If the write-back fails in storage, `Close` returns nil while the backend close succeeds; `WaitClosed` reports `SessionEnd{Kind: "failed"}`; `storage_failed` is reported; and unapplied writes leave tasks `running` to be counted at the next open. An uncertain applied write is not adopted by the failed Session; reopening observes the stored `pending` task without incrementing. A failure shutdown writes nothing. | `join()`; `session.ts` `writeAtClose()` and `close()` |
 | 1 | An invocation that ends between the seal and `Scheduler.close` is still written back. A cancelled `Open` writes nothing at close. | Go regression |
 | 1 | A new checkpoint, a `pending` yield, a wait, or an outcome resets the count. Committing the same checkpoint again, memos, documents, and entries do not. A request, restart, cascade, or upgraded mark resets the count; re-marking with the same reason does not. | §5.4 "Restarts" |
 | 1 | Reservation, migration, handover, and the abort-cancellation release keep the count. | §5.4; `withState` |

@@ -88,6 +88,34 @@ func (s *Session) commit(ctx context.Context, fn func(*Tx) error, internal bool)
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	return s.commitLocked(ctx, fn, internal, true)
+}
+
+// writeAtClose is private shutdown bookkeeping, called after invocations join.
+// It follows admitted commits on the line, bypasses the seal, and publishes
+// nothing. A failed Session never writes; any real error fails a healthy one.
+func (s *Session) writeAtClose(fn func(*Tx) error) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.failure.Load() != nil {
+		return nil
+	}
+	noChange := false
+	err := s.commitLocked(context.Background(), func(tx *Tx) error {
+		err := fn(tx)
+		noChange = errors.Is(err, errNoChange)
+		return err
+	}, true, false)
+	if noChange {
+		return nil
+	}
+	return err
+}
+
+// The caller holds the line and has checked admission (or is writeAtClose).
+// Only callback-returned errNoChange suppresses an internal bookkeeping write;
+// an identical error from storage must still fail the Session.
+func (s *Session) commitLocked(ctx context.Context, fn func(*Tx) error, internal, publish bool) (err error) {
 	callbackNoChange := false
 	defer func() {
 		if !internal || err == nil || callbackNoChange || s.failure.Load() != nil {
@@ -141,8 +169,10 @@ func (s *Session) commit(ctx context.Context, fn func(*Tx) error, internal bool)
 	if s.afterCommit != nil {
 		s.afterCommit(candidate)
 	}
-	for w := range s.watchers {
-		s.offer(w, candidate)
+	if publish {
+		for w := range s.watchers {
+			s.offer(w, candidate)
+		}
 	}
 	return nil
 }
