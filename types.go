@@ -74,6 +74,21 @@ type Agent struct {
 	MaxTurns int `json:"maxTurns,omitempty"`
 	// Compaction overrides Settings.Compaction for this conversation.
 	Compaction *CompactionSettings `json:"compaction,omitempty"`
+	// ModelTools filters the enabled tools the model may call: the tools
+	// offered to it. It never widens; other tools can still call the ones it
+	// leaves out. Nil offers every such tool except deferred ones.
+	ModelTools *ModelTools `json:"modelTools,omitempty"`
+}
+
+// ModelTools selects the tools offered to the model (upstream modelTools).
+// With Only set, exactly those names in that order, deferred ones too.
+// Otherwise every model-callable tool except deferred ones and Remove, in
+// registry order, followed by the deferred tools in Add that are not in
+// Remove, in Add order; a tool result's AddTools appends to Add.
+type ModelTools struct {
+	Only   []string `json:"only,omitempty"`
+	Remove []string `json:"remove,omitempty"`
+	Add    []string `json:"add,omitempty"`
 }
 type ConversationRecord struct {
 	ID                ConversationID `json:"id"`
@@ -297,6 +312,10 @@ type ToolDefinition struct {
 	// Callers says who may call the tool: "model", "tools" (nested calls
 	// through ToolRuntime.ExecuteTool), or both (empty, the default).
 	Callers []string
+	// Deferred tools are not offered to the model until loaded: until
+	// Agent.ModelTools names them, which a tool result's AddTools (from a
+	// tool such as tool_search) writes. Other tools can call them any time.
+	Deferred bool
 	// StructuredOutputSchema, when set, is the JSON Schema of the
 	// StructuredOutput programs get from a successful result; nested callers
 	// otherwise get the result's content as a JSON string.
@@ -329,6 +348,10 @@ type ToolResult struct {
 	DurationMs       *int64          `json:"durationMs,omitempty"`
 	Terminate        bool            `json:"terminate,omitempty"`
 	Handoff          string          `json:"handoff,omitempty"`
+	// AddTools enables and offers these tools from the next request on: they
+	// are appended to Agent.Tools and to Agent.ModelTools, loading deferred
+	// tools. Applied when the round ends.
+	AddTools []string `json:"addTools,omitempty"`
 }
 type ModelRequest struct {
 	Model         ModelRef   `json:"model"`

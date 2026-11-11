@@ -577,6 +577,7 @@ func finishToolRound(ctx context.Context, r *TaskRuntime, task TaskRecord, cp ge
 		return err
 	}
 	var results []ToolResult
+	var added []string
 	terminate := len(cp.Children) > 0
 	handoff := ""
 	for _, id := range cp.Children {
@@ -593,6 +594,9 @@ func finishToolRound(ctx context.Context, r *TaskRuntime, task TaskRecord, cp ge
 			result.Result = ToolResult{Content: "tool failed without result", IsError: true}
 		}
 		results = append(results, result.Result)
+		if child.Outcome != nil && child.Outcome.Status == OutcomeCompleted {
+			added = append(added, result.Result.AddTools...)
+		}
 		terminate = terminate && result.Result.Terminate
 		if result.Result.Handoff != "" {
 			handoff = result.Result.Handoff
@@ -639,6 +643,11 @@ func finishToolRound(ctx context.Context, r *TaskRuntime, task TaskRecord, cp ge
 			return TaskTransition{}, err
 		}
 		completed := TaskTransition{Status: "terminal", Outcome: &Outcome{Status: OutcomeCompleted, Result: result}}
+		if len(added) > 0 {
+			if err := addTools(tx, cid, added); err != nil {
+				return TaskTransition{}, err
+			}
+		}
 		// The run's last entry so far: the newest result, or the assistant.
 		last := cp.Assistant
 		if newestResult > last {
@@ -771,10 +780,8 @@ func buildRequest(ctx context.Context, r *TaskRuntime, state *State, c Conversat
 		messages = append([]Message{{Role: "system", Content: prompt.String()}}, messages...)
 	}
 	request := ModelRequest{Model: c.Agent.Model, SessionID: c.ProviderSessionID, ThinkingLevel: c.Agent.ThinkingLevel, Messages: messages}
-	for _, tool := range registry.Tools(c.Agent) {
-		if callableBy(tool, "model") {
-			request.Tools = append(request.Tools, tool.ToolSpec)
-		}
+	for _, tool := range offeredTools(registry.Tools(c.Agent), c.Agent.ModelTools) {
+		request.Tools = append(request.Tools, tool.ToolSpec)
 	}
 	for _, hook := range registry.hooks(c.Agent) {
 		if hook.BeforeRequest != nil {
@@ -1414,4 +1421,119 @@ func compactionFailureText(outcome Outcome) string {
 	default:
 		return "Compaction was aborted"
 	}
+}
+
+// offeredTools are the tools a request offers (§8.3): model-callable, then
+// selected by the agent's ModelTools.
+func offeredTools(tools []ToolDefinition, filter *ModelTools) []ToolDefinition {
+	var callable []ToolDefinition
+	byName := map[string]ToolDefinition{}
+	for _, tool := range tools {
+		if callableBy(tool, "model") {
+			callable = append(callable, tool)
+			byName[tool.Name] = tool
+		}
+	}
+	if filter != nil && filter.Only != nil {
+		var out []ToolDefinition
+		seen := map[string]bool{}
+		for _, name := range filter.Only {
+			if tool, ok := byName[name]; ok && !seen[name] {
+				out = append(out, tool)
+				seen[name] = true
+			}
+		}
+		return out
+	}
+	removed := map[string]bool{}
+	var add []string
+	if filter != nil {
+		for _, name := range filter.Remove {
+			removed[name] = true
+		}
+		add = filter.Add
+	}
+	var out []ToolDefinition
+	for _, tool := range callable {
+		if !tool.Deferred && !removed[tool.Name] {
+			out = append(out, tool)
+		}
+	}
+	// Loaded deferred tools follow in load order.
+	seen := map[string]bool{}
+	for _, name := range add {
+		if tool, ok := byName[name]; ok && tool.Deferred && !removed[name] && !seen[name] {
+			out = append(out, tool)
+			seen[name] = true
+		}
+	}
+	return out
+}
+
+// addTools applies a round's AddTools to the conversation's agent: each name
+// joins an explicit Tools list, leaves ModelTools.Remove, and is appended to
+// ModelTools.Add (or Only), which loads deferred tools.
+func addTools(tx *Tx, cid ConversationID, added []string) error {
+	conv, err := tx.Conversation(cid)
+	if err != nil {
+		return err
+	}
+	before, err := json.Marshal(conv.Agent)
+	if err != nil {
+		return err
+	}
+	agent := conv.Agent
+	contains := func(list []string, name string) bool {
+		for _, item := range list {
+			if item == name {
+				return true
+			}
+		}
+		return false
+	}
+	if agent.Tools != nil {
+		tools := append([]string(nil), agent.Tools...)
+		for _, name := range added {
+			if !contains(tools, name) {
+				tools = append(tools, name)
+			}
+		}
+		agent.Tools = tools
+	}
+	selection := ModelTools{}
+	if agent.ModelTools != nil {
+		selection = *agent.ModelTools
+	}
+	if selection.Only != nil {
+		only := append([]string(nil), selection.Only...)
+		for _, name := range added {
+			if !contains(only, name) {
+				only = append(only, name)
+			}
+		}
+		selection.Only = only
+	} else {
+		var remove []string
+		for _, name := range selection.Remove {
+			if !contains(added, name) {
+				remove = append(remove, name)
+			}
+		}
+		selection.Remove = remove
+		add := append([]string(nil), selection.Add...)
+		for _, name := range added {
+			if !contains(add, name) {
+				add = append(add, name)
+			}
+		}
+		selection.Add = add
+	}
+	agent.ModelTools = &selection
+	after, err := json.Marshal(agent)
+	if err != nil || jsonEqual(before, after) {
+		return err
+	}
+	conv.Agent = agent
+	_, err = tx.Append(cid, Entry{Kind: "pi.agent", Data: after})
+	return err
 }
