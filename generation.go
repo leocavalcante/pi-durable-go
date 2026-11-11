@@ -198,6 +198,12 @@ func runGeneration(ctx context.Context, r *TaskRuntime, task TaskRecord) error {
 			return TaskTransition{Status: "pending", Checkpoint: data}, err
 		})
 	case "request":
+		// The host stopped while this request was in flight: a failed attempt
+		// under the retry policy, not a resend (§8.3). A clean close is not a
+		// crash and leaves no count, so its request is resent below.
+		if task.Restarts > 0 {
+			return chargeInterruptedRequest(ctx, r, task, input, cp)
+		}
 		if r.h.options.Model == nil {
 			return failGeneration(ctx, r, task, input, errors.New("no model configured"))
 		}
@@ -553,6 +559,29 @@ func endGenerationCutOff(ctx context.Context, r *TaskRuntime, task TaskRecord, i
 			}
 		}
 		return settleRunFailure(tx, task, input, reasonRestartLimit, text)
+	})
+}
+
+// chargeInterruptedRequest charges a request a crash cut off as a failed
+// attempt. Its committed partial becomes an aborted entry; with a retry left
+// the generation backs off and then prepares the next attempt, otherwise the
+// run ends interrupted. Nothing is classified: a crash is not an error message.
+func chargeInterruptedRequest(ctx context.Context, r *TaskRuntime, task TaskRecord, input generationInput, cp generationCheckpoint) error {
+	attempt := cp.attempt()
+	policy := r.h.options.Settings.Retry.resolve()
+	retry := policy.allows(attempt)
+	until := retryDeadline(r.h.now(), retryDelayMs(policy, attempt))
+	text := fmt.Sprintf("The host stopped while the model was answering, on attempt %d", attempt)
+	return r.Commit(ctx, func(tx *Tx) (TaskTransition, error) {
+		if cp.Partial != "" {
+			if _, err := tx.Append(task.Conversation, Entry{Kind: "pi.assistant", Message: &Message{Role: "assistant", Content: cp.Partial, Aborted: true}}); err != nil {
+				return TaskTransition{}, err
+			}
+		}
+		if retry {
+			return retryTransition(cp, attempt, until)
+		}
+		return settleRunFailure(tx, task, input, reasonInterrupted, text)
 	})
 }
 
