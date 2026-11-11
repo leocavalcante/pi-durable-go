@@ -10,6 +10,7 @@ import (
 	"image/png"
 	"math"
 
+	durable "github.com/leocavalcante/pi-durable-go"
 	_ "golang.org/x/image/bmp" // BMP decoding
 	xdraw "golang.org/x/image/draw"
 	_ "golang.org/x/image/webp" // WebP decoding
@@ -17,14 +18,24 @@ import (
 
 // ImageLimits bound an image a model receives: its size in pixels and its
 // base64 length (upstream ImageLimits).
-type ImageLimits struct {
-	MaxWidth  int
-	MaxHeight int
-	MaxBytes  int
-}
+type ImageLimits = durable.ImageLimits
 
 // DefaultImageLimits are upstream DEFAULT_IMAGE_LIMITS.
 var DefaultImageLimits = ImageLimits{MaxWidth: maxImageWidth, MaxHeight: maxImageHeight, MaxBytes: maxImageBytes}
+
+// withDefaults fills the limits a model leaves unset (upstream imageModel).
+func withDefaults(limits ImageLimits) ImageLimits {
+	if limits.MaxWidth <= 0 {
+		limits.MaxWidth = DefaultImageLimits.MaxWidth
+	}
+	if limits.MaxHeight <= 0 {
+		limits.MaxHeight = DefaultImageLimits.MaxHeight
+	}
+	if limits.MaxBytes <= 0 {
+		limits.MaxBytes = DefaultImageLimits.MaxBytes
+	}
+	return limits
+}
 
 // PreparedImage is an image ready for a model, with what preparing it did.
 type PreparedImage struct {

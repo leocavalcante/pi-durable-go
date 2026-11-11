@@ -193,13 +193,14 @@ func imageError(message string) (durable.ToolResult, error) {
 
 // readImage reads an image the head identified, as upstream does without an
 // image processor; vision says whether the model takes images.
-func readImage(r io.Reader, size int64, path, mimeType string, vision bool, processor ImageProcessor) (durable.ToolResult, error) {
+func readImage(r io.Reader, size int64, path, mimeType string, vision bool, limits ImageLimits, processor ImageProcessor) (durable.ToolResult, error) {
+	limits = withDefaults(limits)
 	if processor != nil {
 		data, err := io.ReadAll(r)
 		if err != nil {
 			return durable.ToolResult{}, err
 		}
-		prepared := processor.Prepare(data, mimeType, DefaultImageLimits)
+		prepared := processor.Prepare(data, mimeType, limits)
 		if prepared == nil {
 			return imageError(fmt.Sprintf("%s is an image (%s) that cannot be prepared for the model", path, mimeType))
 		}
@@ -217,7 +218,7 @@ func readImage(r io.Reader, size int64, path, mimeType string, vision bool, proc
 		return imageError(fmt.Sprintf("%s is an image (%s) that needs converting, and no image processor is configured", path, mimeType))
 	}
 	const unshrinkable = "and no image processor is configured to shrink it"
-	if base64Length(size) > maxImageBytes {
+	if base64Length(size) > int64(limits.MaxBytes) {
 		return imageError(fmt.Sprintf("%s is an image (%s) of %s, too large to send, %s", path, mimeType, formatSize(int(size)), unshrinkable))
 	}
 	data, err := io.ReadAll(io.LimitReader(r, size+1))
@@ -228,8 +229,8 @@ func readImage(r io.Reader, size int64, path, mimeType string, vision bool, proc
 	if !ok {
 		return imageError(fmt.Sprintf("%s is an image (%s) whose size cannot be read", path, mimeType))
 	}
-	if width > maxImageWidth || height > maxImageHeight {
-		return imageError(fmt.Sprintf("%s is an image (%s) of %dx%d, larger than %dx%d, %s", path, mimeType, width, height, maxImageWidth, maxImageHeight, unshrinkable))
+	if width > limits.MaxWidth || height > limits.MaxHeight {
+		return imageError(fmt.Sprintf("%s is an image (%s) of %dx%d, larger than %dx%d, %s", path, mimeType, width, height, limits.MaxWidth, limits.MaxHeight, unshrinkable))
 	}
 	return imageResult(durable.ImageContent{MimeType: mimeType, Data: base64.StdEncoding.EncodeToString(data)}, vision, nil)
 }

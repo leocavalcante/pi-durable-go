@@ -49,12 +49,21 @@ var (
 	_ durable.Model              = Pi{}
 	_ durable.ContextWindowModel = Pi{}
 	_ durable.ImageInputModel    = Pi{}
+	_ durable.ImageLimitsModel   = Pi{}
 )
+
+// ImageLimits reports the model's image resize limits from Pi's catalog;
+// zero fields where it sets none.
+func (p Pi) ImageLimits(ref durable.ModelRef) durable.ImageLimits {
+	entry, _ := p.entry(ref)
+	return entry.limits
+}
 
 // catalogEntry is what the bridge reads of a model from Pi's catalog.
 type catalogEntry struct {
 	window int
 	images bool
+	limits durable.ImageLimits
 }
 
 // catalog caches catalog entries per installation and model.
@@ -109,14 +118,15 @@ func (p Pi) describe(ctx context.Context, ref durable.ModelRef) (catalogEntry, e
 		return catalogEntry{}, err
 	}
 	var event struct {
-		Type          string `json:"type"`
-		ContextWindow int    `json:"contextWindow"`
-		Images        *bool  `json:"images"`
+		Type          string              `json:"type"`
+		ContextWindow int                 `json:"contextWindow"`
+		Images        *bool               `json:"images"`
+		ImageLimits   durable.ImageLimits `json:"imageLimits"`
 	}
 	if err := json.Unmarshal(bytes.TrimSpace(out), &event); err != nil || event.Type != "model" {
 		return catalogEntry{}, errors.New("pi: cannot describe model")
 	}
-	return catalogEntry{window: event.ContextWindow, images: event.Images == nil || *event.Images}, nil
+	return catalogEntry{window: event.ContextWindow, images: event.Images == nil || *event.Images, limits: event.ImageLimits}, nil
 }
 
 func (p Pi) Generate(ctx context.Context, req durable.ModelRequest, onDelta func(string) error) (durable.ModelResponse, error) {

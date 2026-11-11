@@ -17,7 +17,8 @@ export class ModelRuntime {
   getError() { return undefined; }
   getModel(provider, id) {
     return id === "unknown" ? undefined : { provider, id, api: "fake-api", contextWindow: id === "small-window" ? 4096 : 128000,
-      input: id === "text-only" ? ["text"] : ["text", "image"] };
+      input: id === "text-only" ? ["text"] : ["text", "image"],
+      ...(id === "small-images" ? { inputLimits: { images: { resize: { maxWidth: 512, maxHeight: 256, maxBytes: 1000 } } } } : {}) };
   }
   async *streamSimple(model, context, options) {
     const result = { role: "assistant", api: model.api, provider: model.provider, model: model.id,

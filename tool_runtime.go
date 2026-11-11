@@ -288,6 +288,24 @@ func (r *ToolRuntime) AcceptsImages(ctx context.Context) bool {
 	return model.AcceptsImages(conv.Agent.Model)
 }
 
+// ImageLimits are the conversation model's image limits (ImageLimitsModel);
+// zero fields when unknown, which keeps the defaults.
+func (r *ToolRuntime) ImageLimits(ctx context.Context) ImageLimits {
+	model, ok := r.h.options.Model.(ImageLimitsModel)
+	if !ok {
+		return ImageLimits{}
+	}
+	state, err := r.h.read(ctx)
+	if err != nil {
+		return ImageLimits{}
+	}
+	conv := state.Conversations[r.ConversationID]
+	if conv == nil {
+		return ImageLimits{}
+	}
+	return model.ImageLimits(conv.Agent.Model)
+}
+
 func (r *ToolRuntime) DeferredTools(ctx context.Context) ([]ToolDefinition, error) {
 	if err := r.check(); err != nil {
 		return nil, err

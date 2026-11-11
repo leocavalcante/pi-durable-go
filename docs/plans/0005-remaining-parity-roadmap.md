@@ -26,7 +26,7 @@
 ## 2. Remaining work, in proposed order
 
 1. **Group commit.** Deferred in [plan 0006](0006-incremental-commits-and-record-storage.md), which made commits incremental (copy-on-write transactions, `DeltaStorage`, SQLite record rows, JSONL delta lines).
-2. **Image order and limits.** Images interleaved with text, and per-model image limits from the catalog. (Images in messages, submissions, tool results, both adapters, estimates, read-tool images, and the `StdImages` processor are done.)
+2. **Image order.** Images interleaved with text in one message. (Images in messages, submissions, tool results, both adapters, estimates, read-tool images, the `StdImages` processor, and catalog image limits are done.)
 3. **Environment parity.** The `env` package's bounded binary and directory readers and file watching. Hosts can use the Go standard library directly; tools need none of them today.
 
 ## 3. Not planned

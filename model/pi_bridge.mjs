@@ -182,7 +182,10 @@ async function main() {
     if (config.describe) {
       const window = Number.isFinite(model.contextWindow) && model.contextWindow > 0 ? Math.floor(model.contextWindow) : 0;
       const images = Array.isArray(model.input) ? model.input.includes("image") : true;
-      return { type: "model", contextWindow: window, images };
+      const resize = model.inputLimits?.images?.resize ?? {};
+      const limit = (value) => (Number.isInteger(value) && value > 0 ? value : 0);
+      return { type: "model", contextWindow: window, images,
+        imageLimits: { maxWidth: limit(resize.maxWidth), maxHeight: limit(resize.maxHeight), maxBytes: limit(resize.maxBytes) } };
     }
     let context;
     try {

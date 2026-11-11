@@ -116,12 +116,26 @@ func TestReadImageWithAProcessorSaysWhatItDid(t *testing.T) {
 	if err := png.Encode(&wide, solid(3000, 1500)); err != nil {
 		t.Fatal(err)
 	}
-	result, err := readImage(bytes.NewReader(wide.Bytes()), int64(wide.Len()), "wide.png", "image/png", true, StdImages())
+	result, err := readImage(bytes.NewReader(wide.Bytes()), int64(wide.Len()), "wide.png", "image/png", true, ImageLimits{}, StdImages())
 	if err != nil {
 		t.Fatal(err)
 	}
 	if result.IsError || len(result.Images) != 1 || len(result.Diagnostics) != 1 ||
 		!strings.Contains(result.Diagnostics[0].Message, "Resized from 3000x1500 to 2000x1000. Multiply coordinates by 1.50 to map them to the original.") {
+		t.Fatalf("result=%+v", result.Diagnostics)
+	}
+}
+
+func TestReadImageUsesTheModelsLimits(t *testing.T) {
+	var small bytes.Buffer
+	if err := png.Encode(&small, solid(300, 100)); err != nil {
+		t.Fatal(err)
+	}
+	result, err := readImage(bytes.NewReader(small.Bytes()), int64(small.Len()), "small.png", "image/png", true, ImageLimits{MaxWidth: 200}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.IsError || !strings.Contains(result.Diagnostics[0].Message, "of 300x100, larger than 200x2000") {
 		t.Fatalf("result=%+v", result.Diagnostics)
 	}
 }

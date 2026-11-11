@@ -185,7 +185,7 @@ func readTool(ctx context.Context, raw json.RawMessage, rt *durable.ToolRuntime,
 			}
 			size, image = int64(len(data)), bytes.NewReader(data)
 		}
-		return readImage(image, size, a.Path, mimeType, rt.AcceptsImages(ctx), processor)
+		return readImage(image, size, a.Path, mimeType, rt.AcceptsImages(ctx), rt.ImageLimits(ctx), processor)
 	}
 	return readText(buffered, a.Path, a.Offset, a.Limit)
 }

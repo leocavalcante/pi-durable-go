@@ -40,6 +40,20 @@ type ImageInputModel interface {
 	AcceptsImages(ModelRef) bool
 }
 
+// ImageLimits bound the images a model takes: pixels per side and base64
+// bytes (pi-ai's inputLimits.images.resize). Zero fields keep the defaults.
+type ImageLimits struct {
+	MaxWidth  int `json:"maxWidth,omitempty"`
+	MaxHeight int `json:"maxHeight,omitempty"`
+	MaxBytes  int `json:"maxBytes,omitempty"`
+}
+
+// ImageLimitsModel is optionally implemented by a Model that knows a model's
+// image limits from its catalog.
+type ImageLimitsModel interface {
+	ImageLimits(ModelRef) ImageLimits
+}
+
 // resolveCompaction resolves the policy for a model in a conversation, field
 // by field: the conversation's model override, the Harness's model override,
 // the conversation's own fields, then the Harness-wide policy over the

@@ -37,6 +37,9 @@ func TestPiBridgeSendsImageBlocksAndReadsImageInput(t *testing.T) {
 	if !p.AcceptsImages(durable.ModelRef{Provider: "fake", ID: "vision"}) || p.AcceptsImages(durable.ModelRef{Provider: "fake", ID: "text-only"}) {
 		t.Fatal("image input not read from the catalog")
 	}
+	if got := p.ImageLimits(durable.ModelRef{Provider: "fake", ID: "small-images"}); got != (durable.ImageLimits{MaxWidth: 512, MaxHeight: 256, MaxBytes: 1000}) {
+		t.Fatalf("image limits=%+v", got)
+	}
 }
 
 func TestPiBridgePassesTheIdentity(t *testing.T) {
