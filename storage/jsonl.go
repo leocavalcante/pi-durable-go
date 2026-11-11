@@ -11,6 +11,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 
 	durable "github.com/leocavalcante/pi-durable-go"
@@ -34,11 +35,13 @@ func OpenJSONL(ctx context.Context, directory string) (durable.Storage, error) {
 		f.Close()
 		return nil, err
 	}
-	s := &jsonlStorage{file: f, unlock: unlock}
+	s := &jsonlStorage{file: f, unlock: unlock, path: filepath.Join(directory, "snapshots.jsonl")}
 	if err = s.recover(); err != nil {
 		_ = s.Close()
 		return nil, err
 	}
+	// A compaction that crashed before its rename leaves only a stale copy.
+	_ = os.Remove(s.path + ".compact")
 	return s, nil
 }
 
@@ -48,7 +51,16 @@ type jsonlStorage struct {
 	unlock func() error
 	state  *durable.State
 	closed bool
+	path   string
+	size   int64 // bytes of complete snapshots in the file
 }
+
+// The log is compacted to its latest snapshot once it holds more than
+// compactFactor snapshots' worth of bytes and at least compactMinBytes.
+const (
+	compactFactor   = 8
+	compactMinBytes = 1 << 20
+)
 
 func (s *jsonlStorage) Load(ctx context.Context) (*durable.State, error) {
 	s.mu.Lock()
@@ -100,12 +112,65 @@ func (s *jsonlStorage) Commit(ctx context.Context, expected uint64, next *durabl
 	if err = s.file.Sync(); err != nil {
 		return err
 	}
+	s.size += int64(len(b))
 	cp, err := copyState(next)
 	if err != nil {
 		return err
 	}
 	s.state = cp
+	if s.size >= compactMinBytes && s.size > compactFactor*int64(len(b)) {
+		// Best effort: the commit is durable either way.
+		_ = s.compact(b)
+	}
 	return nil
+}
+
+// compact replaces the log with its latest snapshot line. The copy is
+// locked before it is renamed over the log, so the single-owner lock never
+// lapses; a crash leaves either the old log or the new one, and both end
+// with the latest snapshot. Not on Windows, where the open log cannot be
+// replaced.
+func (s *jsonlStorage) compact(latest []byte) error {
+	if runtime.GOOS == "windows" {
+		return nil
+	}
+	tmp := s.path + ".compact"
+	f, err := os.OpenFile(tmp, os.O_CREATE|os.O_TRUNC|os.O_RDWR, 0600)
+	if err != nil {
+		return err
+	}
+	unlock, err := lockFile(f)
+	if err != nil {
+		f.Close()
+		_ = os.Remove(tmp)
+		return err
+	}
+	abandon := func(err error) error {
+		_ = unlock()
+		f.Close()
+		_ = os.Remove(tmp)
+		return err
+	}
+	if _, err := f.Write(latest); err != nil {
+		return abandon(err)
+	}
+	if err := f.Sync(); err != nil {
+		return abandon(err)
+	}
+	if err := os.Rename(tmp, s.path); err != nil {
+		return abandon(err)
+	}
+	if dir, err := os.Open(filepath.Dir(s.path)); err == nil {
+		_ = dir.Sync()
+		dir.Close()
+	}
+	if _, err := f.Seek(0, io.SeekEnd); err != nil {
+		return err
+	}
+	old, oldUnlock := s.file, s.unlock
+	s.file, s.unlock, s.size = f, unlock, int64(len(latest))
+	_ = oldUnlock()
+	return old.Close()
 }
 func (s *jsonlStorage) recover() error {
 	if _, err := s.file.Seek(0, io.SeekStart); err != nil {
@@ -142,6 +207,7 @@ func (s *jsonlStorage) recover() error {
 			return err
 		}
 	}
+	s.size = good
 	info, err := s.file.Stat()
 	if err != nil {
 		return err

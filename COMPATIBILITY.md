@@ -8,7 +8,7 @@ Pinned upstream references: [Durable source](https://github.com/earendil-works/p
 
 ## Implemented foundation
 
-- Serialized commits across transcripts, submissions, tasks, and JSON documents; detached snapshots and commit-before-publication observation. Memory, SQLite, and append-only JSONL backends persist whole-State snapshots.
+- Serialized commits across transcripts, submissions, tasks, and JSON documents; detached snapshots and commit-before-publication observation. Memory, SQLite, and append-only JSONL backends persist whole-State snapshots; the JSONL log compacts itself to its latest snapshot once it outgrows eight snapshots and 1 MiB, under the same lock.
 - Uncertain storage failures poison the Session; caller writes rejected as unapplied roll back, while scheduler bookkeeping failures fail closed. Fatal failures end observers and waits, signal invocations, and close storage after admitted work drains. `Err`, `Done`, and `WaitClosed` expose admission/failure and shutdown completion.
 - ID-based conversations, root creation, complete-Agent reconfiguration, transcript forks, and per-conversation provider session IDs.
 - Input, write, and continue submissions follow upstream admission (spec §6): custom non-`pi.*` input-entry kinds/data, per-conversation request-ID deduplication, `WhenBusy` (`followUp`, `steer`, `reject`) and `WhenIdle: "reject"` (`ErrIdle`), `queued`/`placed`/`done`/`unanswered` statuses with the placed `Entry`, waiting, and queued-input withdrawal. Display-only writes settle immediately during a run unless a reset is queued. Queued items are placed at upstream's final and post-tools boundaries under `Settings.SteeringMode`/`FollowUpMode`, and the `pi.inbox` document (`Conversation.Inbox`) mirrors them in every commit.

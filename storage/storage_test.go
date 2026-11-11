@@ -2,9 +2,12 @@ package storage
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"testing"
 
 	durable "github.com/leocavalcante/pi-durable-go"
@@ -95,5 +98,47 @@ func TestSQLiteReopenAndSequenceConflict(t *testing.T) {
 	}
 	if err = st.Commit(ctx, 0, testState(1)); err == nil || !errors.Is(err, durable.ErrConflict) {
 		t.Fatalf("wanted conflict, got %v", err)
+	}
+}
+
+func TestJSONLCompactsToItsLatestSnapshot(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	st, err := OpenJSONL(ctx, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	big := strings.Repeat("x", 64*1024)
+	state := &durable.State{Version: 3, NextID: 1}
+	for i := 0; i < 40; i++ {
+		next := *state
+		next.Sequence = state.Sequence + 1
+		next.Documents = map[string]*durable.DocumentRecord{"d": {Kind: "app.big", Version: 1, Scope: "harness", Value: json.RawMessage(strconv.Quote(big + strconv.Itoa(i)))}}
+		if err := st.Commit(ctx, state.Sequence, &next); err != nil {
+			t.Fatal(err)
+		}
+		state = &next
+	}
+	info, err := os.Stat(filepath.Join(dir, "snapshots.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Size() > compactMinBytes+70*1024 {
+		t.Fatalf("log was never compacted: %d bytes", info.Size())
+	}
+	if _, err := OpenJSONL(ctx, dir); err == nil {
+		t.Fatal("a second owner opened the compacted log")
+	}
+	if err := st.Close(); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := OpenJSONL(ctx, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reopened.Close()
+	loaded, err := reopened.Load(ctx)
+	if err != nil || loaded.Sequence != 40 || !strings.Contains(string(loaded.Documents["d"].Value), big+"39") {
+		t.Fatalf("loaded sequence=%v error=%v", loaded.Sequence, err)
 	}
 }
