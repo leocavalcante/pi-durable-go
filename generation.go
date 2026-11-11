@@ -126,6 +126,14 @@ func runGeneration(ctx context.Context, r *TaskRuntime, task TaskRecord) error {
 	if err := json.Unmarshal(task.Checkpoint, &cp); err != nil {
 		return err
 	}
+	// Each phase first checks whether crashes cut the generation off too
+	// often, which ends its run instead of running the phase again (§5.4).
+	switch cp.Phase {
+	case "prepare", "request", "retry", "tools":
+		if limit := r.h.restartLimit(); cutOffTooOften(task.Restarts, limit) {
+			return endGenerationCutOff(ctx, r, task, input, cp, limit)
+		}
+	}
 	switch cp.Phase {
 	case "prepare":
 		// A retry prepares the same turn again, so agent, section, and settings
@@ -503,6 +511,51 @@ func settleRun(tx *Tx, task TaskRecord, input generationInput, answer EntryID, r
 	}
 	return TaskTransition{Status: "terminal", Outcome: outcome}, nil
 }
+
+// settleRunFailure ends a run without an answer for a coded reason: inputs
+// settle unanswered with the code as Reason and the text as JSON-string
+// Detail, Busy is cleared while queued inputs stay, and the task fails with
+// the text and ErrorDetail {"reason": code}.
+func settleRunFailure(tx *Tx, task TaskRecord, input generationInput, code, text string) (TaskTransition, error) {
+	detail, err := json.Marshal(text)
+	if err != nil {
+		return TaskTransition{}, err
+	}
+	for _, id := range input.Submissions {
+		if sub := tx.state.Submissions[id]; sub != nil {
+			sub.Status, sub.Answer, sub.Reason, sub.Detail = "unanswered", 0, code, detail
+		}
+	}
+	conv, err := tx.Conversation(task.Conversation)
+	if err != nil {
+		return TaskTransition{}, err
+	}
+	if conv.Busy == task.ID {
+		conv.Busy = 0
+	}
+	errorDetail, err := json.Marshal(map[string]string{"reason": code})
+	if err != nil {
+		return TaskTransition{}, err
+	}
+	return TaskTransition{Status: "terminal", Outcome: &Outcome{Status: OutcomeFailed, Error: diagnostic(text), ErrorDetail: errorDetail}}, nil
+}
+
+// endGenerationCutOff ends a run whose generation was cut off restartLimit
+// times in a row. At the limit it still keeps a committed partial as an
+// aborted entry; past it, that conversion may be what keeps failing.
+func endGenerationCutOff(ctx context.Context, r *TaskRuntime, task TaskRecord, input generationInput, cp generationCheckpoint, limit float64) error {
+	text := fmt.Sprintf("The generation was interrupted %s in its %s phase", cutOffCount(task.Restarts), cp.Phase)
+	salvage := salvageable(task.Restarts, limit)
+	return r.Commit(ctx, func(tx *Tx) (TaskTransition, error) {
+		if salvage && cp.Partial != "" {
+			if _, err := tx.Append(task.Conversation, Entry{Kind: "pi.assistant", Message: &Message{Role: "assistant", Content: cp.Partial, Aborted: true}}); err != nil {
+				return TaskTransition{}, err
+			}
+		}
+		return settleRunFailure(tx, task, input, reasonRestartLimit, text)
+	})
+}
+
 func failGeneration(ctx context.Context, r *TaskRuntime, task TaskRecord, input generationInput, cause error) error {
 	return r.Commit(ctx, func(tx *Tx) (TaskTransition, error) {
 		current, err := tx.Task(task.ID)
@@ -556,6 +609,13 @@ func runTool(ctx context.Context, r *TaskRuntime, task TaskRecord) error {
 	}
 	if err := json.Unmarshal(task.Checkpoint, &cp); err != nil {
 		return err
+	}
+	// After reading its call, and before the replay decision, a call cut off
+	// restartLimit times in a row ends with an error result instead of
+	// running again, even for a replay-unsafe tool.
+	if (cp.Phase == "call" || cp.Phase == "execute") && cutOffTooOften(task.Restarts, r.h.restartLimit()) {
+		message := fmt.Sprintf("Tool %s was interrupted %s; it is not run again", input.Call.Name, cutOffCount(task.Restarts))
+		return finishToolEnding(ctx, r, task, ToolResult{Content: message, IsError: true}, OutcomeFailed, message, restartLimitDetail)
 	}
 	state, err := r.h.Snapshot(ctx)
 	if err != nil {
@@ -656,6 +716,13 @@ func runTool(ctx context.Context, r *TaskRuntime, task TaskRecord) error {
 	return finishTool(ctx, r, task, result, status)
 }
 func finishTool(ctx context.Context, r *TaskRuntime, task TaskRecord, result ToolResult, status string) error {
+	return finishToolEnding(ctx, r, task, result, status, "", nil)
+}
+
+// finishToolEnding settles a call with its result entry. A failed outcome's
+// Error is outcomeError when given, else the result content, and carries
+// detail as its ErrorDetail.
+func finishToolEnding(ctx context.Context, r *TaskRuntime, task TaskRecord, result ToolResult, status, outcomeError string, detail json.RawMessage) error {
 	var input toolTaskInput
 	if err := json.Unmarshal(task.Input, &input); err != nil {
 		return err
@@ -727,6 +794,10 @@ func finishTool(ctx context.Context, r *TaskRuntime, task TaskRecord, result Too
 		outcome := &Outcome{Status: status, Result: data}
 		if status == OutcomeFailed {
 			outcome.Error = diagnostic(result.Content)
+			if outcomeError != "" {
+				outcome.Error = diagnostic(outcomeError)
+			}
+			outcome.ErrorDetail = detail
 		}
 		return TaskTransition{Status: "terminal", Outcome: outcome}, nil
 	})

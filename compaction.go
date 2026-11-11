@@ -131,6 +131,14 @@ func runCompaction(ctx context.Context, r *TaskRuntime, task TaskRecord) error {
 	if err := json.Unmarshal(task.Checkpoint, &checkpoint); err != nil {
 		return err
 	}
+	// A compaction cut off restartLimit times in a row fails instead of
+	// running its phase again (§5.4).
+	switch checkpoint.Phase {
+	case "request", "retry", "publish":
+		if cutOffTooOften(task.Restarts, r.h.restartLimit()) {
+			return r.Complete(ctx, Outcome{Status: OutcomeFailed, Error: "Compaction was interrupted " + cutOffCount(task.Restarts), ErrorDetail: restartLimitDetail})
+		}
+	}
 	switch checkpoint.Phase {
 	case "request":
 		if r.h.options.Model == nil {

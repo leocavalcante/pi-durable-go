@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Status | In progress: M0–M3 complete; M4–M6 pending (§12.1) |
+| Status | In progress: M0–M4 complete; M5–M6 pending (§12.1) |
 | Date | 2026-11-11 |
 | Compatibility target | Pi **v1.5.2**: `@earendil-works/pi-durable` and `@earendil-works/pi-ai` 1.5.2, tag `v1.5.2`, commit `b4afdddf44e059c67ccf5097e5317d913521b470` (unchanged from plan 0001) |
 | Depends on | [Plan 0001](0001-task-outcomes-and-definition-lifecycle.md), merged to `main` |
@@ -72,7 +72,14 @@ Four commits, as planned; `RetryMax` and `RetryDelay` were removed with the gene
 3. `pi.generation` 2: a 1-based `attempt`, a `retry` phase with `until` in Unix milliseconds, `attempt = retry + 1` migration, preparing again after the backoff without counting a turn, and a retry phase that backs off again before its deadline.
 4. `pi.compaction` 2: the same policy without the overflow check; `retry` resends the pinned request as the next attempt; version-1 records migrate unchanged.
 
-M4–M6 remain unimplemented: built-in runs do not end themselves at the limit, tool output still lives in the checkpoint, and crashed model requests still resend.
+### M4: Built-in tasks end themselves
+
+1. Tool progress (separate commit): `ToolRuntime.Output` appends to the `pi.live` slot only (trailing 50 KiB, cut at a rune boundary) and commits the unchanged checkpoint; `finishTool` reads committed output from the slot with a version-1 checkpoint fallback; a safe rerun first commits a cleared slot (and drops a legacy checkpoint output); `pi.tool` 2 has an identity migration. The unsafe interruption result now uses upstream's message, `Tool <name> was interrupted and may have partially run`.
+2. Limit endings: generation phases `prepare`, `request`, `retry`, and `tools` end through `endGenerationCutOff` and the new `settleRunFailure` (code in `Reason`, text as JSON-string `Detail`, `ErrorDetail` `{"reason":"restart_limit"}`), converting a partial only while `salvageable`; tool `call`/`execute` end through `finishToolEnding` with an explicit outcome error and detail, before the replay decision; compaction `request`/`retry`/`publish` fail with `Compaction was interrupted <count>`. `TaskRuntime.Commit` reports each as `task_interrupted`.
+
+`tool_progress_test.go` and `builtin_limit_test.go` cover output that does not reset counts, safe/unsafe recovery and legacy output, real crash loops of a streaming tool, an unsafe tool, a blocked prepare section, and a compaction request, plus seeded cut-offs of every other phase with salvage at and past the limit.
+
+M5–M6 remain unimplemented: crashed model requests still resend.
 
 ## 2. Compatibility target
 
