@@ -24,9 +24,8 @@
 
 ## 2. Remaining work, in proposed order
 
-1. **Report span events.** `pi.durable.report` on the span of the context that raised a report; Go reports are queued without one. (Spans, the other events, and both metrics are done.)
-2. **I: storage.** Indexed records instead of whole snapshots, group commit, and deferred commits (`persistWithinMs`). This is the largest change: whole-snapshot commits cost grows with history.
-3. **Environment parity.** The `env` package's bounded binary and directory readers and file watching, and image reads. (Streaming text reads, upstream read/edit/bash results, and the PowerShell tool are done.)
+1. **I: storage.** Indexed records instead of whole snapshots, group commit, and deferred commits (`persistWithinMs`). This is the largest change: whole-snapshot commits cost grows with history.
+2. **Environment parity.** The `env` package's bounded binary and directory readers and file watching, and image reads. (Streaming text reads, upstream read/edit/bash results, and the PowerShell tool are done.)
 
 ## 3. Not planned
 

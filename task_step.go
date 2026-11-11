@@ -127,6 +127,7 @@ func (s *Scheduler) runInvocation(id TaskID, inv *taskInvocation, resolved resol
 			attributes["attempt"] = attempt
 		}
 		phaseCtx, sp := s.h.span(inv.ctx, "pi.durable.phase", attributes)
+		inv.span.Store(sp)
 		started := time.Now()
 		phaseErr = containPanic(func() error {
 			if inv.aborting {
@@ -160,6 +161,7 @@ func (s *Scheduler) runInvocation(id TaskID, inv *taskInvocation, resolved resol
 				})
 			}
 		}
+		inv.span.Store(nil)
 		sp.end(phaseErr)
 		first = false
 	}

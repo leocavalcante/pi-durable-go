@@ -805,7 +805,7 @@ func (r *TaskRuntime) reportExtension(err error, extension string) {
 	}
 	report := r.taskReport(ReportExtensionError, err, "")
 	report.Extension = extension
-	r.h.report(report)
+	r.emit(report)
 }
 
 // failRun ends a run without an answer: endFailedRun applies AfterFailedRun
@@ -1168,7 +1168,7 @@ func endAnsweredCutOff(ctx context.Context, r *TaskRuntime, task TaskRecord, cp 
 	if err == nil {
 		report := r.taskReport(ReportTaskInterrupted, fmt.Errorf("%s", text), reasonRestartLimit)
 		report.Restarts = task.Restarts
-		r.h.report(report)
+		r.emit(report)
 	}
 	return err
 }

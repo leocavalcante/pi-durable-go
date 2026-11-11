@@ -2,6 +2,7 @@ package durable
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"testing"
 )
@@ -71,6 +72,8 @@ func (s *recordingSpan) AddEvent(name string, attributes map[string]any) {
 	switch name {
 	case "pi.durable.entry":
 		s.span.events = append(s.span.events, name+":"+attributes["entry.kind"].(string))
+	case "pi.durable.report":
+		s.span.events = append(s.span.events, name+":"+attributes["type"].(string))
 	case "pi.durable.submission":
 		s.span.events = append(s.span.events, name+":"+attributes["status"].(string))
 	case "pi.durable.checkpoint":
@@ -150,4 +153,30 @@ func TestTelemetryAdapterPanicsAreHostErrors(t *testing.T) {
 	if len(reports) == 0 || reports[0].Callback != "telemetry" {
 		t.Fatalf("reports=%+v", reports)
 	}
+}
+
+func TestTelemetryReportEventsOnThePhaseSpan(t *testing.T) {
+	telemetry := &recordingTelemetry{}
+	definition := TaskDefinition{Kind: "app.reporting", Version: 1, Run: func(ctx context.Context, r *TaskRuntime, _ TaskRecord) error {
+		r.Report(errors.New("noted"))
+		return r.Commit(ctx, func(*Tx) (TaskTransition, error) {
+			return TaskTransition{Status: "terminal", Outcome: &Outcome{Status: OutcomeCompleted}}, nil
+		})
+	}}
+	registry := NewRegistry()
+	installTasks(t, registry, "reporting", definition)
+	h := taskTestHarness(t, HarnessOptions{Telemetry: telemetry, Registry: registry})
+	id := createTaskForTest(t, h, definition)
+	h.Resume()
+	waitForTask(t, h, id, func(task TaskRecord) bool { return task.Status == "terminal" })
+	telemetry.mu.Lock()
+	defer telemetry.mu.Unlock()
+	for _, span := range telemetry.spans {
+		for _, event := range span.events {
+			if event == "pi.durable.report:task_error" && span.attributes["task.name"] == "app.reporting" {
+				return
+			}
+		}
+	}
+	t.Fatal("no pi.durable.report event on the phase span")
 }

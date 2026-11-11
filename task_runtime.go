@@ -44,7 +44,7 @@ func (r *TaskRuntime) Report(err error) {
 	if err == nil || r.check() != nil {
 		return
 	}
-	r.h.report(r.taskReport(ReportTaskError, err, ""))
+	r.emit(r.taskReport(ReportTaskError, err, ""))
 }
 
 // ReportExtension reports a failure of extension code the task called, such
@@ -61,7 +61,29 @@ func (r *TaskRuntime) ReportHost(err error, callback string) {
 	}
 	report := r.taskReport(ReportHostError, err, "")
 	report.Callback, report.Extension = callback, ""
+	r.emit(report)
+}
+
+// emit queues a report the task raised and records it on the running
+// phase's span as pi.durable.report, without the error.
+func (r *TaskRuntime) emit(report Report) {
 	r.h.report(report)
+	if r.invocation == nil {
+		return
+	}
+	if sp := r.invocation.span.Load(); sp != nil {
+		attributes := map[string]any{"type": string(report.Kind)}
+		if report.Reason != "" {
+			attributes["reason"] = report.Reason
+		}
+		if report.Extension != "" {
+			attributes["extension"] = report.Extension
+		}
+		if report.Task != nil {
+			attributes["task.id"] = uint64(report.Task.ID)
+		}
+		sp.event("pi.durable.report", attributes)
+	}
 }
 
 func (r *TaskRuntime) taskReport(kind ReportKind, err error, reason string) Report {
@@ -181,7 +203,7 @@ func (r *TaskRuntime) Commit(ctx context.Context, change func(*Tx) (TaskTransiti
 		return nil
 	})
 	if err == nil && interrupted != nil {
-		r.h.report(*interrupted)
+		r.emit(*interrupted)
 	}
 	if err == nil && phaseChange != "" {
 		spanOf(ctx).event("pi.durable.checkpoint", map[string]any{"phase": phaseChange})

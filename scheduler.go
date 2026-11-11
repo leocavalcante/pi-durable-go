@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -19,6 +20,8 @@ type taskInvocation struct {
 	timersMu sync.Mutex
 	timers   map[*int]func()
 	ended    bool
+	// span is the running phase's telemetry span, for report events.
+	span atomic.Pointer[span]
 }
 
 // disarmTimers stops every pacing timer; later SetTimer calls arm nothing.
