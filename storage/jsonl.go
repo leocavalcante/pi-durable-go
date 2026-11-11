@@ -17,7 +17,10 @@ import (
 	durable "github.com/leocavalcante/pi-durable-go"
 )
 
-// OpenJSONL opens a single-owner append-only snapshot log. Only an incomplete final line is recovered.
+// OpenJSONL opens a single-owner append-only log: a whole-State line followed
+// by one line per commit's changes (durable.DeltaStorage), compacted to a
+// fresh whole-State line once the changes outweigh it. Only an incomplete
+// final line is recovered.
 // Advisory locking is currently unsupported on Windows.
 func OpenJSONL(ctx context.Context, directory string) (durable.Storage, error) {
 	if err := ctx.Err(); err != nil {
@@ -52,15 +55,20 @@ type jsonlStorage struct {
 	state  *durable.State
 	closed bool
 	path   string
-	size   int64 // bytes of complete snapshots in the file
+	size   int64 // bytes of complete lines in the file
+	// snapshotSize is the size of the log's last whole-State line; the
+	// delta lines after it make up the rest.
+	snapshotSize int64
 }
 
-// The log is compacted to its latest snapshot once it holds more than
-// compactFactor snapshots' worth of bytes and at least compactMinBytes.
-const (
-	compactFactor   = 8
-	compactMinBytes = 1 << 20
-)
+// The log is compacted to a whole-State line once the delta lines after the
+// last one outweigh it and compactMinBytes.
+const compactMinBytes = 1 << 20
+
+// deltaLine is a log line holding one commit's changes.
+type deltaLine struct {
+	Delta *durable.StateDelta `json:"delta"`
+}
 
 func (s *jsonlStorage) Load(ctx context.Context) (*durable.State, error) {
 	s.mu.Lock()
@@ -85,6 +93,11 @@ func (s *jsonlStorage) Load(ctx context.Context) (*durable.State, error) {
 func (s *jsonlStorage) Commit(ctx context.Context, expected uint64, next *durable.State) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return s.commitState(ctx, expected, next)
+}
+
+// commitState appends a whole-State line; the caller holds s.mu.
+func (s *jsonlStorage) commitState(ctx context.Context, expected uint64, next *durable.State) error {
 	if s.closed {
 		return &durable.RejectedError{Err: durable.ErrClosed}
 	}
@@ -113,14 +126,77 @@ func (s *jsonlStorage) Commit(ctx context.Context, expected uint64, next *durabl
 		return err
 	}
 	s.size += int64(len(b))
+	s.snapshotSize = int64(len(b))
 	cp, err := copyState(next)
 	if err != nil {
 		return err
 	}
 	s.state = cp
-	if s.size >= compactMinBytes && s.size > compactFactor*int64(len(b)) {
+	if s.size-s.snapshotSize >= compactMinBytes {
 		// Best effort: the commit is durable either way.
 		_ = s.compact(b)
+	}
+	return nil
+}
+
+// CommitDelta appends one commit's changes (durable.DeltaStorage), and
+// compacts the log to a whole-State line once the deltas outweigh the last
+// one.
+func (s *jsonlStorage) CommitDelta(ctx context.Context, expected uint64, delta *durable.StateDelta) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		return &durable.RejectedError{Err: durable.ErrClosed}
+	}
+	if err := ctx.Err(); err != nil {
+		return &durable.RejectedError{Err: err}
+	}
+	actual := uint64(0)
+	if s.state != nil {
+		actual = s.state.Sequence
+	}
+	if actual != expected {
+		return &durable.RejectedError{Err: fmt.Errorf("%w: expected sequence %d, have %d", durable.ErrConflict, expected, actual)}
+	}
+	if delta == nil || expected == ^uint64(0) || delta.Sequence != expected+1 {
+		return &durable.RejectedError{Err: durable.ErrInvalid}
+	}
+	if s.state == nil {
+		// A log starts with a whole State, so recovery has a base.
+		base := &durable.State{}
+		detached, err := delta.Clone()
+		if err != nil {
+			return &durable.RejectedError{Err: err}
+		}
+		if err := detached.ApplyTo(base); err != nil {
+			return &durable.RejectedError{Err: err}
+		}
+		return s.commitState(ctx, expected, base)
+	}
+	b, err := json.Marshal(deltaLine{Delta: delta})
+	if err != nil {
+		return &durable.RejectedError{Err: err}
+	}
+	detached, err := delta.Clone()
+	if err != nil {
+		return &durable.RejectedError{Err: err}
+	}
+	b = append(b, '\n')
+	if _, err = s.file.Write(b); err != nil {
+		return err
+	}
+	if err = s.file.Sync(); err != nil {
+		return err
+	}
+	s.size += int64(len(b))
+	if err := detached.ApplyTo(s.state); err != nil {
+		return err
+	}
+	if deltas := s.size - s.snapshotSize; deltas >= compactMinBytes && deltas > s.snapshotSize {
+		// Best effort: the commit is durable either way.
+		if snapshot, err := json.Marshal(s.state); err == nil {
+			_ = s.compact(append(snapshot, '\n'))
+		}
 	}
 	return nil
 }
@@ -168,7 +244,7 @@ func (s *jsonlStorage) compact(latest []byte) error {
 		return err
 	}
 	old, oldUnlock := s.file, s.unlock
-	s.file, s.unlock, s.size = f, unlock, int64(len(latest))
+	s.file, s.unlock, s.size, s.snapshotSize = f, unlock, int64(len(latest)), int64(len(latest))
 	_ = oldUnlock()
 	return old.Close()
 }
@@ -185,20 +261,36 @@ func (s *jsonlStorage) recover() error {
 			if line[len(line)-1] != '\n' {
 				break
 			}
-			var v durable.State
-			if e := json.Unmarshal(line, &v); e != nil {
-				return fmt.Errorf("storage: corrupt complete JSONL snapshot: %w", e)
+			var probe deltaLine
+			if e := json.Unmarshal(line, &probe); e != nil {
+				return fmt.Errorf("storage: corrupt complete JSONL line: %w", e)
 			}
-			if v.Sequence == 0 || v.Sequence <= previous {
-				return fmt.Errorf("storage: non-increasing JSONL sequence %d", v.Sequence)
+			if probe.Delta != nil {
+				if s.state == nil {
+					return fmt.Errorf("storage: JSONL delta %d without a base snapshot", probe.Delta.Sequence)
+				}
+				if e := probe.Delta.ApplyTo(s.state); e != nil {
+					return fmt.Errorf("storage: JSONL delta: %w", e)
+				}
+				previous = probe.Delta.Sequence
+				good += int64(len(line))
+			} else {
+				var v durable.State
+				if e := json.Unmarshal(line, &v); e != nil {
+					return fmt.Errorf("storage: corrupt complete JSONL snapshot: %w", e)
+				}
+				if v.Sequence == 0 || v.Sequence <= previous {
+					return fmt.Errorf("storage: non-increasing JSONL sequence %d", v.Sequence)
+				}
+				previous = v.Sequence
+				cp, e := copyState(&v)
+				if e != nil {
+					return e
+				}
+				s.state = cp
+				good += int64(len(line))
+				s.snapshotSize = int64(len(line))
 			}
-			previous = v.Sequence
-			cp, e := copyState(&v)
-			if e != nil {
-				return e
-			}
-			s.state = cp
-			good += int64(len(line))
 		}
 		if err == io.EOF {
 			break

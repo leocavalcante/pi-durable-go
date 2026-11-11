@@ -55,3 +55,33 @@ func (m *MemoryStorage) Commit(ctx context.Context, expected uint64, next *State
 	return nil
 }
 func (m *MemoryStorage) Close() error { m.mu.Lock(); defer m.mu.Unlock(); m.closed = true; return nil }
+
+// CommitDelta applies one commit's changes to the stored copy (DeltaStorage).
+func (m *MemoryStorage) CommitDelta(ctx context.Context, expected uint64, delta *StateDelta) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return &RejectedError{Err: err}
+	}
+	if m.closed {
+		return &RejectedError{Err: ErrClosed}
+	}
+	actual := uint64(0)
+	if m.state != nil {
+		actual = m.state.Sequence
+	}
+	if actual != expected {
+		return &RejectedError{Err: fmt.Errorf("%w: expected sequence %d, have %d", ErrConflict, expected, actual)}
+	}
+	if delta == nil || expected == ^uint64(0) || delta.Sequence != expected+1 {
+		return &RejectedError{Err: fmt.Errorf("%w: next sequence must increase", ErrInvalid)}
+	}
+	detached, err := delta.Clone()
+	if err != nil {
+		return &RejectedError{Err: err}
+	}
+	if m.state == nil {
+		m.state = &State{}
+	}
+	return detached.ApplyTo(m.state)
+}

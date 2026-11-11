@@ -112,70 +112,86 @@ func (s *State) mutDocument(key string) *DocumentRecord {
 }
 
 // detachChanges validates and detaches every record the candidate added or
-// cloned, and reports whether it differs from base at all (for read-only
-// Harnesses, which compare JSON so an untouched clone is no write).
-func detachChanges(base, candidate *State, compare bool) (bool, error) {
+// cloned, collects them with the removed keys as the commit's delta, and
+// reports whether the candidate differs from base at all. With compare (a
+// read-only Harness), a clone whose JSON equals the committed record is no
+// change.
+func detachChanges(base, candidate *State, compare bool) (bool, *StateDelta, error) {
+	delta := &StateDelta{Version: candidate.Version, NextID: candidate.NextID, Root: candidate.Root}
 	changed := base.Version != candidate.Version || base.NextID != candidate.NextID || base.Root != candidate.Root
 	var err error
-	if changed, err = detachTable(base.Conversations, candidate.Conversations, compare, changed); err != nil {
-		return false, err
+	var c bool
+	if delta.Conversations, c, err = detachTable(base.Conversations, candidate.Conversations, compare); err != nil {
+		return false, nil, err
 	}
-	if changed, err = detachTable(base.Entries, candidate.Entries, compare, changed); err != nil {
-		return false, err
+	changed = changed || c
+	if delta.Entries, c, err = detachTable(base.Entries, candidate.Entries, compare); err != nil {
+		return false, nil, err
 	}
-	if changed, err = detachTable(base.Tasks, candidate.Tasks, compare, changed); err != nil {
-		return false, err
+	changed = changed || c
+	if delta.Tasks, c, err = detachTable(base.Tasks, candidate.Tasks, compare); err != nil {
+		return false, nil, err
 	}
-	if changed, err = detachTable(base.Submissions, candidate.Submissions, compare, changed); err != nil {
-		return false, err
+	changed = changed || c
+	if delta.Submissions, c, err = detachTable(base.Submissions, candidate.Submissions, compare); err != nil {
+		return false, nil, err
 	}
-	if changed, err = detachTable(base.Documents, candidate.Documents, compare, changed); err != nil {
-		return false, err
+	changed = changed || c
+	if delta.Documents, c, err = detachTable(base.Documents, candidate.Documents, compare); err != nil {
+		return false, nil, err
 	}
-	return changed, nil
+	changed = changed || c
+	delta.Removed = RemovedKeys{
+		Conversations: removedKeys(base.Conversations, candidate.Conversations),
+		Entries:       removedKeys(base.Entries, candidate.Entries),
+		Tasks:         removedKeys(base.Tasks, candidate.Tasks),
+		Submissions:   removedKeys(base.Submissions, candidate.Submissions),
+		Documents:     removedKeys(base.Documents, candidate.Documents),
+	}
+	changed = changed || len(delta.Removed.Conversations)+len(delta.Removed.Entries)+len(delta.Removed.Tasks)+
+		len(delta.Removed.Submissions)+len(delta.Removed.Documents) > 0
+	return changed, delta, nil
 }
 
-func detachTable[K comparable, V any](base, candidate map[K]*V, compare, changed bool) (bool, error) {
+// detachTable detaches the table's added or cloned records and returns them.
+func detachTable[K comparable, V any](base, candidate map[K]*V, compare bool) (map[K]*V, bool, error) {
+	var touched map[K]*V
+	changed := false
 	for key, v := range candidate {
 		committed, existed := base[key]
 		if existed && committed == v {
 			continue
 		}
 		if v == nil {
-			return false, fmt.Errorf("%w: nil record", ErrInvalid)
+			return nil, false, fmt.Errorf("%w: nil record", ErrInvalid)
 		}
 		detached, err := strictClone(v)
 		if err != nil {
-			return false, err
+			return nil, false, err
 		}
 		candidate[key] = detached
-		if changed || !compare {
-			changed = true
+		if touched == nil {
+			touched = map[K]*V{}
+		}
+		touched[key] = detached
+		if changed {
 			continue
 		}
-		if !existed {
+		if !compare || !existed {
 			changed = true
 			continue
 		}
 		before, err := json.Marshal(committed)
 		if err != nil {
-			return false, err
+			return nil, false, err
 		}
 		after, err := json.Marshal(detached)
 		if err != nil {
-			return false, err
+			return nil, false, err
 		}
 		changed = !bytes.Equal(before, after)
 	}
-	if !changed {
-		for key := range base {
-			if _, ok := candidate[key]; !ok {
-				changed = true
-				break
-			}
-		}
-	}
-	return changed, nil
+	return touched, changed, nil
 }
 
 // Detached copies of shared records, for values that leave a read of the

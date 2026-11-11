@@ -39,6 +39,9 @@ type Session struct {
 	readOnly bool
 	// committedJSON is the adopted State's JSON while verifyCommittedState.
 	committedJSON []byte
+	// fullWrite makes the next commit store the whole State: the loaded one
+	// was upgraded in memory.
+	fullWrite bool
 }
 
 type stateWatcher struct {
@@ -70,10 +73,14 @@ func NewSession(ctx context.Context, storage Storage, now func() time.Time) (*Se
 	}
 	// Upgrade only the detached in-memory snapshot. The next successful commit
 	// persists it; merely opening an older store does not write to it.
+	upgraded := st.Version != stateVersion
 	if err := upgradeState(st); err != nil {
 		return nil, fmt.Errorf("durable: cannot upgrade stored state: %w", err)
 	}
 	s := &Session{storage: storage, state: st, now: now, watchers: map[*stateWatcher]struct{}{}, closing: make(chan struct{}), closeDone: make(chan struct{})}
+	// The upgrade changed records no delta would carry: the first commit
+	// stores the whole State.
+	s.fullWrite = upgraded
 	s.recordCommitted()
 	return s, nil
 }
@@ -153,7 +160,7 @@ func (s *Session) commitLocked(ctx context.Context, fn func(*Tx) error, internal
 	s.verifyCommitted("during a commit")
 	// Strict JSON round trips of the records the callback added or changed
 	// validate them and detach every value the callback retained.
-	changed, err := detachChanges(s.state, candidate, s.readOnly)
+	changed, delta, err := detachChanges(s.state, candidate, s.readOnly)
 	if err != nil {
 		return err
 	}
@@ -173,7 +180,12 @@ func (s *Session) commitLocked(ctx context.Context, fn func(*Tx) error, internal
 	if err = ctx.Err(); err != nil {
 		return err
 	}
-	err = s.storage.Commit(ctx, s.state.Sequence, candidate)
+	if deltas, ok := s.storage.(DeltaStorage); ok && !s.fullWrite {
+		delta.Sequence = candidate.Sequence
+		err = deltas.CommitDelta(ctx, s.state.Sequence, delta)
+	} else {
+		err = s.storage.Commit(ctx, s.state.Sequence, candidate)
+	}
 	if err != nil {
 		var rejected *RejectedError
 		if !errors.As(err, &rejected) {
@@ -182,6 +194,7 @@ func (s *Session) commitLocked(ctx context.Context, fn func(*Tx) error, internal
 		return err
 	}
 	s.state = candidate
+	s.fullWrite = false
 	s.recordCommitted()
 	if s.afterCommit != nil {
 		s.afterCommit(candidate)
@@ -243,6 +256,13 @@ func (s *Session) recordCommitted() {
 		panic(fmt.Sprintf("durable: committed state is not JSON: %v", err))
 	}
 	s.committedJSON = data
+	// A test storage that can show what it holds must hold the same State,
+	// once an upgraded State has been written.
+	if stored, ok := s.storage.(interface{ storedStateJSON() []byte }); ok && !s.fullWrite {
+		if held := stored.storedStateJSON(); held != nil && !bytes.Equal(held, data) {
+			panic(fmt.Sprintf("durable: storage diverged from the committed state: %s", firstDifference(data, held)))
+		}
+	}
 }
 
 // verifyCommitted panics when the committed State changed since it was
