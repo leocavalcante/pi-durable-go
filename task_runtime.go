@@ -330,14 +330,8 @@ func applyTransition(tx *Tx, task *TaskRecord, tr TaskTransition, now time.Time)
 		if tr.WaitPolicy != "" && tr.WaitPolicy != "allSettled" && tr.WaitPolicy != "failFast" {
 			return fmt.Errorf("%w: wait policy", ErrInvalid)
 		}
-		for _, id := range tr.WaitOn {
-			target := tx.state.Tasks[id]
-			if id == task.ID || target == nil {
-				return fmt.Errorf("%w: wait target", ErrInvalid)
-			}
-			if tr.WaitPolicy == "failFast" && target.Owner.Task != task.ID {
-				return fmt.Errorf("%w: failFast requires owned children", ErrInvalid)
-			}
+		if err := checkWait(tx.state, task.ID, tr.WaitOn, tr.WaitPolicy); err != nil {
+			return err
 		}
 	}
 	if tr.Status == "terminal" {
