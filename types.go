@@ -320,6 +320,11 @@ type Settings struct {
 	RetryMax   int
 	RetryDelay time.Duration
 	MaxTurns   int // zero defaults to 100; prevents unbounded runaway calls
+	// RestartLimit ends a task cut off this many times in a row by crashes,
+	// following Pi Durable's restartLimit number setting: values below 1 and NaN
+	// select the default of 5, fractions round down, and math.Inf(1) never ends
+	// a task. A clean Close is not a crash and is never counted.
+	RestartLimit float64
 }
 type HarnessOptions struct {
 	Model               Model

@@ -3,6 +3,7 @@ package durable
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sort"
 	"sync"
 	"time"
@@ -322,7 +323,9 @@ func (s *Scheduler) reserve(id TaskID) error {
 	var resolved resolvedTask
 	var snapshot *RegistrySnapshot
 	var reports []Report
+	var cutOff *Report
 	committed, err := s.commitInternal(context.Background(), func(tx *Tx) error {
+		cutOff = nil
 		t := tx.state.Tasks[id]
 		if t == nil || t.Status == "terminal" || t.Status == "completing" {
 			return errNoChange
@@ -339,6 +342,20 @@ func (s *Scheduler) reserve(id TaskID) error {
 			}
 		} else if (t.Status != "pending" && t.Status != "waiting") || len(liveWaits(tx.state, t)) != 0 || t.WakeAt != nil && s.h.now().Before(*t.WakeAt) || belowCancellationIntent(tx.state, t) {
 			return errNoChange
+		}
+		// Work cut off restartLimit times in a row would run forever: an abort
+		// handler, or a phase of a kind that does not end itself at the limit,
+		// ends the task faulted instead. As upstream, this precedes resolution,
+		// so it also ends blocked and would-be orphaned tasks.
+		if t.Restarts > 0 && (t.AbortRequested || !limitsRestarts(t.Kind)) && cutOffTooOften(t.Restarts, s.h.restartLimit()) {
+			message := fmt.Sprintf("Task %d (%s) was cut off %d times without progress", id, t.Kind, t.Restarts)
+			if t.AbortRequested {
+				message = fmt.Sprintf("Abort handler of task %d (%s) was cut off %d times", id, t.Kind, t.Restarts)
+			}
+			cutOff = &Report{Kind: ReportTaskFaulted, Err: errors.New(message), Reason: reasonRestartLimit,
+				Extension: s.h.resolve(t.Kind, s.h.registry.Snapshot()).Extension,
+				Task:      &ReportTask{ID: id, Kind: t.Kind, Conversation: t.Conversation}}
+			return s.terminate(tx, t, Outcome{Status: OutcomeFaulted, Error: message, ErrorDetail: restartLimitDetail})
 		}
 		snapshot = s.h.registry.Snapshot()
 		var migrated *MigratedTask
@@ -372,6 +389,10 @@ func (s *Scheduler) reserve(id TaskID) error {
 		return nil
 	})
 	s.enqueueReports(reports)
+	// A fault is reported only once its write is durable.
+	if committed && cutOff != nil {
+		s.h.report(*cutOff)
+	}
 	if inv != nil {
 		if committed {
 			go s.runInvocation(id, inv, resolved, snapshot)

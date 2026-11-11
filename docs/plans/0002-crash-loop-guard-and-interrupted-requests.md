@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Status | In progress: M0 and M1 complete; M2–M6 pending (§12.1) |
+| Status | In progress: M0–M2 complete; M3–M6 pending (§12.1) |
 | Date | 2026-11-11 |
 | Compatibility target | Pi **v1.5.2**: `@earendil-works/pi-durable` and `@earendil-works/pi-ai` 1.5.2, tag `v1.5.2`, commit `b4afdddf44e059c67ccf5097e5317d913521b470` (unchanged from plan 0001) |
 | Depends on | [Plan 0001](0001-task-outcomes-and-definition-lifecycle.md), merged to `main` |
@@ -55,7 +55,15 @@ Validation on Go 1.24.3:
 - Independent read-only review found no actionable M1 correctness issues against the pinned TypeScript source.
 - `git diff --check` passed; the non-test counter writes were audited against §6.4.
 
-M2–M6 remain unimplemented. In particular, M1 only counts crashes: it does not cut off tasks or charge/retry model attempts.
+### M2: Enforcement and reports
+
+- `Settings.RestartLimit float64` is normalized like upstream `restartLimit()` (`restarts.go`): values of 1 or more round down, `math.Inf(1)` never ends a task, and anything else, including NaN, selects 5.
+- `Scheduler.reserve` checks the limit after eligibility and before `resolveForStart`. An abort-marked task, or a run of a non-built-in kind, at the limit ends through the new `Scheduler.terminate`, which `fault` now shares: upstream's run or abort-handler message, `ErrorDetail` `{"reason":"restart_limit"}`, the usual hold/cascade/cleanup path, and a `task_faulted` report with reason `restart_limit` and the current installer, queued only after the write is durable. Blocked, abandoned, and would-be orphaned tasks at the limit fault, as upstream's table orders it.
+- `settleSchedulerOutcome` ends a generation whose abort handler was cut off as `aborted`, with the fault message as JSON-string `Detail`, without converting its partial; `Busy` is cleared and queued inputs stay.
+- `TaskRuntime.Commit` reports `task_interrupted` after a successful terminal commit whose failed outcome's `ErrorDetail` reason is `restart_limit` or `interrupted`, with the count captured before the callback in `Report.Restarts` (held outcomes at commit).
+- `crash_loop_test.go` adds a crash-simulation host wrapper (uncertain commit failures over a shared backend, optional crash points) and covers real crash loops of an extension run, an extension abort handler, and an aborted generation; held-fault cascades; limit-before-resolution ordering; limit settings and reopening with a higher limit; generic interruption reports, including held outcomes; and fault-write failures that fail the Session without a task report. M1 tests that seed large counts now opt out of enforcement with `math.Inf(1)`.
+
+M3–M6 remain unimplemented: built-in runs do not end themselves at the limit, there is no upstream retry policy, and crashed model requests still resend.
 
 ## 2. Compatibility target
 

@@ -12,6 +12,9 @@ const (
 	ReportMigrationFailed ReportKind = "migration_failed"
 	ReportTaskOutdated    ReportKind = "task_outdated"
 	ReportTaskError       ReportKind = "task_error"
+	// ReportTaskInterrupted: a task committed a failed outcome whose ErrorDetail
+	// reason is restart_limit or interrupted, so crashes ended it.
+	ReportTaskInterrupted ReportKind = "task_interrupted"
 )
 
 type ReportTask struct {
@@ -26,6 +29,9 @@ type Report struct {
 	Task      *ReportTask
 	Extension string
 	Reason    string
+	// Restarts is the task's restart count before the commit that ended it
+	// (task_interrupted only).
+	Restarts int
 }
 
 // reportQueue delivers best-effort diagnostics serially without coupling

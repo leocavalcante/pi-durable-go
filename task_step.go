@@ -133,7 +133,13 @@ func (s *Scheduler) runInvocation(id TaskID, inv *taskInvocation, resolved resol
 }
 
 func (s *Scheduler) fault(tx *Tx, t *TaskRecord, cause error) error {
-	t.Outcome = &Outcome{Status: OutcomeFaulted, Error: diagnostic(cause.Error())}
+	return s.terminate(tx, t, Outcome{Status: OutcomeFaulted, Error: diagnostic(cause.Error())})
+}
+
+// terminate writes a scheduler outcome: it holds as completing while ordinary
+// owned work is live (whose cancellation it starts), else settles terminal.
+func (s *Scheduler) terminate(tx *Tx, t *TaskRecord, outcome Outcome) error {
+	t.Outcome = &outcome
 	t.Memos = nil
 	t.Restarts = 0
 	markOwned(tx.state, t.ID, "")
@@ -158,7 +164,13 @@ func (s *Scheduler) settleTerminal(tx *Tx, t *TaskRecord) error {
 // Cleanup salvages independently decodable fields: an invalid built-in
 // checkpoint caused the fault and must not turn that task fault into a Session
 // failure. Structural transaction/storage errors still fail closed.
+//
+// Only an abort handler is faulted for the restart limit here (built-in run
+// phases end themselves): the task was aborted and keeps that meaning. Its run
+// ends aborted with the fault message as detail, without converting a partial
+// whose conversion may be what keeps cutting the handler off.
 func (h *Harness) settleSchedulerOutcome(tx *Tx, task *TaskRecord) error {
+	cutOff := task.Outcome.Status == OutcomeFaulted && detailReason(task.Outcome.ErrorDetail) == reasonRestartLimit
 	switch task.Kind {
 	case "pi.generation":
 		conv, err := tx.Conversation(task.Conversation)
@@ -172,7 +184,7 @@ func (h *Harness) settleSchedulerOutcome(tx *Tx, task *TaskRecord) error {
 		_ = json.Unmarshal(task.Checkpoint, &fields)
 		var partial string
 		_ = json.Unmarshal(fields["partial"], &partial)
-		if partial != "" {
+		if partial != "" && !cutOff {
 			if _, err := tx.Append(task.Conversation, Entry{Kind: "pi.assistant", Message: &Message{Role: "assistant", Content: partial, Aborted: true}}); err != nil {
 				return err
 			}
@@ -187,6 +199,9 @@ func (h *Harness) settleSchedulerOutcome(tx *Tx, task *TaskRecord) error {
 				sub.Detail = nil
 				if task.Outcome.Status == OutcomeFaulted {
 					sub.Reason = "faulted"
+					if cutOff {
+						sub.Reason = "aborted"
+					}
 					sub.Detail, _ = json.Marshal(task.Outcome.Error)
 				}
 			}

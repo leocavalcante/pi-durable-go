@@ -3,6 +3,7 @@ package durable
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
 	"sort"
@@ -93,7 +94,9 @@ func (r *TaskRuntime) Commit(ctx context.Context, change func(*Tx) (TaskTransiti
 	if change == nil {
 		return ErrInvalid
 	}
-	return r.h.Commit(ctx, func(tx *Tx) error {
+	var interrupted *Report
+	err := r.h.Commit(ctx, func(tx *Tx) error {
+		interrupted = nil
 		if err := r.check(); err != nil {
 			return err
 		}
@@ -133,8 +136,22 @@ func (r *TaskRuntime) Commit(ctx context.Context, change func(*Tx) (TaskTransiti
 		if !sameTaskState(&previous, current) {
 			current.Restarts = 0
 		}
+		// A task that ends for crashes says so, so a host keeps a crash-loop
+		// signal: task_interrupted with the count from before this commit. A
+		// held (completing) outcome is reported when it is committed.
+		if transition.Status == "terminal" {
+			if reason := interruptionOf(transition.Outcome); reason != "" {
+				report := r.taskReport(ReportTaskInterrupted, errors.New(transition.Outcome.Error), reason)
+				report.Restarts = previous.Restarts
+				interrupted = &report
+			}
+		}
 		return nil
 	})
+	if err == nil && interrupted != nil {
+		r.h.report(*interrupted)
+	}
+	return err
 }
 
 func sameTaskState(a, b *TaskRecord) bool {

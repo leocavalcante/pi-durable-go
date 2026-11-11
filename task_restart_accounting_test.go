@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -30,6 +31,9 @@ func openRestartTestHarness(t *testing.T, store Storage, registry *Registry) *Ha
 	})
 	return h
 }
+
+// unlimitedRestarts isolates crash accounting from restart-limit enforcement.
+var unlimitedRestarts = HarnessOptions{Settings: Settings{RestartLimit: math.Inf(1)}}
 
 func restartAccountingDefinition() TaskDefinition {
 	return TaskDefinition{Kind: "test.restart-accounting", Version: 1,
@@ -430,7 +434,7 @@ func TestCrashLoopAbortMarksResetOnChange(t *testing.T) {
 func TestCrashLoopReservationAndMigrationKeepCounter(t *testing.T) {
 	for _, migrate := range []bool{false, true} {
 		t.Run(map[bool]string{false: "reservation", true: "migration"}[migrate], func(t *testing.T) {
-			h := taskTestHarness(t, HarnessOptions{})
+			h := taskTestHarness(t, unlimitedRestarts)
 			started := make(chan struct{})
 			release := make(chan struct{})
 			var migrationCalls atomic.Int32
@@ -495,7 +499,7 @@ func TestCrashLoopReservationAndMigrationKeepCounter(t *testing.T) {
 }
 
 func TestCrashLoopHandoverKeepsCounter(t *testing.T) {
-	h := taskTestHarness(t, HarnessOptions{})
+	h := taskTestHarness(t, unlimitedRestarts)
 	oldReady, releaseOld, newReady := make(chan struct{}), make(chan struct{}), make(chan struct{})
 	var releaseOnce atomic.Bool
 	defer func() {
@@ -561,7 +565,7 @@ func TestCrashLoopHandoverKeepsCounter(t *testing.T) {
 }
 
 func TestCrashLoopAbortCancellationReleaseKeepsCounter(t *testing.T) {
-	h := taskTestHarness(t, HarnessOptions{})
+	h := taskTestHarness(t, unlimitedRestarts)
 	runStarted := make(chan struct{})
 	runCanceled := make(chan struct{})
 	releaseRun := make(chan struct{})
