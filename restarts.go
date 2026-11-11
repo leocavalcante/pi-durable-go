@@ -31,7 +31,7 @@ func normalizeRestartLimit(limit float64) float64 {
 }
 
 func (h *Harness) restartLimit() float64 {
-	return normalizeRestartLimit(h.options.Settings.RestartLimit)
+	return normalizeRestartLimit(h.settings().RestartLimit)
 }
 
 // cutOffTooOften reports whether a task was cut off the restart limit times in

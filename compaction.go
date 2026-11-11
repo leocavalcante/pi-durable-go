@@ -180,7 +180,7 @@ func runCompaction(ctx context.Context, r *TaskRuntime, task TaskRecord) error {
 			}
 			// Same policy and classification as a generation, without the
 			// overflow check (Pi Durable §8.7); read when the attempt failed.
-			policy := r.h.options.Settings.Retry.resolve()
+			policy := r.h.settings().Retry.resolve()
 			attempt := checkpoint.attempt()
 			text := diagnostic(err.Error())
 			if IsRetryableModelError(err) && policy.allows(attempt) {
@@ -362,7 +362,7 @@ func selectCompaction(ctx context.Context, r *TaskRuntime, task TaskRecord, inpu
 	if conv == nil {
 		return ErrNotFound
 	}
-	policy := resolveCompaction(r.h.options.Settings.Compaction, conv.Agent.Compaction, conv.Agent.Model)
+	policy := resolveCompaction(r.h.settings().Compaction, conv.Agent.Compaction, conv.Agent.Model)
 	view, err := deriveContextView(state, task.Conversation, 0)
 	if err != nil {
 		return err
@@ -443,7 +443,7 @@ func summarizeCompaction(ctx context.Context, r *TaskRuntime, task TaskRecord, i
 			return ctx.Err()
 		}
 		text := diagnostic(err.Error())
-		policy := r.h.options.Settings.Retry.resolve()
+		policy := r.h.settings().Retry.resolve()
 		attempt := cp.attempt()
 		if IsRetryableModelError(err) && policy.allows(attempt) {
 			until := retryDeadline(r.h.now(), retryDelayMs(policy, attempt)).UnixMilli()

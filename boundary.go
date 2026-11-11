@@ -70,9 +70,9 @@ func (h *Harness) applyBoundary(tx *Tx, cid ConversationID, final bool) (boundar
 		}
 		return picked
 	}
-	users := pick("steer", h.options.Settings.SteeringMode)
+	users := pick("steer", h.settings().SteeringMode)
 	if final {
-		users = append(users, pick("followUp", h.options.Settings.FollowUpMode)...)
+		users = append(users, pick("followUp", h.settings().FollowUpMode)...)
 	}
 	sort.Slice(users, func(i, j int) bool { return users[i].ID < users[j].ID })
 	for _, item := range items {
@@ -208,7 +208,7 @@ func (h *Harness) endFailedRun(tx *Tx, cid ConversationID, live *LiveState, task
 	if err := endRun(tx, cid, live, task, end); err != nil {
 		return err
 	}
-	switch h.options.Settings.AfterFailedRun {
+	switch h.settings().AfterFailedRun {
 	case AfterFailedRunWithdraw:
 		withdrawQueuedInputs(tx, cid, "run_failed")
 	case AfterFailedRunContinue:

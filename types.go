@@ -467,9 +467,13 @@ type ProgressSettings struct {
 }
 
 type HarnessOptions struct {
-	Model               Model
-	Registry            *Registry
-	Settings            Settings
+	Model    Model
+	Registry *Registry
+	Settings Settings
+	// SettingsFunc, when set, replaces Settings and is read at each use, as
+	// upstream reads function-valued settings: a change applies to the next
+	// decision that reads it. It must not block or call the Harness.
+	SettingsFunc        func() Settings
 	Environment         func(ConversationRecord) (ExecutionEnv, error)
 	ConversationCreated func(*Tx, ConversationID) error
 	// Now is the Harness clock. Sleeping tasks store deadlines on it, so every

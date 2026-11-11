@@ -74,7 +74,6 @@ These need upstream subsystems Go does not have yet (plan 0002 §12.2):
 - A generation's phases are `prepare`, `request`, `retry`, `tools`, `finish`, and `drain`; there is no `poll` phase or deferred model handle.
 - Tool diagnostics are a flat list on `ToolResult` rendered in upstream's `<harness>` block; there is no output truncation diagnostic or per-tool output limit.
 - Compaction has no `beforeCompact` hooks. Model context windows come from an optional `ContextWindowModel`: `model.Pi` reads Pi's catalog through the bridge, while `model.OpenAI` reports its `Window` field.
-- Settings are static per Harness rather than function-valued.
 - Partials are committed as plain text messages, without upstream's incremental argument and thinking changes; there are no deferred commits (`persistWithinMs`), and tool output is not throttled.
 
 ## Deliberate differences and remaining work
@@ -117,7 +116,7 @@ This table highlights compatibility changes since the previous runtime reference
 | v1.2+ tool suite: nested/structured tools, tool callers and selection, deferred search/codemode, `afterTool`, and unoffered-call tasks | 1.2.0–1.5.0 | Partial: nested calls, structured output, callers, `modelTools`, deferred tools with `addTools`, `afterTool` on every result, sequential rounds, and unoffered-call tasks are implemented; `tool_search` is `tools.ToolSearch()`; code mode is missing. |
 | Group commit, deferred commits, progress throttling, Chord observers/views/watch events | 1.5.0 | Missing; Go commits whole snapshots and watches coalesced latest state. |
 | `SessionEnd` tagged by `kind` | 1.5.0 | Implemented as `SessionEnd.Kind`. |
-| `HarnessOptions.readOnly`, read-only JSONL open, identity/model/settings callbacks and telemetry | 1.4.0–1.5.1 | Partial: `HarnessOptions.ReadOnly` opens without recovery or scheduling and refuses commits with writes (`ErrReadOnly`); storage-level read-only opens, identity/model/settings callbacks, and telemetry are missing. |
+| `HarnessOptions.readOnly`, read-only JSONL open, identity/model/settings callbacks and telemetry | 1.4.0–1.5.1 | Partial: `HarnessOptions.ReadOnly` opens without recovery or scheduling and refuses commits with writes (`ErrReadOnly`); `HarnessOptions.SettingsFunc` is read at each use like upstream's function-valued settings; storage-level read-only opens, identity/model callbacks, and telemetry are missing. |
 | Compaction model overrides and per-conversation settings | 1.4.0, 1.5.1 | Implemented with automatic threshold and overflow compaction. |
 | Document `checkpointWhen` and indexed/delta document storage | 1.4.0–1.5.1 | Missing. |
 | `Tx.submission(id)` | 1.5.1 | Present as `Tx.Submission`. |

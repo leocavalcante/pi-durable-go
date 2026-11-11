@@ -82,6 +82,14 @@ func (h *Harness) commit(ctx context.Context, change func(*Tx) error, internal b
 }
 func (h *Harness) now() time.Time { return h.options.Now().UTC() }
 
+// settings reads the Harness settings, calling SettingsFunc at each use.
+func (h *Harness) settings() Settings {
+	if h.options.SettingsFunc != nil {
+		return h.options.SettingsFunc()
+	}
+	return h.options.Settings
+}
+
 func (h *Harness) Snapshot(ctx context.Context) (*State, error) { return h.session.Snapshot(ctx) }
 
 // Resume enables task scheduling and starts a pass. A read-only Harness

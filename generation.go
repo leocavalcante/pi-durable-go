@@ -320,7 +320,7 @@ func requestGeneration(ctx context.Context, r *TaskRuntime, task TaskRecord, cp 
 		}
 		// The policy governs the next attempt, so it is read now. An overflow
 		// never retries: only a compaction could make it fit.
-		policy := r.h.options.Settings.Retry.resolve()
+		policy := r.h.settings().Retry.resolve()
 		attempt := cp.attempt()
 		text := diagnostic(err.Error())
 		// The failed attempt is kept as an error entry, which context
@@ -500,7 +500,7 @@ func startToolRound(ctx context.Context, r *TaskRuntime, task TaskRecord, cp gen
 		offered[tool.Name] = true
 	}
 	// Read as the round starts; a tool is resolved as its tool task resolves it.
-	sequential := r.h.options.Settings.ToolExecution == "sequential"
+	sequential := r.h.settings().ToolExecution == "sequential"
 	if state, err := r.h.Snapshot(ctx); err == nil {
 		if conv := state.Conversations[task.Conversation]; conv != nil {
 			for _, tool := range r.Registry().Tools(conv.Agent) {
@@ -905,7 +905,7 @@ func endGenerationCutOff(ctx context.Context, r *TaskRuntime, task TaskRecord, c
 // ends interrupted. Nothing is classified: a crash is not an error message.
 func chargeInterruptedRequest(ctx context.Context, r *TaskRuntime, task TaskRecord, cp generationCheckpoint) error {
 	attempt := cp.attempt()
-	policy := r.h.options.Settings.Retry.resolve()
+	policy := r.h.settings().Retry.resolve()
 	retry := policy.allows(attempt)
 	until := retryDeadline(r.h.now(), retryDelayMs(policy, attempt))
 	text := fmt.Sprintf("The host stopped while the model was answering, on attempt %d", attempt)
@@ -1196,7 +1196,7 @@ type partialStream struct {
 
 func newPartialStream(r *TaskRuntime, task TaskRecord, attempt int) *partialStream {
 	interval := defaultPartialInterval
-	if ms := r.h.options.Settings.Progress.PartialIntervalMs; ms != nil && *ms >= 0 {
+	if ms := r.h.settings().Progress.PartialIntervalMs; ms != nil && *ms >= 0 {
 		interval = time.Duration(*ms * float64(time.Millisecond))
 	}
 	return &partialStream{r: r, task: task, attempt: attempt, interval: interval}
@@ -1347,7 +1347,7 @@ func thresholdCompaction(r *TaskRuntime, state *State, c ConversationRecord, req
 		return ""
 	}
 	window := float64(model.ContextWindow(c.Agent.Model))
-	policy := resolveCompaction(r.h.options.Settings.Compaction, c.Agent.Compaction, c.Agent.Model)
+	policy := resolveCompaction(r.h.settings().Compaction, c.Agent.Compaction, c.Agent.Model)
 	if !policy.enabled || window <= 0 {
 		return ""
 	}
@@ -1383,7 +1383,7 @@ func overflowCompaction(ctx context.Context, r *TaskRuntime, task TaskRecord, cp
 	if conv == nil {
 		return false, ErrNotFound
 	}
-	policy := resolveCompaction(r.h.options.Settings.Compaction, conv.Agent.Compaction, cp.Request.Model)
+	policy := resolveCompaction(r.h.settings().Compaction, conv.Agent.Compaction, cp.Request.Model)
 	if !policy.enabled {
 		return false, nil
 	}
