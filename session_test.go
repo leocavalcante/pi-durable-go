@@ -27,15 +27,16 @@ func TestSessionRollbackSequenceAndDetach(t *testing.T) {
 	if initial.Sequence != 0 || len(initial.Documents) != 0 {
 		t.Fatalf("rollback leaked: %#v", initial)
 	}
-	var escaped *State
+	// A record the callback retains is detached from the committed one.
+	var escaped *DocumentRecord
 	if err = s.Commit(ctx, func(tx *Tx) error {
-		tx.state.Documents["a"] = &DocumentRecord{Kind: "saved"}
-		escaped = tx.state
+		escaped = &DocumentRecord{Kind: "saved"}
+		tx.state.Documents["a"] = escaped
 		return nil
 	}); err != nil {
 		t.Fatal(err)
 	}
-	escaped.Documents["a"].Kind = "mutated"
+	escaped.Kind = "mutated"
 	got, err := s.Snapshot(ctx)
 	if err != nil {
 		t.Fatal(err)

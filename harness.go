@@ -64,7 +64,7 @@ func Open(ctx context.Context, storage Storage, options HarnessOptions) (*Harnes
 		return nil, err
 	}
 	if h.metrics() != nil {
-		if state, err := h.Snapshot(ctx); err == nil {
+		if state, err := h.read(ctx); err == nil {
 			h.countActive(state)
 		}
 	}
@@ -152,6 +152,11 @@ func (h *Harness) settings() Settings {
 
 func (h *Harness) Snapshot(ctx context.Context) (*State, error) { return h.session.Snapshot(ctx) }
 
+// read returns the committed State for internal reading. It is shared with
+// the Session and every other reader: never mutate it or its records. Public
+// callers get Snapshot's detached copy.
+func (h *Harness) read(ctx context.Context) (*State, error) { return h.session.view(ctx) }
+
 // Resume enables task scheduling and starts a pass. A read-only Harness
 // never schedules.
 func (h *Harness) Resume() {
@@ -181,7 +186,7 @@ func (h *Harness) WaitTask(ctx context.Context, id TaskID) (TaskRecord, error) {
 	return h.scheduler.wait(ctx, id)
 }
 func (h *Harness) Task(ctx context.Context, id TaskID) (TaskRecord, error) {
-	s, e := h.Snapshot(ctx)
+	s, e := h.read(ctx)
 	if e != nil {
 		return TaskRecord{}, e
 	}
@@ -189,5 +194,5 @@ func (h *Harness) Task(ctx context.Context, id TaskID) (TaskRecord, error) {
 	if r == nil {
 		return TaskRecord{}, ErrNotFound
 	}
-	return *r, nil
+	return *cloneRecord(r), nil
 }

@@ -101,7 +101,7 @@ func TestCrashLoopGenerationCutOffInEveryPhase(t *testing.T) {
 			h := taskTestHarness(t, HarnessOptions{Model: model, OnReport: log.add, Settings: Settings{RestartLimit: tc.limit}})
 			root := testRoot(t, h)
 			id, sub := seedGeneration(t, h, root.ID(), generationVersion, tc.checkpoint, nil)
-			if err := h.Commit(context.Background(), func(tx *Tx) error { tx.state.Tasks[id].Restarts = tc.restarts; return nil }); err != nil {
+			if err := h.Commit(context.Background(), func(tx *Tx) error { tx.state.mutTask(id).Restarts = tc.restarts; return nil }); err != nil {
 				t.Fatal(err)
 			}
 			// Submit resumes scheduling, so it follows the seeded count.
@@ -272,7 +272,7 @@ func TestCrashLoopCompactionCutOff(t *testing.T) {
 			if id, err = tx.CreateTask(c.id, compactionTaskDefinition(), input, TaskOptions{Background: true}); err != nil {
 				return err
 			}
-			task := tx.state.Tasks[id]
+			task := tx.state.mutTask(id)
 			task.Checkpoint, task.Restarts = json.RawMessage(`{"phase":"retry","attempt":1,"until":1}`), 3
 			return nil
 		}); err != nil {

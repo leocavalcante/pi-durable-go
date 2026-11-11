@@ -34,14 +34,14 @@ func (h *Harness) Wake() Wake {
 	if h == nil || h.Err() != nil || h.options.ReadOnly {
 		return Wake{}
 	}
-	state, err := h.Snapshot(context.Background())
+	state, err := h.read(context.Background())
 	if err != nil {
 		return Wake{}
 	}
 	return h.scheduler.wakeFor(state)
 }
 
-// wakeFor derives the wake from a detached snapshot, which it may modify.
+// wakeFor derives the wake from a committed State, which it only reads.
 func (s *Scheduler) wakeFor(state *State) Wake {
 	now := s.h.now()
 	s.mu.Lock()
@@ -102,7 +102,7 @@ func (s *Scheduler) wakeFor(state *State) Wake {
 		}
 		active = true
 	}
-	if !active && cascadeCancellation(state) {
+	if !active && cascadePending(state) {
 		active = true
 	}
 	return Wake{Active: active, At: at}
@@ -161,7 +161,7 @@ func (s *Scheduler) wakeLoop() {
 			return
 		case <-s.wakeDirty:
 		}
-		state, err := s.h.Snapshot(context.Background())
+		state, err := s.h.read(context.Background())
 		if err != nil {
 			continue
 		}

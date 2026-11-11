@@ -282,7 +282,7 @@ func seedGeneration(t *testing.T, h *Harness, cid ConversationID, version int, c
 			return err
 		}
 		id = live.Run.TaskID
-		task := tx.state.Tasks[id]
+		task := tx.state.mutTask(id)
 		task.Version, task.Checkpoint, task.WakeAt = version, json.RawMessage(checkpoint), wakeAt
 		if wakeAt != nil {
 			task.Status = "sleeping"

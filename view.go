@@ -56,7 +56,7 @@ func (c *Conversation) WatchWindow(ctx context.Context, window ConversationWindo
 		var view *ConversationView
 		var last []byte
 		for {
-			state, err := c.h.Snapshot(ctx)
+			state, err := c.h.read(ctx)
 			if err != nil {
 				return
 			}
@@ -140,7 +140,7 @@ func (c *Conversation) advanceView(state *State, previous *ConversationView, win
 			entries = append([]Entry(nil), entries[len(entries)-window.Min:]...)
 		}
 	}
-	view := &ConversationView{Conversation: *record, Entries: entries, Docs: map[string]json.RawMessage{}}
+	view := &ConversationView{Conversation: *cloneRecord(record), Entries: entries, Docs: map[string]json.RawMessage{}}
 	if len(entries) > 0 {
 		for i, e := range history {
 			if e.ID == entries[0].ID && i > 0 {

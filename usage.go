@@ -32,7 +32,7 @@ func recordToolUsage(tx *Tx, cid ConversationID, name string, usage Usage) error
 
 // Usage sums each conversation's own ledger, never counting owned child usage twice.
 func (h *Harness) Usage(ctx context.Context) (UsageState, error) {
-	state, err := h.Snapshot(ctx)
+	state, err := h.read(ctx)
 	if err != nil {
 		return UsageState{}, err
 	}

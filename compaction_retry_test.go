@@ -177,7 +177,7 @@ func TestBuiltinVersionCompactionMigration(t *testing.T) {
 			if id, err = tx.CreateTask(c.id, compactionTaskDefinition(), input, TaskOptions{Background: true}); err != nil {
 				return err
 			}
-			task := tx.state.Tasks[id]
+			task := tx.state.mutTask(id)
 			task.Version, task.Checkpoint = version, json.RawMessage(checkpoint)
 			return nil
 		}); err != nil {

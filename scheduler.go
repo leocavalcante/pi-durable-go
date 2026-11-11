@@ -163,7 +163,7 @@ func (s *Scheduler) writeBackStopped() {
 		defer s.mu.Unlock()
 		changed := false
 		for id := range s.stopped {
-			if task := tx.state.Tasks[id]; task != nil && task.Status == "running" {
+			if task := tx.state.mutTask(id); task != nil && task.Status == "running" {
 				task.Status = "pending"
 				changed = true
 			}
@@ -221,7 +221,7 @@ func terminalizeTask(tx *Tx, t *TaskRecord, now time.Time) {
 	}
 }
 func (s *Scheduler) dispatch() {
-	state, err := s.h.Snapshot(context.Background())
+	state, err := s.h.read(context.Background())
 	if err != nil {
 		return
 	}
@@ -244,7 +244,7 @@ func (s *Scheduler) dispatch() {
 		}
 		return
 	}
-	if cascadeCancellation(state) {
+	if cascadePending(state) {
 		if committed, _ := s.commitInternal(context.Background(), func(tx *Tx) error {
 			if !cascadeCancellation(tx.state) {
 				return errNoChange
@@ -279,7 +279,7 @@ func (s *Scheduler) dispatch() {
 		}
 		if task.Status == "completing" {
 			_, err := s.commitInternal(context.Background(), func(tx *Tx) error {
-				t := tx.state.Tasks[id]
+				t := tx.state.mutTask(id)
 				if t == nil || t.Status != "completing" || len(ownedLive(tx.state, id)) != 0 || s.active(id) != nil {
 					return errNoChange
 				}
@@ -355,7 +355,7 @@ func (s *Scheduler) active(id TaskID) *taskInvocation {
 	return s.invocations[id]
 }
 func (s *Scheduler) cancelMarked() {
-	state, err := s.h.Snapshot(context.Background())
+	state, err := s.h.read(context.Background())
 	if err != nil {
 		return
 	}
@@ -376,7 +376,7 @@ func (s *Scheduler) reserve(id TaskID) error {
 	var cutOff *Report
 	committed, err := s.commitInternal(context.Background(), func(tx *Tx) error {
 		cutOff = nil
-		t := tx.state.Tasks[id]
+		t := tx.state.mutTask(id)
 		if t == nil || t.Status == "terminal" || t.Status == "completing" {
 			return errNoChange
 		}
@@ -476,11 +476,12 @@ func (s *Scheduler) enqueueReports(reports []Report) {
 func (h *Harness) reconcile(ctx context.Context) error {
 	abandoned := make(map[TaskID]struct{})
 	_, err := h.scheduler.commitInternal(ctx, func(tx *Tx) error {
-		for _, t := range tx.state.Tasks {
+		for id, t := range tx.state.Tasks {
 			if t.AbandonOnRestart && t.Status != "terminal" {
 				abandoned[t.ID] = struct{}{}
 			}
 			if t.Status == "running" {
+				t = tx.state.mutTask(id)
 				t.Status = "pending"
 				t.Restarts++
 			}

@@ -29,7 +29,7 @@ func TestReadOnlyHarnessReadsWithoutRecoveringOrWriting(t *testing.T) {
 	if err := viewer.Commit(ctx, func(tx *Tx) error { _, err := tx.Conversation(root.ID()); return err }); err != nil {
 		t.Fatalf("a commit without writes was refused: %v", err)
 	}
-	if err := viewer.Commit(ctx, func(tx *Tx) error { tx.state.Conversations[root.ID()].Agent.Instructions = "x"; return nil }); !errors.Is(err, ErrReadOnly) {
+	if err := viewer.Commit(ctx, func(tx *Tx) error { tx.state.mutConversation(root.ID()).Agent.Instructions = "x"; return nil }); !errors.Is(err, ErrReadOnly) {
 		t.Fatalf("write error=%v", err)
 	}
 	viewerRoot, err := viewer.Conversation(ctx, root.ID())

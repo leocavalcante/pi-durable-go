@@ -23,7 +23,7 @@ func TestTaskStepFirstPhaseGate(t *testing.T) {
 			// Model a durable reservation whose goroutine has not reached its
 			// first step. The mark/seal must be checked again before user code.
 			if err := h.Commit(context.Background(), func(tx *Tx) error {
-				task := tx.state.Tasks[id]
+				task := tx.state.mutTask(id)
 				task.Status = "running"
 				if mode == "abort" {
 					markAbortTree(tx.state, id)
@@ -34,7 +34,7 @@ func TestTaskStepFirstPhaseGate(t *testing.T) {
 						return err
 					}
 					task.Owner.Task = parent
-					tx.state.Tasks[parent].AbortRequested = true
+					tx.state.mutTask(parent).AbortRequested = true
 				}
 				h.scheduler.mu.Lock()
 				h.scheduler.invocations[id] = inv

@@ -86,7 +86,7 @@ func startCloseWriteBackTask(t *testing.T, ctx context.Context, store Storage, o
 	})
 	id := createTaskForTest(t, h, def)
 	if err := h.Commit(ctx, func(tx *Tx) error {
-		task := tx.state.Tasks[id]
+		task := tx.state.mutTask(id)
 		task.Restarts = 2
 		task.Checkpoint = json.RawMessage(`{"phase":"effect"}`)
 		task.Memos = map[string]json.RawMessage{"receipt": json.RawMessage(`42`)}
@@ -124,9 +124,9 @@ func TestCloseWriteBackOnlyStoppedTasksWithoutPublication(t *testing.T) {
 	var other TaskID
 	if err := h.Commit(ctx, func(tx *Tx) error {
 		var err error
-		other, err = tx.CreateTask(tx.state.Tasks[id].Conversation, TaskDefinition{Kind: "test.missing", Version: 1, Run: func(context.Context, *TaskRuntime, TaskRecord) error { return nil }}, nil, TaskOptions{})
+		other, err = tx.CreateTask(tx.state.mutTask(id).Conversation, TaskDefinition{Kind: "test.missing", Version: 1, Run: func(context.Context, *TaskRuntime, TaskRecord) error { return nil }}, nil, TaskOptions{})
 		if err == nil {
-			tx.state.Tasks[other].Status = "running"
+			tx.state.mutTask(other).Status = "running"
 		}
 		return err
 	}); err != nil {
@@ -230,7 +230,7 @@ func TestCloseWriteBackKeepsAdmittedNonRunningState(t *testing.T) {
 					if status == "terminal" {
 						tr.Outcome = &Outcome{Status: OutcomeCompleted}
 					}
-					return applyTransition(tx, tx.state.Tasks[id], tr, h.now())
+					return applyTransition(tx, tx.state.mutTask(id), tr, h.now())
 				})
 			}()
 			select {

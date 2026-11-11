@@ -24,7 +24,7 @@ func (s *Scheduler) runInvocation(id TaskID, inv *taskInvocation, resolved resol
 		// back to pending before the fresh compensation invocation is reserved.
 		if inv.ctx.Err() != nil && s.h.Err() == nil {
 			_, _ = s.commitInternal(context.Background(), func(tx *Tx) error {
-				t := tx.state.Tasks[id]
+				t := tx.state.mutTask(id)
 				if t == nil || t.Status != "running" {
 					return errNoChange
 				}
@@ -44,7 +44,7 @@ func (s *Scheduler) runInvocation(id TaskID, inv *taskInvocation, resolved resol
 		var reports []Report
 		continuePhase := false
 		committed, err := s.commitInternal(context.Background(), func(tx *Tx) error {
-			t := tx.state.Tasks[id]
+			t := tx.state.mutTask(id)
 			end := func() error {
 				r.ended.Store(true) // close the gate while still on the Session line
 				return errNoChange

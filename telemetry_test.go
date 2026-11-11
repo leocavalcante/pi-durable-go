@@ -5,6 +5,7 @@ import (
 	"errors"
 	"sync"
 	"testing"
+	"time"
 )
 
 type recordedSpan struct {
@@ -94,7 +95,20 @@ func TestTelemetrySpansForSubmissionsAndPhases(t *testing.T) {
 	if err := root.WaitForIdle(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	telemetry.mu.Lock()
+	// A phase span ends after its decision commit; wait for every span.
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		telemetry.mu.Lock()
+		ended := true
+		for _, span := range telemetry.spans {
+			ended = ended && span.ended
+		}
+		if ended || time.Now().After(deadline) {
+			break
+		}
+		telemetry.mu.Unlock()
+		time.Sleep(5 * time.Millisecond)
+	}
 	defer telemetry.mu.Unlock()
 	var submitSpan, prepare, request *recordedSpan
 	for _, span := range telemetry.spans {

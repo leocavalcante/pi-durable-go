@@ -60,7 +60,7 @@ func TestTaskFaultGenerationCleanupWaitsForOwnedWork(t *testing.T) {
 	}
 	var generation TaskID
 	if err := h.Commit(ctx, func(tx *Tx) error {
-		generation = tx.state.Conversations[c.id].Busy
+		generation = tx.state.mutConversation(c.id).Busy
 		_, err := tx.CreateTask(c.id, child, nil, TaskOptions{Owner: Owner{Task: generation}})
 		return err
 	}); err != nil {
@@ -120,8 +120,8 @@ func TestTaskFaultMalformedGenerationCheckpointDoesNotFailSession(t *testing.T) 
 		if err != nil {
 			return err
 		}
-		tx.state.Tasks[id].Checkpoint = json.RawMessage(`{"phase":23,"partial":"salvaged"}`)
-		tx.state.Conversations[c.id].Busy = id
+		tx.state.mutTask(id).Checkpoint = json.RawMessage(`{"phase":23,"partial":"salvaged"}`)
+		tx.state.mutConversation(c.id).Busy = id
 		return nil
 	}); err != nil {
 		t.Fatal(err)

@@ -45,6 +45,9 @@ type State struct {
 	Tasks         map[TaskID]*TaskRecord                 `json:"tasks"`
 	Submissions   map[SubmissionID]*SubmissionRecord     `json:"submissions"`
 	Documents     map[string]*DocumentRecord             `json:"documents"`
+	// base is the committed State a transaction candidate shares records
+	// with; nil outside a transaction (see cow.go).
+	base *State
 }
 
 // Storage is owned by one Session. Commit must atomically publish next only if

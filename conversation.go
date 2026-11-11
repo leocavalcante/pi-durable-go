@@ -45,7 +45,7 @@ func (h *Harness) CreateConversation(ctx context.Context, opts ConversationOptio
 	return &Conversation{h: h, id: id}, nil
 }
 func (h *Harness) Conversation(ctx context.Context, id ConversationID) (*Conversation, error) {
-	s, err := h.Snapshot(ctx)
+	s, err := h.read(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -73,7 +73,7 @@ func (c *Conversation) Configure(ctx context.Context, agent Agent) error {
 	})
 }
 func (c *Conversation) Agent(ctx context.Context) (Agent, error) {
-	s, err := c.h.Snapshot(ctx)
+	s, err := c.h.read(ctx)
 	if err != nil {
 		return Agent{}, err
 	}
@@ -81,17 +81,17 @@ func (c *Conversation) Agent(ctx context.Context) (Agent, error) {
 	if rec == nil {
 		return Agent{}, ErrNotFound
 	}
-	return rec.Agent, nil
+	return *cloneRecord(&rec.Agent), nil
 }
 func (c *Conversation) Entries(ctx context.Context) ([]Entry, error) {
-	s, err := c.h.Snapshot(ctx)
+	s, err := c.h.read(ctx)
 	if err != nil {
 		return nil, err
 	}
 	return entriesFromState(s, c.id)
 }
 func (c *Conversation) Context(ctx context.Context) ([]Message, error) {
-	s, err := c.h.Snapshot(ctx)
+	s, err := c.h.read(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -253,7 +253,7 @@ func (c *Conversation) Fork(ctx context.Context, at EntryID, opts ConversationOp
 		if err != nil {
 			return err
 		}
-		child := tx.state.Conversations[id]
+		child := tx.state.mutConversation(id)
 		delete(tx.state.Entries, child.Head) // replace the unobserved creation baseline
 		child.Agent = agent
 		child.Parent = c.id
@@ -345,7 +345,7 @@ type Submission struct {
 
 func (s *Submission) ID() SubmissionID { return s.id }
 func (h *Harness) Submission(ctx context.Context, id SubmissionID) (*Submission, error) {
-	state, err := h.Snapshot(ctx)
+	state, err := h.read(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -377,7 +377,7 @@ func (c *Conversation) Submit(ctx context.Context, request SubmissionRequest) (*
 		sp.end(err)
 		return nil, err
 	}
-	if state, serr := c.h.Snapshot(ctx); serr == nil && state.Submissions[id] != nil {
+	if state, serr := c.h.read(ctx); serr == nil && state.Submissions[id] != nil {
 		result := state.Submissions[id].Status
 		if result == "unanswered" {
 			result = "done"
@@ -388,7 +388,7 @@ func (c *Conversation) Submit(ctx context.Context, request SubmissionRequest) (*
 	return &Submission{h: c.h, id: id}, nil
 }
 func (s *Submission) Record(ctx context.Context) (SubmissionRecord, error) {
-	state, err := s.h.Snapshot(ctx)
+	state, err := s.h.read(ctx)
 	if err != nil {
 		return SubmissionRecord{}, err
 	}
@@ -396,7 +396,7 @@ func (s *Submission) Record(ctx context.Context) (SubmissionRecord, error) {
 	if rec == nil {
 		return SubmissionRecord{}, ErrNotFound
 	}
-	return *rec, nil
+	return *cloneRecord(rec), nil
 }
 func (s *Submission) Wait(ctx context.Context) (SubmissionRecord, error) {
 	states, stop, err := s.h.session.watchWait(ctx)
@@ -453,7 +453,7 @@ func (c *Conversation) Reset(ctx context.Context, note string) (*Submission, err
 	return c.Submit(ctx, SubmissionRequest{Type: "write", Entry: &Entry{Kind: "pi.reset", Message: msg}})
 }
 func (c *Conversation) Abort(ctx context.Context, includeBackground bool) error {
-	state, err := c.h.Snapshot(ctx)
+	state, err := c.h.read(ctx)
 	if err != nil {
 		return err
 	}
@@ -464,8 +464,9 @@ func (c *Conversation) Abort(ctx context.Context, includeBackground bool) error 
 		}
 	}
 	if err := c.h.Commit(ctx, func(tx *Tx) error {
-		for _, sub := range tx.state.Submissions {
+		for id, sub := range tx.state.Submissions {
 			if sub.Conversation == c.id && sub.Status == "queued" && sub.Request.Type == "input" {
+				sub = tx.state.mutSubmission(id)
 				sub.Status = "unanswered"
 				sub.Reason = "aborted"
 			}

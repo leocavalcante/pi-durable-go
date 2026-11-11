@@ -191,7 +191,7 @@ func endRun(tx *Tx, cid ConversationID, live *LiveState, task TaskID, end runEnd
 
 // settleSubmission settles a live submission; settled ones are unchanged.
 func settleSubmission(tx *Tx, id SubmissionID, status string, answer EntryID, reason, detail string) {
-	sub := tx.state.Submissions[id]
+	sub := tx.state.mutSubmission(id)
 	if sub == nil || sub.Status == "done" || sub.Status == "unanswered" {
 		return
 	}

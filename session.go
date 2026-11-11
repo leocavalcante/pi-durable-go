@@ -37,6 +37,8 @@ type Session struct {
 	beforeClose func()
 	// readOnly rejects every commit with writes with ErrReadOnly.
 	readOnly bool
+	// committedJSON is the adopted State's JSON while verifyCommittedState.
+	committedJSON []byte
 }
 
 type stateWatcher struct {
@@ -71,7 +73,9 @@ func NewSession(ctx context.Context, storage Storage, now func() time.Time) (*Se
 	if err := upgradeState(st); err != nil {
 		return nil, fmt.Errorf("durable: cannot upgrade stored state: %w", err)
 	}
-	return &Session{storage: storage, state: st, now: now, watchers: map[*stateWatcher]struct{}{}, closing: make(chan struct{}), closeDone: make(chan struct{})}, nil
+	s := &Session{storage: storage, state: st, now: now, watchers: map[*stateWatcher]struct{}{}, closing: make(chan struct{}), closeDone: make(chan struct{})}
+	s.recordCommitted()
+	return s, nil
 }
 
 func (s *Session) Commit(ctx context.Context, fn func(*Tx) error) error {
@@ -133,10 +137,8 @@ func (s *Session) commitLocked(ctx context.Context, fn func(*Tx) error, internal
 		}
 		s.failLocked(err)
 	}()
-	candidate, err := cloneState(s.state)
-	if err != nil {
-		return err
-	}
+	s.verifyCommitted("before a commit")
+	candidate := shallowState(s.state)
 	tx := &Tx{state: candidate, active: true, now: s.now}
 	func() {
 		defer func() { tx.active = false }()
@@ -148,18 +150,17 @@ func (s *Session) commitLocked(ctx context.Context, fn func(*Tx) error, internal
 	if err != nil {
 		return err
 	}
+	s.verifyCommitted("during a commit")
+	// Strict JSON round trips of the records the callback added or changed
+	// validate them and detach every value the callback retained.
+	changed, err := detachChanges(s.state, candidate, s.readOnly)
+	if err != nil {
+		return err
+	}
 	if s.readOnly {
 		// A commit that writes nothing passes; one with writes is refused
 		// before it reaches storage, and nothing is adopted.
-		current, err := json.Marshal(s.state)
-		if err != nil {
-			return err
-		}
-		next, err := json.Marshal(candidate)
-		if err != nil {
-			return err
-		}
-		if !bytes.Equal(current, next) {
+		if changed {
 			return fmt.Errorf("%w: a commit with writes refused", ErrReadOnly)
 		}
 		return nil
@@ -168,12 +169,7 @@ func (s *Session) commitLocked(ctx context.Context, fn func(*Tx) error, internal
 		return fmt.Errorf("%w: sequence space exhausted", ErrInvalid)
 	}
 	candidate.Sequence = s.state.Sequence + 1
-	// Marshal/unmarshal both enforces strict JSON representability and detaches all values
-	// retained by a callback from the committed snapshot.
-	candidate, err = cloneState(candidate)
-	if err != nil {
-		return err
-	}
+	candidate.base = nil
 	if err = ctx.Err(); err != nil {
 		return err
 	}
@@ -186,6 +182,7 @@ func (s *Session) commitLocked(ctx context.Context, fn func(*Tx) error, internal
 		return err
 	}
 	s.state = candidate
+	s.recordCommitted()
 	if s.afterCommit != nil {
 		s.afterCommit(candidate)
 	}
@@ -209,7 +206,82 @@ func (s *Session) Snapshot(ctx context.Context) (*State, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+	s.verifyCommitted("a snapshot")
 	return cloneState(s.state)
+}
+
+// view returns the committed State for internal reading (see Harness.read):
+// shared and immutable, never to be mutated.
+func (s *Session) view(ctx context.Context) (*State, error) {
+	if err := s.Err(); err != nil {
+		return nil, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.Err(); err != nil {
+		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	s.verifyCommitted("a read")
+	return s.state, nil
+}
+
+// verifyCommittedState makes the Session check, in tests, that its committed
+// State never changes outside an adopted commit: copy-on-write transactions
+// and shared internal reads must leave it untouched (plan 0006).
+var verifyCommittedState bool
+
+// recordCommitted notes the adopted State for verifyCommitted.
+func (s *Session) recordCommitted() {
+	if !verifyCommittedState {
+		return
+	}
+	data, err := json.Marshal(s.state)
+	if err != nil {
+		panic(fmt.Sprintf("durable: committed state is not JSON: %v", err))
+	}
+	s.committedJSON = data
+}
+
+// verifyCommitted panics when the committed State changed since it was
+// adopted, naming the first record that differs. The caller holds s.mu.
+func (s *Session) verifyCommitted(where string) {
+	if !verifyCommittedState || s.committedJSON == nil {
+		return
+	}
+	data, err := json.Marshal(s.state)
+	if err != nil {
+		panic(fmt.Sprintf("durable: committed state is not JSON: %v", err))
+	}
+	if bytes.Equal(data, s.committedJSON) {
+		return
+	}
+	panic(fmt.Sprintf("durable: the committed state was mutated outside a commit (found %s): %s", where, firstDifference(s.committedJSON, data)))
+}
+
+// firstDifference names the first table and key whose JSON differs.
+func firstDifference(before, after []byte) string {
+	var a, b map[string]json.RawMessage
+	_ = json.Unmarshal(before, &a)
+	_ = json.Unmarshal(after, &b)
+	for field, value := range b {
+		if bytes.Equal(a[field], value) {
+			continue
+		}
+		var ta, tb map[string]json.RawMessage
+		if json.Unmarshal(a[field], &ta) != nil || json.Unmarshal(value, &tb) != nil {
+			return field
+		}
+		for key, record := range tb {
+			if !bytes.Equal(ta[key], record) {
+				return fmt.Sprintf("%s[%s]: %s -> %s", field, key, ta[key], record)
+			}
+		}
+		return field
+	}
+	return "unknown"
 }
 
 func (s *Session) Watch(ctx context.Context) (<-chan *State, func(), error) {

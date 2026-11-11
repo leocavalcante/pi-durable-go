@@ -137,7 +137,7 @@ func (tx *Tx) PutDocument(def DocumentDefinition, id uint64, value json.RawMessa
 		}
 	}
 	key := documentKey(def, id)
-	doc := tx.state.Documents[key]
+	doc := tx.state.mutDocument(key)
 	if doc == nil {
 		doc = &DocumentRecord{Kind: def.Kind, Version: def.Version, Scope: def.Scope, ScopeID: id, History: normalizeHistory(def.History), Fork: normalizeFork(def.Scope, def.Fork)}
 		tx.state.Documents[key] = doc
@@ -188,7 +188,7 @@ func ReadDocument[T any](ctx context.Context, h *Harness, def DocumentDefinition
 	if err := validateDocument(def); err != nil {
 		return value, err
 	}
-	s, err := h.Snapshot(ctx)
+	s, err := h.read(ctx)
 	if err != nil {
 		return value, err
 	}

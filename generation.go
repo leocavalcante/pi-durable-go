@@ -160,7 +160,7 @@ func prepareGeneration(ctx context.Context, r *TaskRuntime, task TaskRecord, cp 
 	if r.h.options.Model == nil {
 		return failNoModel(ctx, r, task)
 	}
-	state, err := r.h.Snapshot(ctx)
+	state, err := r.h.read(ctx)
 	if err != nil {
 		return err
 	}
@@ -168,6 +168,7 @@ func prepareGeneration(ctx context.Context, r *TaskRuntime, task TaskRecord, cp 
 	if c == nil {
 		return ErrNotFound
 	}
+	c = cloneRecord(c) // its agent reaches extension code
 	// The model owes an answer only to a context ending in a user message or
 	// tool results; otherwise the run ends before any request.
 	messages, err := contextFromState(state, task.Conversation)
@@ -349,7 +350,7 @@ func requestGeneration(ctx context.Context, r *TaskRuntime, task TaskRecord, cp 
 			return failRunTx(tx, r.h, task, runEnd{reason: RunModelError, detail: text}, text, false)
 		})
 	}
-	state, e := r.h.Snapshot(ctx)
+	state, e := r.h.read(ctx)
 	if e != nil {
 		return e
 	}
@@ -357,6 +358,7 @@ func requestGeneration(ctx context.Context, r *TaskRuntime, task TaskRecord, cp 
 	if conv == nil {
 		return ErrNotFound
 	}
+	conv = cloneRecord(conv)
 	hooks := r.Registry().hooks(conv.Agent)
 	for _, hook := range hooks {
 		if hook.AfterResponse != nil {
@@ -501,9 +503,9 @@ func startToolRound(ctx context.Context, r *TaskRuntime, task TaskRecord, cp gen
 	}
 	// Read as the round starts; a tool is resolved as its tool task resolves it.
 	sequential := r.h.settings().ToolExecution == "sequential"
-	if state, err := r.h.Snapshot(ctx); err == nil {
+	if state, err := r.h.read(ctx); err == nil {
 		if conv := state.Conversations[task.Conversation]; conv != nil {
-			for _, tool := range r.Registry().Tools(conv.Agent) {
+			for _, tool := range r.Registry().Tools(cloneRecord(conv).Agent) {
 				for _, call := range message.ToolCalls {
 					if call.Name == tool.Name && offered[call.Name] && tool.ExecutionMode == "sequential" {
 						sequential = true
@@ -572,7 +574,7 @@ func finishToolRound(ctx context.Context, r *TaskRuntime, task TaskRecord, cp ge
 	if len(cp.Pending) > 0 {
 		return startNextCall(ctx, r, task, cp)
 	}
-	state, err := r.h.Snapshot(ctx)
+	state, err := r.h.read(ctx)
 	if err != nil {
 		return err
 	}
@@ -964,11 +966,13 @@ func settleGenerationAbort(ctx context.Context, r *TaskRuntime, task TaskRecord)
 	})
 }
 
+// queuedSubmissions returns the conversation's queued submissions, mutable
+// in this transaction, in ID order.
 func queuedSubmissions(tx *Tx, cid ConversationID) []*SubmissionRecord {
 	var queued []*SubmissionRecord
-	for _, s := range tx.state.Submissions {
+	for id, s := range tx.state.Submissions {
 		if s.Conversation == cid && s.Status == "queued" {
-			queued = append(queued, s)
+			queued = append(queued, tx.state.mutSubmission(id))
 		}
 	}
 	sortSubmissions(queued)
@@ -978,7 +982,7 @@ func queuedSubmissions(tx *Tx, cid ConversationID) []*SubmissionRecord {
 // asksAfterRun reports whether the phase's agent selects an AfterRun hook, so
 // a run that answers waits for the tasks it asks for (§8.3).
 func asksAfterRun(ctx context.Context, r *TaskRuntime, task TaskRecord) (bool, error) {
-	state, err := r.h.Snapshot(ctx)
+	state, err := r.h.read(ctx)
 	if err != nil {
 		return false, err
 	}
@@ -986,6 +990,7 @@ func asksAfterRun(ctx context.Context, r *TaskRuntime, task TaskRecord) (bool, e
 	if conv == nil {
 		return false, ErrNotFound
 	}
+	conv = cloneRecord(conv)
 	for _, hook := range r.Registry().hooks(conv.Agent) {
 		if hook.AfterRun != nil {
 			return true, nil
@@ -1027,7 +1032,7 @@ func finishRun(ctx context.Context, r *TaskRuntime, task TaskRecord, cp generati
 	if cp.Run == nil {
 		return fmt.Errorf("%w: finish phase without a run", ErrInvalid)
 	}
-	state, err := r.h.Snapshot(ctx)
+	state, err := r.h.read(ctx)
 	if err != nil {
 		return err
 	}
@@ -1035,6 +1040,7 @@ func finishRun(ctx context.Context, r *TaskRuntime, task TaskRecord, cp generati
 	if conv == nil {
 		return ErrNotFound
 	}
+	conv = cloneRecord(conv)
 	snapshot := r.Registry()
 	type prepared struct {
 		definition TaskDefinition
@@ -1375,7 +1381,7 @@ func thresholdCompaction(r *TaskRuntime, state *State, c ConversationRecord, req
 // when the policy allows and a cut exists: the failed attempt is kept, and
 // the generation prepares again once the summary is in place.
 func overflowCompaction(ctx context.Context, r *TaskRuntime, task TaskRecord, cp generationCheckpoint, failed Message, text string) (bool, error) {
-	state, err := r.h.Snapshot(ctx)
+	state, err := r.h.read(ctx)
 	if err != nil {
 		return false, err
 	}
@@ -1383,6 +1389,7 @@ func overflowCompaction(ctx context.Context, r *TaskRuntime, task TaskRecord, cp
 	if conv == nil {
 		return false, ErrNotFound
 	}
+	conv = cloneRecord(conv)
 	policy := resolveCompaction(r.h.settings().Compaction, conv.Agent.Compaction, cp.Request.Model)
 	if !policy.enabled {
 		return false, nil

@@ -324,10 +324,10 @@ func TestTaskBlockedFailedMigrationPreservesSatisfiedWaitAndRetriesOnlyOnReinsta
 		if err != nil {
 			return err
 		}
-		child := tx.state.Tasks[childID]
+		child := tx.state.mutTask(childID)
 		child.Status = "terminal"
 		child.Outcome = &Outcome{Status: OutcomeCompleted}
-		parent := tx.state.Tasks[id]
+		parent := tx.state.mutTask(id)
 		parent.Status = "waiting"
 		parent.WaitOn = []TaskID{childID}
 		parent.WaitPolicy = "allSettled"
@@ -582,20 +582,20 @@ func TestTaskBlockedInspectionDerivesStatesWithoutCallingUserCode(t *testing.T) 
 		t.Fatal(err)
 	}
 	if err := h.Commit(context.Background(), func(tx *Tx) error {
-		tx.state.Tasks[ids["running"]].Status = "running"
-		waiting := tx.state.Tasks[ids["waiting"]]
+		tx.state.mutTask(ids["running"]).Status = "running"
+		waiting := tx.state.mutTask(ids["waiting"])
 		waiting.Status = "waiting"
 		waiting.WaitOn = []TaskID{ids["migrates"]}
 		waiting.WaitPolicy = "allSettled"
-		sleeping := tx.state.Tasks[ids["sleeping"]]
+		sleeping := tx.state.mutTask(ids["sleeping"])
 		sleeping.Status = "waiting"
 		wake := fixedNow.Add(time.Hour)
 		sleeping.WakeAt = &wake
-		completing := tx.state.Tasks[ids["completing"]]
+		completing := tx.state.mutTask(ids["completing"])
 		completing.Status = "completing"
 		completing.Outcome = &Outcome{Status: OutcomeCompleted}
 		for _, name := range []string{"abort", "restart"} {
-			task := tx.state.Tasks[ids[name]]
+			task := tx.state.mutTask(ids[name])
 			task.Status = "waiting"
 			wake := fixedNow.Add(time.Hour)
 			task.WakeAt = &wake
@@ -604,7 +604,7 @@ func TestTaskBlockedInspectionDerivesStatesWithoutCallingUserCode(t *testing.T) 
 				task.AbortReason = "restart"
 			}
 		}
-		tx.state.Tasks[ids["terminal"]].Status = "terminal"
+		tx.state.mutTask(ids["terminal"]).Status = "terminal"
 		tx.state.Submissions[90] = &SubmissionRecord{ID: 90, Status: "queued"}
 		tx.state.Submissions[12] = &SubmissionRecord{ID: 12, Status: "placed"}
 		tx.state.Submissions[3] = &SubmissionRecord{ID: 3, Status: "done"}

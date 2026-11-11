@@ -45,7 +45,7 @@ func (h *Harness) TaskGraph(ctx context.Context) (TaskGraph, error) {
 	if err != nil {
 		return TaskGraph{}, err
 	}
-	state, err := h.Snapshot(ctx)
+	state, err := h.read(ctx)
 	if err != nil {
 		return TaskGraph{}, err
 	}

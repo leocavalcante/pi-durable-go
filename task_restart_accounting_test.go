@@ -74,7 +74,7 @@ func TestCrashLoopOpenCountsOnlyRunningTasksOnce(t *testing.T) {
 				return err
 			}
 			ids[tc.name] = id
-			task := tx.state.Tasks[id]
+			task := tx.state.mutTask(id)
 			task.Status = tc.status
 			task.Restarts = tc.restarts
 			task.AbortRequested = tc.abort
@@ -282,7 +282,7 @@ func TestCrashLoopRuntimeCommitProgress(t *testing.T) {
 			id := createTaskForTest(t, h, definition)
 			var child, second TaskID
 			if err := h.Commit(context.Background(), func(tx *Tx) error {
-				task := tx.state.Tasks[id]
+				task := tx.state.mutTask(id)
 				task.Status = "running"
 				task.Restarts = 9
 				task.Checkpoint = json.RawMessage(`{"step":1}`)
@@ -329,7 +329,7 @@ func TestCrashLoopOutcomesClearCounter(t *testing.T) {
 		definition := restartAccountingDefinition()
 		id := createTaskForTest(t, h, definition)
 		if err := h.Commit(context.Background(), func(tx *Tx) error {
-			task := tx.state.Tasks[id]
+			task := tx.state.mutTask(id)
 			task.Status, task.Restarts = "running", 6
 			return h.scheduler.fault(tx, task, errors.New("task failed"))
 		}); err != nil {
@@ -345,7 +345,7 @@ func TestCrashLoopOutcomesClearCounter(t *testing.T) {
 		h := taskTestHarness(t, HarnessOptions{})
 		id := createTaskForTest(t, h, restartAccountingDefinition()) // Intentionally not installed.
 		if err := h.Commit(context.Background(), func(tx *Tx) error {
-			task := tx.state.Tasks[id]
+			task := tx.state.mutTask(id)
 			task.Restarts = 6
 			var reports []Report
 			_, _, err := h.scheduler.markAbort(tx, task, false, &reports)
@@ -380,14 +380,14 @@ func TestCrashLoopAbortMarksResetOnChange(t *testing.T) {
 			parent := createTaskForTest(t, h, definition)
 			var child TaskID
 			if err := h.Commit(context.Background(), func(tx *Tx) error {
-				p := tx.state.Tasks[parent]
+				p := tx.state.mutTask(parent)
 				p.Restarts = 8
 				id, err := tx.CreateTask(p.Conversation, definition, nil, TaskOptions{Owner: Owner{Task: parent}})
 				if err != nil {
 					return err
 				}
 				child = id
-				c := tx.state.Tasks[child]
+				c := tx.state.mutTask(child)
 				c.Restarts = 8
 				if tc.preMarked {
 					p.AbortRequested, p.AbortReason = true, "restart"
@@ -467,7 +467,7 @@ func TestCrashLoopReservationAndMigrationKeepCounter(t *testing.T) {
 			}
 			id := createTaskForTest(t, h, definition)
 			if err := h.Commit(context.Background(), func(tx *Tx) error {
-				task := tx.state.Tasks[id]
+				task := tx.state.mutTask(id)
 				task.Restarts = 12
 				if migrate {
 					task.Version = 1
@@ -535,7 +535,7 @@ func TestCrashLoopHandoverKeepsCounter(t *testing.T) {
 		t.Fatal(ctx.Err())
 	}
 	if err := h.Commit(ctx, func(tx *Tx) error {
-		tx.state.Tasks[id].Restarts = 13
+		tx.state.mutTask(id).Restarts = 13
 		return nil
 	}); err != nil {
 		t.Fatal(err)
@@ -600,7 +600,7 @@ func TestCrashLoopAbortCancellationReleaseKeepsCounter(t *testing.T) {
 	}
 	id := createTaskForTest(t, h, definition)
 	if err := h.Commit(context.Background(), func(tx *Tx) error {
-		tx.state.Tasks[id].Restarts = 6
+		tx.state.mutTask(id).Restarts = 6
 		return nil
 	}); err != nil {
 		t.Fatal(err)
@@ -628,7 +628,7 @@ func TestCrashLoopAbortCancellationReleaseKeepsCounter(t *testing.T) {
 	// A fresh abort mark itself resets the counter. Seed a known value after
 	// that decision while the run is still held, to isolate cancellation release.
 	if err := h.Commit(ctx, func(tx *Tx) error {
-		tx.state.Tasks[id].Restarts = 17
+		tx.state.mutTask(id).Restarts = 17
 		return nil
 	}); err != nil {
 		t.Fatal(err)

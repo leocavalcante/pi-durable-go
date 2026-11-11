@@ -60,7 +60,7 @@ func TestTaskOutcomeHoldsDropMemosAndKeepCheckpoint(t *testing.T) {
 			def := TaskDefinition{Kind: "test.hold", Version: 1, Run: func(context.Context, *TaskRuntime, TaskRecord) error { return nil }}
 			id := createTaskForTest(t, h, def)
 			err := h.Commit(context.Background(), func(tx *Tx) error {
-				task := tx.state.Tasks[id]
+				task := tx.state.mutTask(id)
 				task.Checkpoint = json.RawMessage(`{"retained":true}`)
 				task.Memos = map[string]json.RawMessage{"key": json.RawMessage(`true`)}
 				if _, err := tx.CreateTask(task.Conversation, def, nil, TaskOptions{Owner: Owner{Task: id}}); err != nil {

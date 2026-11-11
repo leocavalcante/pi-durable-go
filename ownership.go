@@ -63,6 +63,7 @@ func markAbortTreeReason(state *State, id TaskID, reason string) {
 	if task == nil || task.Status == "terminal" {
 		return
 	}
+	task = state.mutTask(id)
 	// A request always wins over an abandonment, including below this root.
 	if task.AbortRequested && task.AbortReason == "" {
 		reason = ""
@@ -86,18 +87,18 @@ func cancellationReason(task *TaskRecord) string {
 	return task.AbortReason
 }
 
-func markOwned(state *State, id TaskID, reason string) bool {
+// ownedMarks lists what markOwned would change below id: the ordinary owned
+// tasks to mark, and the queued inputs of owned conversations to withdraw.
+// It only reads state.
+func ownedMarks(state *State, id TaskID, reason string) ([]TaskID, []SubmissionID) {
 	tasks, scopes := ordinaryOwned(state, id)
-	changed := false
+	var marks []TaskID
 	for _, child := range tasks {
 		task := state.Tasks[child]
 		if task.AbortRequested && (task.AbortReason == "" || reason != "") {
 			continue
 		}
-		task.AbortRequested = true
-		task.AbortReason = reason
-		task.Restarts = 0
-		changed = true
+		marks = append(marks, child)
 	}
 	// The owner's own conversation keeps its queue. Only scopes below it are
 	// withdrawn, and queued writes remain available for display/history.
@@ -105,14 +106,29 @@ func markOwned(state *State, id TaskID, reason string) bool {
 	for _, cid := range scopes {
 		owned[cid] = true
 	}
-	for _, sub := range state.Submissions {
+	var withdrawn []SubmissionID
+	for sid, sub := range state.Submissions {
 		if owned[sub.Conversation] && sub.Status == "queued" && sub.Request.Type == "input" {
-			sub.Status = "unanswered"
-			sub.Reason = "aborted"
-			changed = true
+			withdrawn = append(withdrawn, sid)
 		}
 	}
-	return changed
+	return marks, withdrawn
+}
+
+func markOwned(state *State, id TaskID, reason string) bool {
+	marks, withdrawn := ownedMarks(state, id, reason)
+	for _, child := range marks {
+		task := state.mutTask(child)
+		task.AbortRequested = true
+		task.AbortReason = reason
+		task.Restarts = 0
+	}
+	for _, sid := range withdrawn {
+		sub := state.mutSubmission(sid)
+		sub.Status = "unanswered"
+		sub.Reason = "aborted"
+	}
+	return len(marks) > 0 || len(withdrawn) > 0
 }
 
 func cascadeCancellation(state *State) bool {
@@ -123,6 +139,20 @@ func cascadeCancellation(state *State) bool {
 		}
 	}
 	return changed
+}
+
+// cascadePending reports, without writing, whether cascadeCancellation would
+// change state.
+func cascadePending(state *State) bool {
+	for id, task := range state.Tasks {
+		if !cancellationIntent(task) {
+			continue
+		}
+		if marks, withdrawn := ownedMarks(state, id, cancellationReason(task)); len(marks) > 0 || len(withdrawn) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // belowCancellationIntent is checked again in the reservation/commit callback,

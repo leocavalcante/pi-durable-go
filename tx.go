@@ -35,7 +35,7 @@ func (tx *Tx) Conversation(id ConversationID) (*ConversationRecord, error) {
 	if err := tx.check(); err != nil {
 		return nil, err
 	}
-	c := tx.state.Conversations[id]
+	c := tx.state.mutConversation(id)
 	if c == nil {
 		return nil, ErrNotFound
 	}
@@ -45,7 +45,7 @@ func (tx *Tx) Entry(id EntryID) (*Entry, error) {
 	if err := tx.check(); err != nil {
 		return nil, err
 	}
-	e := tx.state.Entries[id]
+	e := tx.state.mutEntry(id)
 	if e == nil {
 		return nil, ErrNotFound
 	}
@@ -55,7 +55,7 @@ func (tx *Tx) Task(id TaskID) (*TaskRecord, error) {
 	if err := tx.check(); err != nil {
 		return nil, err
 	}
-	t := tx.state.Tasks[id]
+	t := tx.state.mutTask(id)
 	if t == nil {
 		return nil, ErrNotFound
 	}
@@ -65,7 +65,7 @@ func (tx *Tx) Submission(id SubmissionID) (*SubmissionRecord, error) {
 	if err := tx.check(); err != nil {
 		return nil, err
 	}
-	s := tx.state.Submissions[id]
+	s := tx.state.mutSubmission(id)
 	if s == nil {
 		return nil, ErrNotFound
 	}
@@ -226,7 +226,7 @@ func entriesFromState(s *State, cid ConversationID) ([]Entry, error) {
 		if e == nil {
 			return nil, fmt.Errorf("%w: missing entry %d", ErrInvalid, id)
 		}
-		entries = append(entries, *e)
+		entries = append(entries, e.detached())
 		id = e.Parent
 	}
 	for i, j := 0, len(entries)-1; i < j; i, j = i+1, j-1 {

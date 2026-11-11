@@ -152,7 +152,7 @@ func seedTask(t *testing.T, h *Harness, cid ConversationID, definition TaskDefin
 			return err
 		}
 		if seed != nil {
-			seed(tx.state.Tasks[id])
+			seed(tx.state.mutTask(id))
 		}
 		return nil
 	}); err != nil {

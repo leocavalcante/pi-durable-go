@@ -354,7 +354,7 @@ func selectCompaction(ctx context.Context, r *TaskRuntime, task TaskRecord, inpu
 	if r.h.options.Model == nil {
 		return failCompaction(ctx, r, task, "No model is configured", RunNoModel)
 	}
-	state, err := r.h.Snapshot(ctx)
+	state, err := r.h.read(ctx)
 	if err != nil {
 		return err
 	}
@@ -362,6 +362,7 @@ func selectCompaction(ctx context.Context, r *TaskRuntime, task TaskRecord, inpu
 	if conv == nil {
 		return ErrNotFound
 	}
+	conv = cloneRecord(conv)
 	policy := resolveCompaction(r.h.settings().Compaction, conv.Agent.Compaction, conv.Agent.Model)
 	view, err := deriveContextView(state, task.Conversation, 0)
 	if err != nil {
@@ -436,7 +437,7 @@ func summarizeCompaction(ctx context.Context, r *TaskRuntime, task TaskRecord, i
 	if r.h.options.Model == nil {
 		return failCompaction(ctx, r, task, "No model is configured", RunNoModel)
 	}
-	state, err := r.h.Snapshot(ctx)
+	state, err := r.h.read(ctx)
 	if err != nil {
 		return err
 	}
@@ -444,6 +445,7 @@ func summarizeCompaction(ctx context.Context, r *TaskRuntime, task TaskRecord, i
 	if conv == nil {
 		return ErrNotFound
 	}
+	conv = cloneRecord(conv)
 	view, err := deriveContextView(state, task.Conversation, cp.Tail)
 	if err != nil {
 		return err

@@ -116,7 +116,7 @@ func TestToolProgressIsNotTaskProgress(t *testing.T) {
 	}
 	<-started
 	before := toolTask(t, h)
-	if err := h.Commit(ctx, func(tx *Tx) error { tx.state.Tasks[before.ID].Restarts = 3; return nil }); err != nil {
+	if err := h.Commit(ctx, func(tx *Tx) error { tx.state.mutTask(before.ID).Restarts = 3; return nil }); err != nil {
 		t.Fatal(err)
 	}
 	close(release)
@@ -254,10 +254,10 @@ func TestToolProgressLegacyCheckpointOutput(t *testing.T) {
 				if tool, err = tx.CreateTask(root.ID(), toolTaskDefinition(), input, TaskOptions{Owner: Owner{Task: generation}}); err != nil {
 					return err
 				}
-				record := tx.state.Tasks[tool]
+				record := tx.state.mutTask(tool)
 				record.Version = 1
 				record.Checkpoint = json.RawMessage(`{"phase":"execute","arguments":{},"replaySafe":` + map[bool]string{true: "true", false: "false"}[safe] + `,"output":"legacy output"}`)
-				owner := tx.state.Tasks[generation]
+				owner := tx.state.mutTask(generation)
 				owner.Status = "waiting"
 				owner.WaitOn, owner.WaitPolicy = []TaskID{tool}, "allSettled"
 				owner.Checkpoint, _ = json.Marshal(generationCheckpoint{Phase: "tools", Children: []TaskID{tool}, Assistant: assistant})

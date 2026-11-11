@@ -242,7 +242,7 @@ func (r *ToolRuntime) Env() (ExecutionEnv, error) {
 	if r.h.options.Environment == nil {
 		return nil, fmt.Errorf("durable: no execution environment configured")
 	}
-	state, err := r.h.Snapshot(context.Background())
+	state, err := r.h.read(context.Background())
 	if err != nil {
 		return nil, err
 	}
@@ -250,7 +250,7 @@ func (r *ToolRuntime) Env() (ExecutionEnv, error) {
 	if c == nil {
 		return nil, ErrNotFound
 	}
-	env, err := r.h.options.Environment(*c)
+	env, err := r.h.options.Environment(*cloneRecord(c))
 	if err != nil {
 		r.ReportHost(err, "env")
 	}
@@ -263,7 +263,7 @@ func (r *ToolRuntime) DeferredTools(ctx context.Context) ([]ToolDefinition, erro
 	if err := r.check(); err != nil {
 		return nil, err
 	}
-	state, err := r.h.Snapshot(ctx)
+	state, err := r.h.read(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -271,6 +271,7 @@ func (r *ToolRuntime) DeferredTools(ctx context.Context) ([]ToolDefinition, erro
 	if conv == nil {
 		return nil, ErrNotFound
 	}
+	conv = cloneRecord(conv)
 	tools := r.Registry().Tools(conv.Agent)
 	offered := map[string]bool{}
 	for _, tool := range offeredTools(tools, conv.Agent.ModelTools) {

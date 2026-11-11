@@ -97,7 +97,7 @@ func (r *TaskRuntime) Outcomes(ctx context.Context, ids []TaskID) ([]Outcome, er
 	if err := r.check(); err != nil {
 		return nil, err
 	}
-	state, err := r.h.Snapshot(ctx)
+	state, err := r.h.read(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -113,7 +113,7 @@ func (r *TaskRuntime) Outcomes(ctx context.Context, ids []TaskID) ([]Outcome, er
 		if task.Status != "terminal" || task.Outcome == nil {
 			return nil, fmt.Errorf("%w: task %d is not terminal", ErrInvalid, id)
 		}
-		out = append(out, *task.Outcome)
+		out = append(out, *cloneRecord(task.Outcome))
 	}
 	return out, nil
 }
@@ -242,7 +242,7 @@ func (r *TaskRuntime) Entries(ctx context.Context, minID, maxID EntryID) ([]Entr
 	if err := r.check(); err != nil {
 		return nil, err
 	}
-	state, err := r.h.Snapshot(ctx)
+	state, err := r.h.read(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -330,7 +330,7 @@ func (r *TaskRuntime) Memo(ctx context.Context, key string, candidate json.RawMe
 		return nil, fmt.Errorf("%w: memo key", ErrInvalid)
 	}
 	if candidate == nil {
-		state, err := r.h.Snapshot(ctx)
+		state, err := r.h.read(ctx)
 		if err != nil {
 			return nil, err
 		}
@@ -373,7 +373,7 @@ func (r *TaskRuntime) OwnedTasks(ctx context.Context) ([]TaskRecord, error) {
 	if err := r.check(); err != nil {
 		return nil, err
 	}
-	state, err := r.h.Snapshot(ctx)
+	state, err := r.h.read(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -383,7 +383,7 @@ func (r *TaskRuntime) OwnedTasks(ctx context.Context) ([]TaskRecord, error) {
 	owned := make([]TaskRecord, 0)
 	for _, task := range state.Tasks {
 		if task.Owner.Task == r.ID && task.Status != "terminal" {
-			owned = append(owned, *task)
+			owned = append(owned, *cloneRecord(task))
 		}
 	}
 	sort.Slice(owned, func(i, j int) bool { return owned[i].ID < owned[j].ID })

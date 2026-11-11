@@ -74,8 +74,8 @@ func TestRuntimeCommitRejectsDurableAbortBeforeSignal(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		tx.state.Tasks[parent].AbortRequested = true
-		tx.state.Tasks[child].Status = "running"
+		tx.state.mutTask(parent).AbortRequested = true
+		tx.state.mutTask(child).Status = "running"
 		return nil
 	}); err != nil {
 		t.Fatal(err)
@@ -90,8 +90,8 @@ func TestRuntimeCommitRejectsDurableAbortBeforeSignal(t *testing.T) {
 		t.Fatalf("run commit after owner intent: error=%v called=%v", err, called)
 	}
 	if err := h.Commit(ctx, func(tx *Tx) error {
-		tx.state.Tasks[parent].AbortRequested = false
-		tx.state.Tasks[child].AbortRequested = true
+		tx.state.mutTask(parent).AbortRequested = false
+		tx.state.mutTask(child).AbortRequested = true
 		return nil
 	}); err != nil {
 		t.Fatal(err)
@@ -246,8 +246,8 @@ func TestOwnedTasksAndAbortOwned(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		tx.state.Tasks[terminal].Outcome = &Outcome{Status: "completed"}
-		terminalizeTask(tx, tx.state.Tasks[terminal], time.Now())
+		tx.state.mutTask(terminal).Outcome = &Outcome{Status: "completed"}
+		terminalizeTask(tx, tx.state.mutTask(terminal), time.Now())
 		markAbortTreeReason(tx.state, first, "restart")
 		cid, err := tx.CreateConversation(ConversationOptions{Owner: Owner{Task: parentID}})
 		if err != nil {

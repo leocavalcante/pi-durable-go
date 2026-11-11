@@ -34,7 +34,7 @@ func TestTaskWaitCancellationDoesNotJoinBlockedStorage(t *testing.T) {
 				var sid SubmissionID
 				if err := h.Commit(context.Background(), func(tx *Tx) error {
 					sid = SubmissionID(tx.id())
-					tx.state.Submissions[sid] = &SubmissionRecord{ID: sid, Conversation: tx.state.Tasks[id].Conversation, Request: SubmissionRequest{Type: "input", Content: "queued"}, Status: "queued"}
+					tx.state.Submissions[sid] = &SubmissionRecord{ID: sid, Conversation: tx.state.mutTask(id).Conversation, Request: SubmissionRequest{Type: "input", Content: "queued"}, Status: "queued"}
 					return nil
 				}); err != nil {
 					t.Fatal(err)

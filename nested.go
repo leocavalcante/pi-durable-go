@@ -156,7 +156,7 @@ func (r *ToolRuntime) ExecuteTool(ctx context.Context, name string, args json.Ra
 	if err != nil {
 		return NestedToolResult{}, err
 	}
-	state, err := r.h.Snapshot(wait)
+	state, err := r.h.read(wait)
 	if err != nil {
 		return NestedToolResult{}, err
 	}

@@ -761,10 +761,10 @@ func TestTaskRuntimeOutcomesOrderValidationAndDetachment(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		tx.state.Tasks[first].Outcome = &Outcome{Status: OutcomeCompleted, Result: json.RawMessage(`{"value":"first"}`)}
-		terminalizeTask(tx, tx.state.Tasks[first], time.Now())
-		tx.state.Tasks[second].Outcome = &Outcome{Status: OutcomeFailed, Error: "second failed", Result: json.RawMessage(`{"value":"second"}`)}
-		terminalizeTask(tx, tx.state.Tasks[second], time.Now())
+		tx.state.mutTask(first).Outcome = &Outcome{Status: OutcomeCompleted, Result: json.RawMessage(`{"value":"first"}`)}
+		terminalizeTask(tx, tx.state.mutTask(first), time.Now())
+		tx.state.mutTask(second).Outcome = &Outcome{Status: OutcomeFailed, Error: "second failed", Result: json.RawMessage(`{"value":"second"}`)}
+		terminalizeTask(tx, tx.state.mutTask(second), time.Now())
 		return nil
 	}); err != nil {
 		t.Fatal(err)
@@ -802,10 +802,10 @@ func TestTaskOrphanBuiltinGenerationCleanupIsAtomic(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		task := tx.state.Tasks[id]
+		task := tx.state.mutTask(id)
 		task.Version = def.Version + 1
 		task.Checkpoint = checkpoint
-		tx.state.Conversations[c.id].Busy = id
+		tx.state.mutConversation(c.id).Busy = id
 		tx.state.Submissions[77] = &SubmissionRecord{ID: 77, Conversation: c.id, Status: "placed", Request: SubmissionRequest{Type: "input"}, CreatedAt: time.Now()}
 		return tx.PutDocument(orphanTaskDocument, uint64(id), json.RawMessage(`{"retire":true}`))
 	}); err != nil {

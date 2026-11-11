@@ -85,7 +85,7 @@ func resolveToolCall(ctx context.Context, r *TaskRuntime, task TaskRecord) (*too
 	if err := json.Unmarshal(task.Checkpoint, &call.cp); err != nil {
 		return nil, err
 	}
-	state, err := r.h.Snapshot(ctx)
+	state, err := r.h.read(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -93,6 +93,7 @@ func resolveToolCall(ctx context.Context, r *TaskRuntime, task TaskRecord) (*too
 	if c == nil {
 		return nil, ErrNotFound
 	}
+	c = cloneRecord(c)
 	registry := r.Registry()
 	// A nested call resolves among the tools callable by tools.
 	caller := "model"
@@ -135,7 +136,7 @@ func (call *toolCall) afterTool(ctx context.Context, result ToolResult) ToolResu
 func (call *toolCall) fromSlot(ctx context.Context, r *TaskRuntime, task TaskRecord, code, message string) (ToolResult, error) {
 	result := harnessError(code, message)
 	result.Content = call.cp.Output
-	state, err := r.h.Snapshot(ctx)
+	state, err := r.h.read(ctx)
 	if err != nil {
 		return ToolResult{}, err
 	}
