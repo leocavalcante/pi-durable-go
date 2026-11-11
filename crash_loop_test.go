@@ -564,10 +564,7 @@ func TestCrashLoopAbortedGenerationEndsAbortedWhenCutOff(t *testing.T) {
 		t.Fatal(err)
 	}
 	taskID := state.Conversations[root.ID()].Busy
-	var cp generationCheckpoint
-	if err := json.Unmarshal(state.Tasks[taskID].Checkpoint, &cp); err != nil || cp.Partial != "half" {
-		t.Fatalf("partial not committed: %s error=%v", state.Tasks[taskID].Checkpoint, err)
-	}
+	waitPartial(t, h, root.ID(), "half")
 	if _, err := h.AbortTask(ctx, taskID); err != nil && !errors.Is(err, ErrPoisoned) && !errors.Is(err, errSimulatedCrash) {
 		t.Fatal(err)
 	}

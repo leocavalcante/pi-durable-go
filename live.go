@@ -1,7 +1,9 @@
 package durable
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strconv"
@@ -57,6 +59,8 @@ type LiveAfterRun struct {
 // LiveGeneration presents the current generation attempt.
 type LiveGeneration struct {
 	Attempt int `json:"attempt"`
+	// Message is the committed, throttled partial of the in-flight response.
+	Message *Message `json:"message,omitempty"`
 	// Retry is the durable backoff before the next attempt.
 	Retry *LiveRetry `json:"retry,omitempty"`
 }
@@ -268,4 +272,14 @@ func readRunLive(tx *Tx, task TaskRecord) (*LiveState, error) {
 		live.Run = &LiveRun{TaskID: task.ID, Inputs: append([]SubmissionID{}, input.Submissions...)}
 	}
 	return live, nil
+}
+
+// Live reads this conversation's pi.live run control and presentation; an
+// absent document reads as empty.
+func (c *Conversation) Live(ctx context.Context) (LiveState, error) {
+	live, err := ReadDocument[LiveState](ctx, c.h, liveDocument, uint64(c.id))
+	if errors.Is(err, ErrNotFound) {
+		return LiveState{}, nil
+	}
+	return live, err
 }

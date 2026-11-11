@@ -94,6 +94,7 @@ func TestInterruptedRequestChargedAndRetried(t *testing.T) {
 	}
 	id := busyTask(t, h, root.ID())
 	model.waitStreamed(t, ctx)
+	waitPartial(t, h, root.ID(), "partial 1")
 	hosts.crash(h)
 	h = hosts.open(nil)
 	if task, err := h.Task(ctx, id); err != nil || task.Restarts != 1 || task.Status != "pending" || generationPhase(task).Phase != "request" {
@@ -147,6 +148,7 @@ func TestInterruptedRequestEndsWhenNoRetryLeft(t *testing.T) {
 	}
 	id := busyTask(t, h, root.ID())
 	model.waitStreamed(t, ctx)
+	waitPartial(t, h, root.ID(), "partial 1")
 	hosts.crash(h)
 	h = hosts.open(nil)
 	h.Resume()
@@ -156,6 +158,7 @@ func TestInterruptedRequestEndsWhenNoRetryLeft(t *testing.T) {
 	if n := model.waitStreamed(t, ctx); n != 2 {
 		t.Fatalf("second attempt is call %d", n)
 	}
+	waitPartial(t, h, root.ID(), "partial 2")
 	hosts.crash(h)
 	h = hosts.open(nil)
 	h.Resume()
@@ -218,6 +221,7 @@ func TestInterruptedRequestChargedOnceAcrossCleanClose(t *testing.T) {
 	}
 	id := busyTask(t, h, root.ID())
 	model.waitStreamed(t, ctx)
+	waitPartial(t, h, root.ID(), "partial 1")
 	hosts.crash(h)
 	// Open and close cleanly without resuming: the count stays, nothing more.
 	h = hosts.open(nil)

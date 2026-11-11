@@ -511,3 +511,57 @@ func TestRunControlStateVersionThreeUpgrade(t *testing.T) {
 		t.Fatalf("the upgraded run did not finish: %+v", record)
 	}
 }
+
+// waitPartial waits until a streamed partial is committed to pi.live, as a
+// crash test must before killing the host: partial commits are throttled.
+func waitPartial(t *testing.T, h *Harness, cid ConversationID, text string) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		live := readLiveState(t, h, cid)
+		if live.Generation != nil && live.Generation.Message != nil && live.Generation.Message.Content == text {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("partial %q never committed: %+v", text, live.Generation)
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
+func TestPartialProgressIsThrottledPresentation(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	release := make(chan struct{})
+	model := taskModelFunc(func(ctx context.Context, request ModelRequest, delta func(string) error) (ModelResponse, error) {
+		for i := 0; i < 50; i++ {
+			if err := delta("x"); err != nil {
+				return ModelResponse{}, err
+			}
+		}
+		<-release
+		return ModelResponse{Content: strings.Repeat("x", 50)}, nil
+	})
+	interval := 30.0
+	h, root := runHarness(t, model, Settings{Progress: ProgressSettings{PartialIntervalMs: &interval}})
+	before, _ := h.Snapshot(ctx)
+	sub := submit(t, root, SubmissionRequest{Content: "hi"})
+	waitPartial(t, h, root.ID(), strings.Repeat("x", 50))
+	after, _ := h.Snapshot(ctx)
+	// Fifty deltas commit in a few throttled writes, never to the checkpoint.
+	if commits := after.Sequence - before.Sequence; commits > 10 {
+		t.Fatalf("%d commits for one throttled stream", commits)
+	}
+	for _, task := range after.Tasks {
+		if task.Kind == "pi.generation" && strings.Contains(string(task.Checkpoint), "xxxx") {
+			t.Fatalf("a partial reached the checkpoint: %s", task.Checkpoint)
+		}
+	}
+	close(release)
+	if record := waitSettled(t, h, sub); record.Status != "done" {
+		t.Fatalf("submission=%+v", record)
+	}
+	if live := readLiveState(t, h, root.ID()); live.Generation != nil {
+		t.Fatalf("the answer left its partial: %+v", live.Generation)
+	}
+}

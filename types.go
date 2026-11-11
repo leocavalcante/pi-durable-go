@@ -387,12 +387,23 @@ type Settings struct {
 	// starts the next run with them, and AfterFailedRunWithdraw settles them
 	// unanswered with reason run_failed.
 	AfterFailedRun string
+	// Progress paces presentation commits (upstream settings.progress).
+	Progress ProgressSettings
 	// RestartLimit ends a task cut off this many times in a row by crashes,
 	// following Pi Durable's restartLimit number setting: values below 1 and NaN
 	// select the default of 5, fractions round down, and math.Inf(1) never ends
 	// a task. A clean Close is not a crash and is never counted.
 	RestartLimit float64
 }
+
+// ProgressSettings paces commits of streamed progress. A nil field keeps
+// upstream's default.
+type ProgressSettings struct {
+	// PartialIntervalMs: a streamed partial answer is committed to
+	// pi.live.generation.message at most this often (default 100).
+	PartialIntervalMs *float64
+}
+
 type HarnessOptions struct {
 	Model               Model
 	Registry            *Registry

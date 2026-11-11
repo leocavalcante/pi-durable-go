@@ -75,7 +75,7 @@ These need upstream subsystems Go does not have yet (plan 0002 §12.2):
 - Tool results written by the Harness have no structured diagnostics and no `afterTool` hooks; the `restart_limit` result uses Go's result form.
 - No automatic or overflow compaction, so an overflow fails the run.
 - Settings are static per Harness rather than function-valued.
-- Generation partials live in the checkpoint rather than `pi.live.generation.message`.
+- Partials are committed as plain text messages, without upstream's incremental argument and thinking changes; there are no deferred commits (`persistWithinMs`), and tool output is not throttled.
 
 ## Deliberate differences and remaining work
 
@@ -93,7 +93,7 @@ The v1.2+ tool suite is not implemented: tagged model/nested tool-task inputs, n
 
 Explicit compaction is checkpointed. Automatic threshold/background compaction, provider-overflow recovery, compaction model overrides, and per-conversation compaction settings are absent. Compaction requests do not pass through generation hooks; summaries and resets do not delete original entries. Local environments provide filesystem/shell access, not a VM or container boundary; the Cloudflare Durable Object adapter, remote environment protocol, bounded binary/directory readers, filesystem watcher, and PowerShell tool are absent. Local shell needs `/bin/sh`; JSONL currently needs Unix advisory locks. Reads load the full file before bounding displayed output, and atomic replacement does not preserve hard-link aliases.
 
-Streaming progress commits directly rather than using upstream's default throttle. Prompt/tool choices are journaled, but native positional system/tool update caching is not reproduced. The Pi adapter forwards session IDs for best-effort provider affinity without retaining process-local continuation caches. Usage and cost are best-effort; interrupted streams without usage receipts cannot provide exact billing totals. Custom models/tools must honor cancellation. No distributed scheduler/lease/fencing implementation is provided.
+Streamed partial answers are committed to `pi.live.generation.message` at most every `Settings.Progress.PartialIntervalMs` (default 100 ms), with one commit in flight, as upstream does; a close or crash loses an uncommitted tail. Tool output still commits on each `ToolRuntime.Output` call. Prompt/tool choices are journaled, but native positional system/tool update caching is not reproduced. The Pi adapter forwards session IDs for best-effort provider affinity without retaining process-local continuation caches. Usage and cost are best-effort; interrupted streams without usage receipts cannot provide exact billing totals. Custom models/tools must honor cancellation. No distributed scheduler/lease/fencing implementation is provided.
 
 ### Release status
 

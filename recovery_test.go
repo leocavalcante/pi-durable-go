@@ -182,6 +182,21 @@ func TestRestartPreparedModelRequestAndCommittedPartial(t *testing.T) {
 	case <-ctx.Done():
 		t.Fatal("model did not start")
 	}
+	// Partial commits are throttled: wait until this one is stored.
+	for {
+		live, err := root.Live(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if live.Generation != nil && live.Generation.Message != nil && live.Generation.Message.Content == "partial" {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			t.Fatal("partial never committed")
+		case <-time.After(time.Millisecond):
+		}
+	}
 	if err := h.Close(ctx); err != nil {
 		t.Fatal(err)
 	}

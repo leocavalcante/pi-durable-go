@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -224,27 +225,38 @@ func requestGeneration(ctx context.Context, r *TaskRuntime, task TaskRecord, cp 
 	if r.h.options.Model == nil {
 		return failNoModel(ctx, r, task)
 	}
-	if cp.Partial != "" {
-		err := r.Commit(ctx, func(tx *Tx) (TaskTransition, error) {
-			if _, err := tx.Append(task.Conversation, Entry{Kind: "pi.assistant", Message: abortedMessage(cp.Partial, cp.Request.ThinkingLevel)}); err != nil {
+	// A partial left by an interrupted attempt becomes an aborted entry, and
+	// the attempt shown is presentation, in pi.live.
+	attempt := cp.attempt()
+	if err := r.Commit(ctx, func(tx *Tx) (TaskTransition, error) {
+		if err := convertPartial(tx, task); err != nil {
+			return TaskTransition{}, err
+		}
+		if err := updateLive(tx, task.Conversation, func(live *LiveState) error {
+			live.Generation = &LiveGeneration{Attempt: attempt}
+			return nil
+		}); err != nil {
+			return TaskTransition{}, err
+		}
+		checkpoint := task.Checkpoint
+		if cp.Partial != "" { // a legacy checkpoint partial, converted above
+			cleared := cp
+			cleared.Partial = ""
+			var err error
+			if checkpoint, err = json.Marshal(cleared); err != nil {
 				return TaskTransition{}, err
 			}
-			cp.Partial = ""
-			data, err := json.Marshal(cp)
-			return TaskTransition{Status: "running", Checkpoint: data}, err
-		})
-		if err != nil {
-			return err
 		}
+		return TaskTransition{Status: "running", Checkpoint: checkpoint}, nil
+	}); err != nil {
+		return err
 	}
+	cp.Partial = ""
+	stream := newPartialStream(r, task, attempt)
 	started := time.Now()
-	response, err := r.h.options.Model.Generate(ctx, cp.Request, func(delta string) error {
-		cp.Partial += delta
-		return r.Commit(ctx, func(*Tx) (TaskTransition, error) {
-			data, err := json.Marshal(cp)
-			return TaskTransition{Status: "running", Checkpoint: data}, err
-		})
-	})
+	response, err := r.h.options.Model.Generate(ctx, cp.Request, stream.delta)
+	stream.stop()
+	partial := stream.text()
 	responseDurationMs := time.Since(started).Milliseconds()
 	if err != nil {
 		if ctx.Err() != nil {
@@ -257,7 +269,7 @@ func requestGeneration(ctx context.Context, r *TaskRuntime, task TaskRecord, cp 
 		text := diagnostic(err.Error())
 		// The failed attempt is kept as an error entry, which context
 		// derivation excludes, with what it streamed.
-		failed := Message{Role: "assistant", Content: cp.Partial, Aborted: true, StopReason: "error", ErrorMessage: text,
+		failed := Message{Role: "assistant", Content: partial, Aborted: true, StopReason: "error", ErrorMessage: text,
 			ThinkingLevel: cp.Request.ThinkingLevel, Usage: response.Usage}
 		if !IsContextOverflowError(err, cp.Request.Model.Provider) && IsRetryableModelError(err) && policy.allows(attempt) {
 			until := retryDeadline(r.h.now(), retryDelayMs(policy, attempt))
@@ -742,8 +754,10 @@ func failRunTx(tx *Tx, h *Harness, task TaskRecord, end runEnd, message string, 
 	return TaskTransition{Status: "terminal", Outcome: &Outcome{Status: OutcomeFailed, Error: diagnostic(message), ErrorDetail: errorDetail}}, nil
 }
 
-// convertPartial appends the committed partial of the task's current
-// checkpoint as an aborted assistant entry.
+// convertPartial appends a committed partial left by an interrupted,
+// aborted, faulted, or orphaned attempt as an aborted assistant entry and
+// removes it from pi.live.generation. Records from before partials moved to
+// pi.live kept theirs in the checkpoint.
 func convertPartial(tx *Tx, task TaskRecord) error {
 	current, err := tx.Task(task.ID)
 	if err != nil {
@@ -753,6 +767,16 @@ func convertPartial(tx *Tx, task TaskRecord) error {
 	_ = json.Unmarshal(current.Checkpoint, &fields)
 	var partial string
 	_ = json.Unmarshal(fields["partial"], &partial)
+	if live, err := readLive(tx, task.Conversation); err == nil && live.Generation != nil && live.Generation.Message != nil &&
+		(live.Run == nil || live.Run.TaskID == task.ID) {
+		if partial == "" {
+			partial = live.Generation.Message.Content
+		}
+		live.Generation.Message = nil
+		if err := writeLive(tx, task.Conversation, live); err != nil {
+			return err
+		}
+	}
 	if partial == "" {
 		return nil
 	}
@@ -1036,4 +1060,107 @@ func endAnsweredCutOff(ctx context.Context, r *TaskRuntime, task TaskRecord, cp 
 		r.h.report(report)
 	}
 	return err
+}
+
+// defaultPartialInterval is upstream's progress.partialIntervalMs default.
+const defaultPartialInterval = 100 * time.Millisecond
+
+// partialStream commits a streamed partial to pi.live.generation.message at
+// most every Settings.Progress.PartialIntervalMs, with one commit in flight,
+// on the invocation's pacing timer (upstream streamResponse). Partials are
+// presentation, not task progress: the checkpoint does not change.
+type partialStream struct {
+	r        *TaskRuntime
+	task     TaskRecord
+	attempt  int
+	interval time.Duration
+	mu       sync.Mutex
+	partial  strings.Builder
+	dirty    bool
+	armed    bool
+	stopped  bool
+	disarm   func()
+	inFlight sync.WaitGroup
+}
+
+func newPartialStream(r *TaskRuntime, task TaskRecord, attempt int) *partialStream {
+	interval := defaultPartialInterval
+	if ms := r.h.options.Settings.Progress.PartialIntervalMs; ms != nil && *ms >= 0 {
+		interval = time.Duration(*ms * float64(time.Millisecond))
+	}
+	return &partialStream{r: r, task: task, attempt: attempt, interval: interval}
+}
+
+func (p *partialStream) delta(text string) error {
+	if err := p.r.check(); err != nil {
+		return err
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.partial.WriteString(text)
+	p.dirty = true
+	if !p.armed && !p.stopped {
+		p.armed = true
+		p.disarm = p.r.SetTimer(p.flush, p.interval)
+	}
+	return nil
+}
+
+func (p *partialStream) flush() {
+	p.mu.Lock()
+	if p.stopped || !p.dirty {
+		p.armed = false
+		p.mu.Unlock()
+		return
+	}
+	text := p.partial.String()
+	p.dirty = false
+	p.inFlight.Add(1)
+	p.mu.Unlock()
+	err := p.r.Commit(context.Background(), func(tx *Tx) (TaskTransition, error) {
+		current, err := tx.Task(p.task.ID)
+		if err != nil {
+			return TaskTransition{}, err
+		}
+		if err := updateLive(tx, p.task.Conversation, func(live *LiveState) error {
+			if live.Generation == nil {
+				live.Generation = &LiveGeneration{Attempt: p.attempt}
+			}
+			live.Generation.Message = &Message{Role: "assistant", Content: text}
+			return nil
+		}); err != nil {
+			return TaskTransition{}, err
+		}
+		return TaskTransition{Status: "running", Checkpoint: current.Checkpoint}, nil
+	})
+	p.inFlight.Done()
+	if err != nil && p.r.check() == nil {
+		p.r.Report(err) // the committed state stays consistent
+	}
+	p.mu.Lock()
+	p.armed = false
+	if p.dirty && !p.stopped {
+		p.armed = true
+		p.disarm = p.r.SetTimer(p.flush, p.interval)
+	}
+	p.mu.Unlock()
+}
+
+// stop ends throttling and waits for a commit in flight, so no stale partial
+// lands after the attempt's outcome.
+func (p *partialStream) stop() {
+	p.mu.Lock()
+	p.stopped = true
+	disarm := p.disarm
+	p.mu.Unlock()
+	if disarm != nil {
+		disarm()
+	}
+	p.inFlight.Wait()
+}
+
+func (p *partialStream) text() string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.partial.String()
 }

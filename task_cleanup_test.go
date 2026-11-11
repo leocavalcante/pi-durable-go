@@ -42,6 +42,7 @@ func TestTaskFaultGenerationCleanupWaitsForOwnedWork(t *testing.T) {
 	case <-ctx.Done():
 		t.Fatal(ctx.Err())
 	}
+	waitPartial(t, h, c.id, "committed partial")
 	queued, err := c.Submit(ctx, SubmissionRequest{Content: "queued"})
 	if err != nil {
 		t.Fatal(err)
