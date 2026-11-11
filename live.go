@@ -43,6 +43,15 @@ type LiveRun struct {
 	// started it placed, a continue's the failed run's; otherwise its first
 	// tool-calling answer.
 	First EntryID `json:"first,omitempty"`
+	// AfterRun is present once the run answered and its generation waits for
+	// the tasks AfterRun hooks asked for, listed once created. The run then
+	// ends without a failure, however it ends.
+	AfterRun *LiveAfterRun `json:"afterRun,omitempty"`
+}
+
+// LiveAfterRun lists a held run's after-run tasks.
+type LiveAfterRun struct {
+	Tasks []TaskID `json:"tasks,omitempty"`
 }
 
 // LiveGeneration presents the current generation attempt.

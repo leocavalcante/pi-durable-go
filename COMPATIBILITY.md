@@ -71,7 +71,7 @@ Accounting leaves State version 2 unchanged. The first open counts `running` rec
 These need upstream subsystems Go does not have yet (plan 0002 §12.2):
 
 - `AfterResponse` sees only successful responses; a failed attempt is stored as an error entry (`StopReason: "error"` with its `ErrorMessage` and partial) that context derivation excludes.
-- A generation's phases are `prepare`, `request`, `retry`, and `tools`; there are no `poll`/`finish`/`drain` phases, `afterRun` hooks, or deferred model handles.
+- A generation's phases are `prepare`, `request`, `retry`, `tools`, `finish`, and `drain`; there is no `poll` phase or deferred model handle.
 - Tool results written by the Harness have no structured diagnostics and no `afterTool` hooks; the `restart_limit` result uses Go's result form.
 - No automatic or overflow compaction, so an overflow fails the run.
 - Settings are static per Harness rather than function-valued.
@@ -112,7 +112,7 @@ This table highlights compatibility changes since the previous runtime reference
 | Full wait-cycle validation across wait and ownership edges | 1.2.0 | Implemented: a wait that would close a cycle through wait and live ordinary ownership edges is rejected with upstream's messages; abort-marked waiters and background subtrees add no edges. |
 | Durable `sleeping`, `sleepUntil`, timers, wake API | 1.4.0 | Implemented ([plan 0003](docs/plans/0003-durable-sleeping-and-wakeups.md)): `sleeping` status, `SleepUntil`, timer-driven passes without polling, `SetTimer`, `OnWake`, `Harness.Wake()`, and invocation-bound `TaskRuntime.SetTimer`. |
 | `afterFailedRun`; `pi.live.runFailure`; continue-submission/idle policies and per-conversation `maxTurns` | 1.4.0, 1.5.0 | Implemented ([plan 0004](docs/plans/0004-run-control-and-run-failures.md)); the global `Settings.MaxTurns` safeguard is removed, as upstream has none. |
-| Conversation submission hooks, run-end/provider hooks, task/host entry access | 1.5.0 | Missing. |
+| Conversation submission hooks, run-end/provider hooks, task/host entry access | 1.5.0 | Partial: `Hooks.AfterRun` holds an answered run for the tasks it asks for (`finish`/`drain`, `RunSummary`, `RunEndTask`); provider-payload hooks and task/host entry readers are missing. |
 | Tool `handoff` continuation and persistence of each assistant attempt's requested `thinkingLevel` | 1.5.0 | Implemented: a handoff appends its reset and the run continues in the new context; assistant messages record `ThinkingLevel`, `StopReason` (a `length` stop is an answer whose cut-off calls never run), and a failed attempt's `ErrorMessage`. |
 | v1.2+ tool suite: nested/structured tools, tool callers and selection, deferred search/codemode, `afterTool`, and unoffered-call tasks | 1.2.0–1.5.0 | Missing; see Agent execution above. |
 | Group commit, deferred commits, progress throttling, Chord observers/views/watch events | 1.5.0 | Missing; Go commits whole snapshots and watches coalesced latest state. |

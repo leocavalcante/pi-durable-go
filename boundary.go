@@ -163,7 +163,9 @@ func endRun(tx *Tx, cid ConversationID, live *LiveState, task TaskID, end runEnd
 			for _, id := range inputs {
 				settleSubmission(tx, id, "done", end.answer, "", "")
 			}
-		} else {
+		} else if live.Run.AfterRun == nil {
+			// A run that answered already, and runs only its after-run tasks,
+			// records no failure, however it ends.
 			settlement := runSettlement{reason: end.reason, detail: end.detail}
 			if end.settlement != nil {
 				settlement = *end.settlement

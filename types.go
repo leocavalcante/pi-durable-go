@@ -335,6 +335,34 @@ type Hooks struct {
 	AfterTool     func(context.Context, *ToolResult, *ToolRuntime) error
 	AfterTools    func(context.Context, []ToolResult, *TaskRuntime) error
 	OnYield       func(context.Context, ModelResponse, *TaskRuntime) (string, error)
+	// AfterRun runs once a run answered, or every call of its tool round asked
+	// to terminate, before the run's final boundary. The tasks it asks for are
+	// created as the generation's children, and the run ends once they are
+	// terminal; queued items stay queued meanwhile. A crash asks again: nothing
+	// was created yet. A failing hook or rejected request is reported as
+	// extension_error and skipped.
+	AfterRun func(context.Context, RunSummary, *TaskRuntime) ([]RunEndTask, error)
+}
+
+// RunSummary says how a run ended, for AfterRun hooks. Read its history from
+// First through Last.
+type RunSummary struct {
+	// Reason is answer, or terminate for a tool round whose every call asked
+	// to terminate.
+	Reason string `json:"reason"`
+	// First is the run's first entry; the answer for a run that has none.
+	First EntryID `json:"first"`
+	// Answer is the answer, or the terminating round's tool-calling answer.
+	Answer EntryID `json:"answer"`
+	// Last is the run's last entry.
+	Last EntryID `json:"last"`
+}
+
+// RunEndTask is a task an AfterRun hook asks for: an installed, non-built-in
+// kind and its JSON input. It is created from the installed definition.
+type RunEndTask struct {
+	Kind  string
+	Input json.RawMessage
 }
 type Extension struct {
 	Name      string

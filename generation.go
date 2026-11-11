@@ -28,6 +28,8 @@ type generationCheckpoint struct {
 	Turns     int          `json:"turns,omitempty"` // version 2 only
 	Children  []TaskID     `json:"children,omitempty"`
 	Assistant EntryID      `json:"assistant,omitempty"`
+	// Run is the answered run whose AfterRun hooks the finish phase asks.
+	Run *RunSummary `json:"run,omitempty"`
 }
 
 func (cp generationCheckpoint) attempt() int {
@@ -100,6 +102,10 @@ func runGeneration(ctx context.Context, r *TaskRuntime, task TaskRecord) error {
 		if limit := r.h.restartLimit(); cutOffTooOften(task.Restarts, limit) {
 			return endGenerationCutOff(ctx, r, task, cp, limit)
 		}
+	case "finish", "drain":
+		if cutOffTooOften(task.Restarts, r.h.restartLimit()) {
+			return endAnsweredCutOff(ctx, r, task, cp)
+		}
 	}
 	switch cp.Phase {
 	case "prepare":
@@ -128,6 +134,11 @@ func runGeneration(ctx context.Context, r *TaskRuntime, task TaskRecord) error {
 		})
 	case "tools":
 		return finishToolRound(ctx, r, task, cp)
+	case "finish":
+		return finishRun(ctx, r, task, cp)
+	case "drain":
+		// The after-run tasks are terminal, whatever their outcomes.
+		return endAnsweredRun(ctx, r, task, cp.Assistant)
 	default:
 		return fmt.Errorf("%w: generation phase %q", ErrInvalid, cp.Phase)
 	}
@@ -330,6 +341,10 @@ func appendAssistant(tx *Tx, cid ConversationID, model ModelRef, message Message
 // Otherwise the run's inputs settle done, and selected user items start the
 // next run.
 func answer(ctx context.Context, r *TaskRuntime, task TaskRecord, cp generationCheckpoint, message Message, continuation string) error {
+	afterRun, err := asksAfterRun(ctx, r, task)
+	if err != nil {
+		return err
+	}
 	return r.Commit(ctx, func(tx *Tx) (TaskTransition, error) {
 		cid := task.Conversation
 		continues := continuation != ""
@@ -351,6 +366,13 @@ func answer(ctx context.Context, r *TaskRuntime, task TaskRecord, cp generationC
 			return TaskTransition{}, err
 		}
 		completed := TaskTransition{Status: "terminal", Outcome: &Outcome{Status: OutcomeCompleted, Result: result}}
+		if !continues && afterRun {
+			// Commit A of a run with after-run hooks: the final boundary
+			// waits for the run's end, so queued items stay queued.
+			if held, ok := holdRun(tx, live, task.ID, RunSummary{Reason: "answer", Answer: entry, Last: entry}); ok {
+				return held, writeLive(tx, cid, live)
+			}
+		}
 		boundary, err := r.h.applyBoundary(tx, cid, true)
 		if err != nil {
 			return TaskTransition{}, err
@@ -486,6 +508,19 @@ func finishToolRound(ctx context.Context, r *TaskRuntime, task TaskRecord, cp ge
 	// Read from the phase's agent; a Configure during the round applies at
 	// its end.
 	maxTurns := conv.Agent.MaxTurns
+	afterRun := false
+	if terminate {
+		if afterRun, err = asksAfterRun(ctx, r, task); err != nil {
+			return err
+		}
+	}
+	var newestResult EntryID
+	for _, id := range cp.Children {
+		var result toolTaskResult
+		if child := state.Tasks[id]; child != nil && child.Outcome != nil && json.Unmarshal(child.Outcome.Result, &result) == nil && result.EntryID > newestResult {
+			newestResult = result.EntryID
+		}
+	}
 	return r.Commit(ctx, func(tx *Tx) (TaskTransition, error) {
 		cid := task.Conversation
 		live, err := readRunLive(tx, task)
@@ -497,11 +532,23 @@ func finishToolRound(ctx context.Context, r *TaskRuntime, task TaskRecord, cp ge
 			return TaskTransition{}, err
 		}
 		completed := TaskTransition{Status: "terminal", Outcome: &Outcome{Status: OutcomeCompleted, Result: result}}
+		// The run's last entry so far: the newest result, or the assistant.
+		last := cp.Assistant
+		if newestResult > last {
+			last = newestResult
+		}
 		if handoff != "" {
 			// The handoff's reset precedes every queued item, so queued writes
 			// and selected steers land in its context.
-			if _, err := tx.Append(cid, Entry{Kind: "pi.reset", Message: &Message{Role: "user", Content: handoff}}); err != nil {
+			reset, err := tx.Append(cid, Entry{Kind: "pi.reset", Message: &Message{Role: "user", Content: handoff}})
+			if err != nil {
 				return TaskTransition{}, err
+			}
+			last = reset
+		}
+		if afterRun {
+			if held, ok := holdRun(tx, live, task.ID, RunSummary{Reason: "terminate", Answer: cp.Assistant, Last: last}); ok {
+				return held, writeLive(tx, cid, live)
 			}
 		}
 		turns := 0
@@ -791,4 +838,202 @@ func queuedSubmissions(tx *Tx, cid ConversationID) []*SubmissionRecord {
 	}
 	sortSubmissions(queued)
 	return queued
+}
+
+// asksAfterRun reports whether the phase's agent selects an AfterRun hook, so
+// a run that answers waits for the tasks it asks for (§8.3).
+func asksAfterRun(ctx context.Context, r *TaskRuntime, task TaskRecord) (bool, error) {
+	state, err := r.h.Snapshot(ctx)
+	if err != nil {
+		return false, err
+	}
+	conv := state.Conversations[task.Conversation]
+	if conv == nil {
+		return false, ErrNotFound
+	}
+	for _, hook := range r.Registry().hooks(conv.Agent) {
+		if hook.AfterRun != nil {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// holdRun is commit A of a run that answered with AfterRun hooks selected: it
+// settles the run's inputs done with the answer and keeps pi.live.run for the
+// after-run tasks, which the finish phase asks the hooks for.
+func holdRun(tx *Tx, live *LiveState, task TaskID, summary RunSummary) (TaskTransition, bool) {
+	run := live.Run
+	if run == nil || run.TaskID != task {
+		return TaskTransition{}, false
+	}
+	for _, id := range run.Inputs {
+		settleSubmission(tx, id, "done", summary.Answer, "", "")
+	}
+	run.Inputs = []SubmissionID{}
+	run.AfterRun = &LiveAfterRun{}
+	live.Generation, live.Tools = nil, nil
+	// A run started before First was recorded has its answer as first.
+	summary.First = run.First
+	if summary.First == 0 {
+		summary.First = summary.Answer
+	}
+	next, err := json.Marshal(generationCheckpoint{Phase: "finish", Run: &summary})
+	if err != nil {
+		return TaskTransition{}, false
+	}
+	return TaskTransition{Status: "running", Checkpoint: next}, true
+}
+
+// finishRun asks the AfterRun hooks for tasks and creates them as the
+// generation's children in the commit that moves to drain; without any, the
+// run ends now.
+func finishRun(ctx context.Context, r *TaskRuntime, task TaskRecord, cp generationCheckpoint) error {
+	if cp.Run == nil {
+		return fmt.Errorf("%w: finish phase without a run", ErrInvalid)
+	}
+	state, err := r.h.Snapshot(ctx)
+	if err != nil {
+		return err
+	}
+	conv := state.Conversations[task.Conversation]
+	if conv == nil {
+		return ErrNotFound
+	}
+	snapshot := r.Registry()
+	type prepared struct {
+		definition TaskDefinition
+		input      json.RawMessage
+	}
+	var tasks []prepared
+	for _, hook := range snapshot.hooks(conv.Agent) {
+		if hook.AfterRun == nil {
+			continue
+		}
+		var asked []RunEndTask
+		if err := containPanic(func() error {
+			var err error
+			asked, err = hook.AfterRun(ctx, *cp.Run, r)
+			return err
+		}); err != nil {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			r.reportExtension(err, hook.extension)
+			continue
+		}
+		// Check each request off the line, so a broken one is skipped instead
+		// of failing the creating commit.
+		for _, request := range asked {
+			definition, ok := snapshot.Task(request.Kind)
+			switch {
+			case strings.HasPrefix(request.Kind, "pi."):
+				r.reportExtension(fmt.Errorf("an AfterRun hook cannot start the built-in task %s", request.Kind), hook.extension)
+			case !ok:
+				r.reportExtension(fmt.Errorf("task %s is not installed", request.Kind), hook.extension)
+			case len(request.Input) > 0 && !json.Valid(request.Input):
+				r.reportExtension(fmt.Errorf("task %s input is not JSON", request.Kind), hook.extension)
+			default:
+				tasks = append(tasks, prepared{definition: definition, input: request.Input})
+			}
+		}
+	}
+	if len(tasks) == 0 {
+		return endAnsweredRun(ctx, r, task, cp.Run.Answer)
+	}
+	return r.Commit(ctx, func(tx *Tx) (TaskTransition, error) {
+		cid := task.Conversation
+		var ids []TaskID
+		for _, prepared := range tasks {
+			id, err := tx.CreateTask(cid, prepared.definition, prepared.input, TaskOptions{Owner: Owner{Task: task.ID}})
+			if err != nil {
+				return TaskTransition{}, err
+			}
+			ids = append(ids, id)
+		}
+		live, err := readRunLive(tx, task)
+		if err != nil {
+			return TaskTransition{}, err
+		}
+		if live.Run != nil && live.Run.TaskID == task.ID && live.Run.AfterRun != nil {
+			live.Run.AfterRun.Tasks = ids
+		}
+		if err := writeLive(tx, cid, live); err != nil {
+			return TaskTransition{}, err
+		}
+		next, err := json.Marshal(generationCheckpoint{Phase: "drain", Assistant: cp.Run.Answer, Children: ids})
+		return TaskTransition{Status: "waiting", Checkpoint: next, WaitOn: ids, WaitPolicy: "allSettled"}, err
+	})
+}
+
+// endAnsweredRun is commit B of a run that answered: its after-run tasks are
+// terminal, or there were none. Place what the final boundary selects, end
+// the run, and start the next one for selected user items.
+func endAnsweredRun(ctx context.Context, r *TaskRuntime, task TaskRecord, answer EntryID) error {
+	return r.Commit(ctx, func(tx *Tx) (TaskTransition, error) {
+		return endAnsweredRunTx(tx, r.h, task, answer)
+	})
+}
+
+func endAnsweredRunTx(tx *Tx, h *Harness, task TaskRecord, answer EntryID) (TaskTransition, error) {
+	cid := task.Conversation
+	live, err := readRunLive(tx, task)
+	if err != nil {
+		return TaskTransition{}, err
+	}
+	boundary, err := h.applyBoundary(tx, cid, true)
+	if err != nil {
+		return TaskTransition{}, err
+	}
+	if err := endRun(tx, cid, live, task.ID, runEnd{done: true, answer: answer}); err != nil {
+		return TaskTransition{}, err
+	}
+	if len(boundary.users) > 0 {
+		if err := startRun(tx, cid, live, boundary.users, boundary.first, false); err != nil {
+			return TaskTransition{}, err
+		}
+	}
+	if err := writeLive(tx, cid, live); err != nil {
+		return TaskTransition{}, err
+	}
+	result, err := json.Marshal(map[string]EntryID{"entryId": answer})
+	if err != nil {
+		return TaskTransition{}, err
+	}
+	return TaskTransition{Status: "terminal", Outcome: &Outcome{Status: OutcomeCompleted, Result: result}}, nil
+}
+
+// endAnsweredCutOff ends a run that answered once its finish or drain phase
+// was cut off restartLimit times: it ends completed, without a failure and
+// without the tasks it would still wait for, and is reported as
+// task_interrupted. Queued items stay queued, as after a failed run.
+func endAnsweredCutOff(ctx context.Context, r *TaskRuntime, task TaskRecord, cp generationCheckpoint) error {
+	answer := cp.Assistant
+	if cp.Run != nil {
+		answer = cp.Run.Answer
+	}
+	text := fmt.Sprintf("The generation was interrupted %s in its %s phase", cutOffCount(task.Restarts), cp.Phase)
+	err := r.Commit(ctx, func(tx *Tx) (TaskTransition, error) {
+		live, err := readRunLive(tx, task)
+		if err != nil {
+			return TaskTransition{}, err
+		}
+		if err := endRun(tx, task.Conversation, live, task.ID, runEnd{done: true, answer: answer}); err != nil {
+			return TaskTransition{}, err
+		}
+		if err := writeLive(tx, task.Conversation, live); err != nil {
+			return TaskTransition{}, err
+		}
+		result, err := json.Marshal(map[string]EntryID{"entryId": answer})
+		if err != nil {
+			return TaskTransition{}, err
+		}
+		return TaskTransition{Status: "terminal", Outcome: &Outcome{Status: OutcomeCompleted, Result: result}}, nil
+	})
+	if err == nil {
+		report := r.taskReport(ReportTaskInterrupted, fmt.Errorf("%s", text), reasonRestartLimit)
+		report.Restarts = task.Restarts
+		r.h.report(report)
+	}
+	return err
 }
