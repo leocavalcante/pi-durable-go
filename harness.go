@@ -74,10 +74,16 @@ func (h *Harness) commit(ctx context.Context, change func(*Tx) error, internal b
 			}
 			return nil
 		}
-		if change == nil {
+		if change != nil {
+			if err := change(tx); err != nil {
+				return err
+			}
+		}
+		// Derived in the same commit: pi.inbox mirrors the queued submissions.
+		if h.options.ReadOnly {
 			return nil
 		}
-		return change(tx)
+		return syncInboxes(tx)
 	}, internal)
 }
 func (h *Harness) now() time.Time { return h.options.Now().UTC() }

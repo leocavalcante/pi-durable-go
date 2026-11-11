@@ -1,7 +1,9 @@
 package durable
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"sort"
 )
 
@@ -87,4 +89,89 @@ func placeWrite(tx *Tx, cid ConversationID, submission *SubmissionRecord) error 
 
 func sortSubmissions(items []*SubmissionRecord) {
 	sort.Slice(items, func(i, j int) bool { return items[i].ID < items[j].ID })
+}
+
+// InboxItem is one queued submission in pi.inbox: user input for a run
+// (mode steer or followUp, with its content and the entry it is placed as
+// when not pi.user), or an entry write (mode write).
+type InboxItem struct {
+	ID      SubmissionID `json:"id"`
+	Mode    string       `json:"mode"`
+	Content string       `json:"content,omitempty"`
+	Entry   *Entry       `json:"entry,omitempty"`
+}
+
+// InboxState is the built-in pi.inbox document: one conversation's
+// submissions waiting for a boundary, in ID order.
+type InboxState struct {
+	Items []InboxItem `json:"items"`
+}
+
+var inboxDocument = DocumentDefinition{Kind: "pi.inbox", Version: 1, Scope: "conversation", History: "latest", Fork: "initial",
+	Initial: func() any { return InboxState{Items: []InboxItem{}} }}
+
+// syncInboxes keeps each conversation's pi.inbox equal to its queued
+// submissions, in the commit that changed them.
+func syncInboxes(tx *Tx) error {
+	queued := map[ConversationID][]*SubmissionRecord{}
+	for _, sub := range tx.state.Submissions {
+		if sub.Status == "queued" {
+			queued[sub.Conversation] = append(queued[sub.Conversation], sub)
+		}
+	}
+	conversations := map[ConversationID]bool{}
+	for cid := range queued {
+		conversations[cid] = true
+	}
+	for key, doc := range tx.state.Documents {
+		if doc.Kind == inboxDocument.Kind && doc.Scope == "conversation" {
+			_ = key
+			conversations[ConversationID(doc.ScopeID)] = true
+		}
+	}
+	for cid := range conversations {
+		if tx.state.Conversations[cid] == nil {
+			continue
+		}
+		items := []InboxItem{}
+		subs := queued[cid]
+		sortSubmissions(subs)
+		for _, sub := range subs {
+			item := InboxItem{ID: sub.ID}
+			switch sub.Request.Type {
+			case "write":
+				item.Mode, item.Entry = "write", sub.Request.Entry
+			default:
+				item.Mode, item.Content = queueMode(sub.Request), sub.Request.Content
+				if sub.Request.Entry != nil {
+					item.Entry = &Entry{Kind: sub.Request.Entry.Kind, Data: sub.Request.Entry.Data}
+				}
+			}
+			items = append(items, item)
+		}
+		data, err := json.Marshal(InboxState{Items: items})
+		if err != nil {
+			return err
+		}
+		doc := tx.state.Documents[documentKey(inboxDocument, uint64(cid))]
+		if doc == nil && len(items) == 0 {
+			continue
+		}
+		if doc != nil && jsonEqual(doc.Value, data) {
+			continue
+		}
+		if err := tx.PutDocument(inboxDocument, uint64(cid), data); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// Inbox reads this conversation's queued submissions as pi.inbox shows them.
+func (c *Conversation) Inbox(ctx context.Context) (InboxState, error) {
+	inbox, err := ReadDocument[InboxState](ctx, c.h, inboxDocument, uint64(c.id))
+	if errors.Is(err, ErrNotFound) {
+		return InboxState{Items: []InboxItem{}}, nil
+	}
+	return inbox, err
 }

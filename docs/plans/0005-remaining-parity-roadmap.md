@@ -19,16 +19,15 @@
 | G: upstream compaction (`select`/`summarize`/`retry`), threshold and overflow compaction, policy layers, `BeforeCompact`, context windows | `compaction.go`, `compaction_policy.go` |
 | H (part): throttled partials in `pi.live.generation.message` | `generation.go` |
 | J (most): stop reasons, error entries, thinking levels, length answers, `AfterRun` with `finish`/`drain`, handoff continuation | `generation.go` |
-| Read-only open, `SettingsFunc`, `SubmitTx`, `TaskRuntime.Entries` | `session.go`, `harness.go`, `conversation.go` |
+| Read-only open, `SettingsFunc`, `SubmitTx`, `TaskRuntime.Entries`, `pi.inbox`, tool output limits | `session.go`, `harness.go`, `conversation.go`, `inbox.go`, `tool_task.go` |
 
 ## 2. Remaining work, in proposed order
 
 1. **Tool output throttling.** `progress.outputIntervalMs` and dropped-size counters on running output. (Result bounds with `OutputLimits` and `truncated` diagnostics are done.)
-2. **`pi.inbox` document.** Queued items as an observable document, as upstream clients read them.
-3. **Entry and transcript reads.** `Conversation.entries(query, limit, cursor)` paging, conversation view windows, `ConversationTranscript`, and the task-graph watch.
-4. **Telemetry.** Spans and events through an optional host adapter, with `host_error` reports for a failing adapter.
-5. **I: storage.** Indexed records instead of whole snapshots, group commit, and deferred commits (`persistWithinMs`). This is the largest change: whole-snapshot commits cost grows with history.
-6. **Environment parity.** The `env` package's bounded binary and directory readers, file watching, and PowerShell, in `tools`.
+2. **Entry and transcript reads.** `Conversation.entries(query, limit, cursor)` paging, conversation view windows, `ConversationTranscript`, and the task-graph watch.
+3. **Telemetry.** Spans and events through an optional host adapter, with `host_error` reports for a failing adapter.
+4. **I: storage.** Indexed records instead of whole snapshots, group commit, and deferred commits (`persistWithinMs`). This is the largest change: whole-snapshot commits cost grows with history.
+5. **Environment parity.** The `env` package's bounded binary and directory readers, file watching, and PowerShell, in `tools`.
 
 ## 3. Not planned
 
