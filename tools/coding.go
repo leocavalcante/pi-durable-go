@@ -7,8 +7,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
+	"os"
 	"sort"
 	"strings"
+	"time"
+	"unicode/utf8"
 
 	durable "github.com/leocavalcante/pi-durable-go"
 )
@@ -23,7 +27,7 @@ func Coding() durable.Extension {
 		{ToolSpec: durable.ToolSpec{Name: "read", Description: "Read the contents of a file. For text files, output is truncated to 2000 lines or 50KB (whichever is hit first). Use offset/limit for large files. When you need the full file, continue with offset until complete.", Parameters: schema(`{"type":"object","required":["path"],"properties":{"path":{"type":"string","description":"Path to the file to read (relative or absolute)"},"offset":{"type":"integer","minimum":1,"description":"Line number to start reading from (1-indexed)"},"limit":{"type":"integer","minimum":0,"description":"Maximum number of lines to read"}},"additionalProperties":false}`)}, Execute: readTool},
 		{ToolSpec: durable.ToolSpec{Name: "write", Description: "Write content to a file, creating parent directories and atomically replacing the destination.", Parameters: schema(`{"type":"object","required":["path","content"],"properties":{"path":{"type":"string"},"content":{"type":"string"}},"additionalProperties":false}`)}, Execute: writeTool},
 		{ToolSpec: durable.ToolSpec{Name: "edit", Description: "Replace unique, exact text regions. Every replacement matches the original file and must not overlap another edit.", Parameters: schema(`{"type":"object","required":["path","edits"],"properties":{"path":{"type":"string"},"edits":{"type":"array","minItems":1,"items":{"type":"object","required":["oldText","newText"],"properties":{"oldText":{"type":"string","minLength":1},"newText":{"type":"string"}},"additionalProperties":false}}},"additionalProperties":false}`)}, Execute: editTool},
-		{ToolSpec: durable.ToolSpec{Name: "bash", Description: "Execute a POSIX shell command in the working directory. CWD is not a sandbox. Output is limited to a 64 KiB tail.", Parameters: schema(`{"type":"object","required":["command"],"properties":{"command":{"type":"string","minLength":1}},"additionalProperties":false}`)}, Execute: bashTool},
+		{ToolSpec: durable.ToolSpec{Name: "bash", Description: "Execute a bash command in the current working directory. Returns combined stdout and stderr. Output is truncated to last 2000 lines or 50KB (whichever is hit first). If truncated, full output is saved to a temp file. Optionally provide a timeout in seconds.", Parameters: schema(`{"type":"object","required":["command"],"properties":{"command":{"type":"string","minLength":1,"description":"Bash command to execute"},"timeout":{"type":"number","description":"Timeout in seconds (optional, no default timeout)"}},"additionalProperties":false}`)}, Execute: bashTool},
 	}}
 }
 
@@ -47,8 +51,12 @@ type editArgs struct {
 	Edits []editItem `json:"edits"`
 }
 type bashArgs struct {
-	Command string `json:"command"`
+	Command string   `json:"command"`
+	Timeout *float64 `json:"timeout,omitempty"`
 }
+
+// maxTimeoutSeconds is upstream's largest timeout (a 32-bit millisecond timer).
+const maxTimeoutSeconds = 2147483647.0 / 1000
 
 func decodeArgs(raw json.RawMessage, out any) error {
 	if len(raw) == 0 {
@@ -211,16 +219,129 @@ func bashTool(ctx context.Context, raw json.RawMessage, rt *durable.ToolRuntime)
 	if strings.TrimSpace(a.Command) == "" {
 		return durable.ToolResult{}, errors.New("command must not be empty")
 	}
+	if a.Timeout != nil {
+		if math.IsNaN(*a.Timeout) || math.IsInf(*a.Timeout, 0) || *a.Timeout <= 0 {
+			return durable.ToolResult{}, errors.New("Invalid timeout: must be a finite number of seconds")
+		}
+		if *a.Timeout > maxTimeoutSeconds {
+			return durable.ToolResult{}, fmt.Errorf("Invalid timeout: maximum is %g seconds", maxTimeoutSeconds)
+		}
+	}
 	e, err := env(rt)
 	if err != nil {
 		return durable.ToolResult{}, err
 	}
-	res, err := e.Exec(ctx, a.Command, func(text string) error { return rt.Output(ctx, text) })
+	runCtx := ctx
+	if a.Timeout != nil {
+		var cancel context.CancelFunc
+		runCtx, cancel = context.WithTimeout(ctx, time.Duration(*a.Timeout*float64(time.Second)))
+		defer cancel()
+	}
+	_, local := e.(*LocalEnv)
+	spill := &outputSpill{enabled: local}
+	defer spill.close()
+	res, err := e.Exec(runCtx, a.Command, func(text string) error {
+		spill.write(text)
+		return rt.Output(ctx, text)
+	})
+	var diagnostics []durable.ToolDiagnostic
+	if spill.path != "" {
+		diagnostics = append(diagnostics, durable.ToolDiagnostic{Severity: "info", Code: "full_output", Message: "Full output: " + spill.path})
+	}
 	if err != nil {
+		switch {
+		case ctx.Err() != nil:
+			return durable.ToolResult{}, ctx.Err()
+		case runCtx.Err() != nil:
+			return durable.ToolResult{}, fmt.Errorf("Command timed out after %g seconds", *a.Timeout)
+		}
 		return durable.ToolResult{}, err
 	}
-	if res.ExitCode != 0 {
-		return durable.ToolResult{}, fmt.Errorf("command exited with code %d: %s", res.ExitCode, res.Output)
+	content, droppedLines, droppedBytes := truncateTail(res.Output, spill.lines, spill.bytes)
+	if droppedBytes > 0 {
+		diagnostics = append(diagnostics, durable.ToolDiagnostic{Severity: "warn", Code: "truncated",
+			Message: fmt.Sprintf("Output truncated to its end: %d lines, %d bytes dropped", droppedLines, droppedBytes)})
 	}
-	return result(res.Output)
+	if res.ExitCode != 0 {
+		diagnostics = append(diagnostics, durable.ToolDiagnostic{Severity: "error", Code: "exit_code", Message: fmt.Sprintf("Command exited with code %d", res.ExitCode)})
+		return durable.ToolResult{Content: content, IsError: true, Diagnostics: diagnostics}, nil
+	}
+	return durable.ToolResult{Content: content, Diagnostics: diagnostics}, nil
+}
+
+// outputSpill counts a command's whole output and, once it passes the read
+// limits, writes all of it to a temporary file (upstream's spill).
+type outputSpill struct {
+	enabled bool
+	lines   int
+	bytes   int
+	pending strings.Builder
+	file    *os.File
+	path    string
+}
+
+func (s *outputSpill) write(text string) {
+	s.bytes += len(text)
+	s.lines += strings.Count(text, "\n")
+	if !s.enabled {
+		return
+	}
+	if s.file == nil {
+		s.pending.WriteString(text)
+		if s.bytes <= maxReadBytes && s.lines <= maxReadLines {
+			return
+		}
+		f, err := os.CreateTemp("", "pi-bash-*.log")
+		if err != nil {
+			s.enabled = false
+			return
+		}
+		s.file, s.path = f, f.Name()
+		text = s.pending.String()
+		s.pending.Reset()
+	}
+	_, _ = s.file.WriteString(text)
+}
+
+func (s *outputSpill) close() {
+	if s.file != nil {
+		_ = s.file.Close()
+	}
+}
+
+// truncateTail keeps the last whole lines of a command's retained output
+// within the read limits, and counts what the whole output lost: totalLines
+// newlines and totalBytes bytes were produced in all.
+func truncateTail(retained string, totalNewlines, totalBytes int) (string, int, int) {
+	lines := strings.SplitAfter(retained, "\n")
+	if lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1]
+	}
+	kept, size := 0, 0
+	for i := len(lines) - 1; i >= 0 && kept < maxReadLines; i-- {
+		if size+len(lines[i]) > maxReadBytes {
+			break
+		}
+		size += len(lines[i])
+		kept++
+	}
+	if kept == 0 && len(lines) > 0 { // one line over the limit: its end
+		last := lines[len(lines)-1]
+		cut := len(last) - maxReadBytes
+		for cut < len(last) && !utf8.RuneStart(last[cut]) {
+			cut++
+		}
+		content := last[cut:]
+		return content, totalNewlines - strings.Count(content, "\n"), max(totalBytes, len(retained)) - len(content)
+	}
+	content := strings.Join(lines[len(lines)-kept:], "")
+	if totalBytes < len(retained) { // an Exec that reports no output
+		totalBytes, totalNewlines = len(retained), strings.Count(retained, "\n")
+	}
+	droppedBytes := totalBytes - len(content)
+	droppedLines := totalNewlines - strings.Count(content, "\n")
+	if droppedBytes == 0 {
+		droppedLines = 0
+	}
+	return content, droppedLines, droppedBytes
 }

@@ -124,7 +124,7 @@ func (e *LocalEnv) WriteFile(ctx context.Context, path string, data []byte) erro
 	return os.Rename(temp, path)
 }
 
-// Exec executes command through /bin/sh. Output is combined and retained as a
+// Exec executes command through bash, or /bin/sh without bash. Output is combined and retained as a
 // 64 KiB tail. Callback errors terminate the process but continue draining its
 // pipes to avoid blocked children. Shell execution is unavailable on Windows.
 func (e *LocalEnv) Exec(ctx context.Context, command string, onOutput func(string) error) (durable.ExecResult, error) {
@@ -136,7 +136,12 @@ func (e *LocalEnv) Exec(ctx context.Context, command string, onOutput func(strin
 	}
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	cmd := exec.CommandContext(runCtx, "/bin/sh", "-c", command)
+	// Like upstream, bash when it is installed; otherwise the POSIX shell.
+	shell := "/bin/sh"
+	if bash, err := exec.LookPath("bash"); err == nil {
+		shell = bash
+	}
+	cmd := exec.CommandContext(runCtx, shell, "-c", command)
 	cmd.Dir = e.cwd
 	configureProcess(cmd)
 	var output tailBuffer

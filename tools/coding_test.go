@@ -176,3 +176,32 @@ func TestLocalWritePreservesExistingSymlinkTarget(t *testing.T) {
 		t.Fatal("target not updated")
 	}
 }
+
+func TestCodingBashResultsLikeUpstream(t *testing.T) {
+	dir := t.TempDir()
+	result, _ := runCoding(t, dir, "bash", `{"command":"echo out; exit 3"}`)
+	if !result.IsError || !strings.HasPrefix(result.Content, "out\n") || !strings.Contains(result.Content, "[error] Command exited with code 3") {
+		t.Fatalf("exit: %+v", result)
+	}
+	result, _ = runCoding(t, dir, "bash", `{"command":"sleep 5","timeout":0.2}`)
+	if !result.IsError || !strings.Contains(result.Content, "Command timed out after 0.2 seconds") {
+		t.Fatalf("timeout: %+v", result)
+	}
+	result, _ = runCoding(t, dir, "bash", `{"command":"echo hi","timeout":-1}`)
+	if !result.IsError || !strings.Contains(result.Content, "Invalid timeout: must be a finite number of seconds") {
+		t.Fatalf("invalid timeout: %+v", result)
+	}
+	result, _ = runCoding(t, dir, "bash", `{"command":"seq 1 3000"}`)
+	shown, notes, _ := strings.Cut(result.Content, "\n<harness>\n")
+	lines := strings.Split(strings.TrimSuffix(shown, "\n"), "\n")
+	if result.IsError || len(lines) != 2000 || lines[0] != "1001" || lines[1999] != "3000" ||
+		!strings.Contains(notes, "[info] Full output: ") || !strings.Contains(notes, "[warn] Output truncated to its end: 1000 lines, 3893 bytes dropped") {
+		t.Fatalf("spill: lines=%d first=%q notes=%q", len(lines), lines[0], notes)
+	}
+	path := strings.TrimSpace(strings.SplitN(strings.SplitN(notes, "Full output: ", 2)[1], "\n", 2)[0])
+	defer os.Remove(path)
+	full, err := os.ReadFile(path)
+	if err != nil || strings.Count(string(full), "\n") != 3000 {
+		t.Fatalf("spill file: %d lines, %v", strings.Count(string(full), "\n"), err)
+	}
+}
