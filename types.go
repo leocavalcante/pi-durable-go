@@ -15,8 +15,10 @@ type TaskID uint64
 type SubmissionID uint64
 
 var (
-	ErrClosed   = errors.New("durable: closed")
-	ErrPoisoned = errors.New("durable: uncertain storage failure; reopen required")
+	ErrClosed = errors.New("durable: closed")
+	// ErrPoisoned is upstream's SessionFailed: any storage error, or a
+	// scheduler bookkeeping failure, fails the Session.
+	ErrPoisoned = errors.New("durable: session failed after a storage error; close and reopen it")
 	ErrConflict = errors.New("durable: revision conflict")
 	ErrNotFound = errors.New("durable: not found")
 	ErrBusy     = errors.New("durable: conversation busy")

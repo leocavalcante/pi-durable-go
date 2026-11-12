@@ -2,8 +2,8 @@ package durable
 
 import "context"
 
-// SessionFailedError preserves the first fatal Session failure, which may be an
-// uncertain storage failure or a scheduler bookkeeping error. It matches
+// SessionFailedError preserves the first fatal Session failure, which may be a
+// storage error or a scheduler bookkeeping error. It matches
 // ErrPoisoned with errors.Is and unwraps to the original cause. The triggering
 // operation returns the original error; later operations and pending waits
 // return this wrapper. The message intentionally does not disclose the cause.
