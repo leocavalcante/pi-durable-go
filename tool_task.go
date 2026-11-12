@@ -335,19 +335,32 @@ func runTool(ctx context.Context, r *TaskRuntime, task TaskRecord) error {
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
-	status := "completed"
+	status, outcomeError := "completed", ""
 	if executeErr != nil {
-		status = "failed"
-		result = ToolResult{Content: diagnostic(executeErr.Error()), IsError: true}
+		// A throw keeps what the tool output as the result; its message is
+		// a tool_error diagnostic, and the task fails (upstream).
+		status, outcomeError = "failed", fmt.Sprintf("Tool %s threw", def.Name)
+		result = ToolResult{IsError: true, Diagnostics: []ToolDiagnostic{{Severity: "error", Code: "tool_error", Message: diagnostic(executeErr.Error())}}}
 	}
 	// Diagnostics the tool reported while it ran come before its result's own.
 	result.Diagnostics = append(runtime.takeDiagnostics(), result.Diagnostics...)
+	// A result without content shows the output the call kept, to the
+	// afterTool chain too, with a note while the chain keeps it when that
+	// output dropped some (upstream).
+	retained, truncation := "", (*ToolDiagnostic)(nil)
+	if result.Content == "" && len(result.Images) == 0 {
+		retained, truncation = runtime.retainedResult(ctx, def)
+		result.Content = retained
+	}
 	result.DurationMs = &durationMs
 	result = call.afterTool(ctx, result)
+	if truncation != nil && retained != "" && result.Content == retained {
+		result.Diagnostics = append(result.Diagnostics, *truncation)
+	}
 	// The contract holds for what the afterTool chain leaves (upstream).
 	result = call.checkStructuredOutput(ctx, result)
 	result.DurationMs = &durationMs
-	return finishTool(ctx, r, task, result, status)
+	return finishToolEnding(ctx, r, task, result, status, outcomeError, nil)
 }
 
 // checkStructuredOutput holds a result to its tool's structured output

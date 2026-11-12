@@ -3,6 +3,7 @@ package durable
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"time"
 )
 
@@ -230,4 +231,36 @@ func EachTaskHook[H any](ctx context.Context, r *TaskRuntime, invoke func(H) err
 		}
 	}
 	return nil
+}
+
+// retainedResult is the output a call's slot kept, for a result that omits
+// its content, and the note that it dropped some, worded with the tool's
+// output limits (upstream truncated(retained, limits.retain)).
+func (r *ToolRuntime) retainedResult(ctx context.Context, def *ToolDefinition) (string, *ToolDiagnostic) {
+	state, err := r.h.read(ctx)
+	if err != nil {
+		return "", nil
+	}
+	doc, _ := state.document(documentKey(liveDocument, uint64(r.ConversationID)))
+	if doc == nil {
+		return "", nil
+	}
+	var live LiveState
+	value, err := migratedDocument(liveDocument, doc)
+	if err != nil || json.Unmarshal(value, &live) != nil {
+		return "", nil
+	}
+	slot := live.toolSlot(r.ID)
+	if slot == nil {
+		return "", nil
+	}
+	if slot.DroppedBytes == 0 {
+		return slot.Output, nil
+	}
+	kept := "beginning"
+	if def != nil && def.OutputLimits != nil && def.OutputLimits.Retain == "tail" {
+		kept = "end"
+	}
+	return slot.Output, &ToolDiagnostic{Severity: "warn", Code: "truncated",
+		Message: fmt.Sprintf("Output truncated to its %s: %d lines, %d bytes dropped", kept, slot.DroppedLines, slot.DroppedBytes)}
 }

@@ -142,3 +142,26 @@ func TestNestedCallsLeftRunningAreAborted(t *testing.T) {
 		t.Fatal("a nested call left running was not aborted")
 	}
 }
+
+func TestNestedCallKeysCannotLookLikeDefaultKeys(t *testing.T) {
+	var errs []error
+	h, root, _ := nestedHarness(t, func(ctx context.Context, _ json.RawMessage, r *ToolRuntime) (ToolResult, error) {
+		for _, key := range []string{"3", "__proto__", "a/b"} {
+			_, err := r.ExecuteTool(ctx, "typed", json.RawMessage(`{}`), NestedCallOptions{Key: key})
+			errs = append(errs, err)
+		}
+		return ToolResult{Content: "ok"}, nil
+	}, ToolDefinition{ToolSpec: ToolSpec{Name: "typed", Parameters: json.RawMessage(`{"type":"object"}`)},
+		Execute: func(context.Context, json.RawMessage, *ToolRuntime) (ToolResult, error) {
+			return ToolResult{Content: "ran"}, nil
+		}})
+	waitSettled(t, h, submit(t, root, SubmissionRequest{Content: "go"}))
+	if len(errs) != 3 {
+		t.Fatalf("errors=%v", errs)
+	}
+	for _, err := range errs {
+		if !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), `must be non-empty, without "/", not "__proto__", and not a positive integer`) {
+			t.Fatalf("error=%v", err)
+		}
+	}
+}

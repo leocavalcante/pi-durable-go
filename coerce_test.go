@@ -227,3 +227,49 @@ func TestModelCallsWithBrokenStructuredOutputStand(t *testing.T) {
 		}
 	}
 }
+
+func TestAThrowingToolKeepsItsOutput(t *testing.T) {
+	var mu sync.Mutex
+	var seen []string
+	tool := ToolDefinition{ToolSpec: ToolSpec{Name: "flaky", Parameters: json.RawMessage(`{"type":"object"}`)},
+		Execute: func(ctx context.Context, _ json.RawMessage, rt *ToolRuntime) (ToolResult, error) {
+			if err := rt.Output(ctx, "partial output"); err != nil {
+				return ToolResult{}, err
+			}
+			return ToolResult{}, errors.New("disk on fire")
+		}}
+	watcher := Extension{Name: "watcher", Hooks: Hooks{AfterTool: func(_ context.Context, result *ToolResult, _ *ToolRuntime) error {
+		mu.Lock()
+		seen = append(seen, result.Content)
+		mu.Unlock()
+		return nil
+	}}}
+	model := taskModelFunc(func(ctx context.Context, request ModelRequest, _ func(string) error) (ModelResponse, error) {
+		if !hasToolResult(request) {
+			return ModelResponse{ToolCalls: []ToolCall{{ID: "call-1", Name: "flaky", Arguments: json.RawMessage(`{}`)}}}, nil
+		}
+		return ModelResponse{Content: "done"}, nil
+	})
+	h, root := runHarness(t, model, Settings{}, Extension{Name: "tools", Tools: []ToolDefinition{tool}}, watcher)
+	waitSettled(t, h, submit(t, root, SubmissionRequest{Content: "go"}))
+	result := lastToolResult(t, h, root.ID())
+	// The output stays the content; the throw is a tool_error diagnostic.
+	if !result.IsError || !strings.HasPrefix(result.Content, "partial output") || !strings.Contains(result.Content, "disk on fire") {
+		t.Fatalf("result=%+v", result)
+	}
+	mu.Lock()
+	hooked := append([]string(nil), seen...)
+	mu.Unlock()
+	if len(hooked) != 1 || hooked[0] != "partial output" {
+		t.Fatalf("afterTool saw %q", hooked)
+	}
+	state, err := h.Snapshot(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, task := range state.Tasks {
+		if task.Kind == "pi.tool" && (task.Outcome == nil || task.Outcome.Status != OutcomeFailed || task.Outcome.Error != "Tool flaky threw") {
+			t.Fatalf("tool task outcome=%+v", task.Outcome)
+		}
+	}
+}

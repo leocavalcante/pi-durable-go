@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 )
@@ -91,8 +92,11 @@ func (r *ToolRuntime) ExecuteTool(ctx context.Context, name string, args json.Ra
 	key := options.Key
 	if key == "" {
 		key = strconv.FormatInt(r.sequence.Add(1), 10)
-	} else if strings.Contains(key, "/") {
-		return NestedToolResult{}, fmt.Errorf("%w: nested call key %q contains /", ErrInvalid, key)
+	} else if strings.Contains(key, "/") || key == "__proto__" || defaultNestedKey.MatchString(key) {
+		// Explicit keys are path segments of the call ID that default keys
+		// (positive integers) never collide with (upstream checkKey).
+		keyJSON, _ := json.Marshal(key)
+		return NestedToolResult{}, fmt.Errorf("%w: Nested call key %s must be non-empty, without \"/\", not \"__proto__\", and not a positive integer", ErrInvalid, keyJSON)
 	}
 	var object map[string]json.RawMessage
 	if json.Unmarshal(args, &object) != nil || object == nil {
@@ -173,17 +177,26 @@ func (r *ToolRuntime) ExecuteTool(ctx context.Context, name string, args json.Ra
 	if stored, err := readNestedCall(state, r.ID, key); err == nil && stored.Result != nil {
 		return *stored.Result, nil
 	}
-	// The scheduler faulted or orphaned it, storing no result.
+	// The scheduler faulted or orphaned it, storing no result (upstream
+	// fallbackResult).
 	result := NestedToolResult{TaskID: id, IsError: true}
 	if settled.Outcome != nil {
-		code, message := settled.Outcome.Status, settled.Outcome.Error
-		if message == "" {
-			message = fmt.Sprintf("Tool %s ended %s: %s", name, settled.Outcome.Status, settled.Outcome.Reason)
+		var message string
+		switch settled.Outcome.Status {
+		case OutcomeFaulted:
+			message = fmt.Sprintf("Tool %s failed: %s", name, settled.Outcome.Error)
+		case OutcomeOrphaned:
+			message = fmt.Sprintf("Tool %s could not resume: %s", name, settled.Outcome.Reason)
+		default:
+			message = fmt.Sprintf("Tool %s ended without a result", name)
 		}
-		result.Diagnostics = []ToolDiagnostic{{Severity: "error", Code: code, Message: message}}
+		result.Diagnostics = []ToolDiagnostic{{Severity: "error", Code: settled.Outcome.Status, Message: message}}
 	}
 	return result, nil
 }
+
+// defaultNestedKey matches the keys default nested calls take.
+var defaultNestedKey = regexp.MustCompile(`^[1-9][0-9]*$`)
 
 // readNestedCall reads one nested call of a caller: its family member, or
 // its entry in the single document earlier versions kept.
