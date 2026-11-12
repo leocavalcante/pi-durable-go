@@ -86,3 +86,30 @@ func TestCustomTasksRunTheirExtensionsHooks(t *testing.T) {
 		t.Fatalf("report=%+v", report)
 	}
 }
+
+func TestTasksReadTheirEnvAndSettings(t *testing.T) {
+	registry := NewRegistry()
+	var envFor ConversationID
+	definition := TaskDefinition{Kind: "test.env-user", Version: 1, Run: func(ctx context.Context, r *TaskRuntime, task TaskRecord) error {
+		env, err := r.Env()
+		if err != nil || env == nil {
+			return errors.New("no env")
+		}
+		limit := r.Settings().RestartLimit
+		result, _ := json.Marshal(map[string]any{"limit": limit, "conversation": task.Conversation == envFor})
+		return r.Complete(ctx, Outcome{Status: OutcomeCompleted, Result: result})
+	}}
+	installTasks(t, registry, "env-user", definition)
+	h := taskTestHarness(t, HarnessOptions{Registry: registry, Settings: Settings{RestartLimit: 7}, Environment: func(c ConversationRecord) (ExecutionEnv, error) {
+		envFor = c.ID
+		return fakeEnv{}, nil
+	}})
+	id := createTaskForTest(t, h, definition)
+	h.Resume()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	record, err := h.WaitTask(ctx, id)
+	if err != nil || record.Outcome == nil || string(record.Outcome.Result) != `{"conversation":true,"limit":7}` {
+		t.Fatalf("task=%+v error=%v", record.Outcome, err)
+	}
+}

@@ -246,26 +246,10 @@ func (r *ToolRuntime) Submit(ctx context.Context, content string) (ConversationI
 	}
 	return cid, sid, err
 }
+
+// Env is HarnessOptions.Environment for the call's conversation.
 func (r *ToolRuntime) Env() (ExecutionEnv, error) {
-	if err := r.check(); err != nil {
-		return nil, err
-	}
-	if r.h.options.Environment == nil {
-		return nil, fmt.Errorf("durable: no execution environment configured")
-	}
-	state, err := r.h.read(context.Background())
-	if err != nil {
-		return nil, err
-	}
-	c := state.Conversations[r.ConversationID]
-	if c == nil {
-		return nil, ErrNotFound
-	}
-	env, err := r.h.options.Environment(*cloneRecord(c))
-	if err != nil {
-		r.ReportHost(err, "env")
-	}
-	return env, err
+	return r.TaskRuntime.envOf(r.ConversationID)
 }
 
 // DeferredTools are the enabled, model-callable deferred tools this call's

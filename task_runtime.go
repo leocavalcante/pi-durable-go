@@ -551,3 +551,38 @@ func applyTransition(tx *Tx, task *TaskRecord, tr TaskTransition, now time.Time)
 	task.WakeAt = tr.WakeAt
 	return nil
 }
+
+// Env is HarnessOptions.Environment for the task's conversation (upstream
+// TaskRuntime.env); its error is reported as host_error "env".
+func (r *TaskRuntime) Env() (ExecutionEnv, error) {
+	return r.envOf(r.conversation)
+}
+
+func (r *TaskRuntime) envOf(cid ConversationID) (ExecutionEnv, error) {
+	if err := r.check(); err != nil {
+		return nil, err
+	}
+	if r.h.options.Environment == nil {
+		return nil, fmt.Errorf("durable: no execution environment configured")
+	}
+	state, err := r.h.read(context.Background())
+	if err != nil {
+		return nil, err
+	}
+	c, err := state.conversation(cid)
+	if err != nil {
+		return nil, err
+	}
+	if c == nil {
+		return nil, ErrNotFound
+	}
+	env, err := r.h.options.Environment(*cloneRecord(c))
+	if err != nil {
+		r.ReportHost(err, "env")
+	}
+	return env, err
+}
+
+// Settings is HarnessOptions.Settings, or SettingsFunc's value, read at each
+// call (upstream TaskRuntime.settings).
+func (r *TaskRuntime) Settings() Settings { return r.h.settings() }
