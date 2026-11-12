@@ -279,12 +279,15 @@ func (c *coldRecords) document(key string) (*DocumentRecord, error) {
 		c.fail(err)
 		return nil, err
 	}
-	if d != nil {
-		c.mu.Lock()
-		if c.invalidations == invalidations {
-			c.documents.put(key, d)
-		}
-		c.mu.Unlock()
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	// A group stored while this read ran: what readers see until it
+	// publishes is its pre-image.
+	if overlaid, ok := c.overlayDocuments[key]; ok {
+		return overlaid, nil
+	}
+	if d != nil && c.invalidations == invalidations {
+		c.documents.put(key, d)
 	}
 	return d, nil
 }
@@ -419,12 +422,13 @@ func (c *coldRecords) conversation(id ConversationID) (*ConversationRecord, erro
 		c.fail(err)
 		return nil, err
 	}
-	if conversation != nil {
-		c.mu.Lock()
-		if c.invalidations == invalidations {
-			c.conversations.put(id, conversation)
-		}
-		c.mu.Unlock()
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if overlaid, ok := c.overlayConversations[id]; ok {
+		return overlaid, nil
+	}
+	if conversation != nil && c.invalidations == invalidations {
+		c.conversations.put(id, conversation)
 	}
 	return conversation, nil
 }
@@ -514,12 +518,16 @@ func preImagesOf(base, candidate *State, delta *StateDelta) *preImages {
 		documents(key)
 	}
 	for id := range delta.Conversations {
-		if record, loaded := candidate.preConversations[id]; loaded {
-			if pre.conversations == nil {
-				pre.conversations = map[ConversationID]*ConversationRecord{}
-			}
-			pre.conversations[id] = record
+		record, loaded := candidate.preConversations[id]
+		if !loaded && (base.Conversations[id] != nil || base.cold == nil) {
+			continue
 		}
+		// A conversation the base lacks and no transaction loaded is new:
+		// absent until it publishes.
+		if pre.conversations == nil {
+			pre.conversations = map[ConversationID]*ConversationRecord{}
+		}
+		pre.conversations[id] = record
 	}
 	candidate.preDocuments, candidate.preConversations = nil, nil
 	if pre.documents == nil && pre.conversations == nil {

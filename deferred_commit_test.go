@@ -363,3 +363,34 @@ func TestHeldDeadlinesUseTheHostTimer(t *testing.T) {
 		time.Sleep(time.Millisecond)
 	}
 }
+
+func TestNoTimerOutlivesClose(t *testing.T) {
+	timers := &fakeTimers{}
+	h, err := Open(context.Background(), NewMemoryStorage(), HarnessOptions{SetTimer: timers.SetTimer})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cid ConversationID
+	if err := h.Commit(context.Background(), func(tx *Tx) error {
+		created, err := tx.CreateConversation(ConversationOptions{})
+		cid = created
+		if err != nil {
+			return err
+		}
+		return tx.PutDocument(progressDocument, uint64(cid), json.RawMessage(`{"n":0}`))
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.CommitWith(context.Background(), deferredWithin(1500), setProgress(cid, 1)); err != nil {
+		t.Fatal(err)
+	}
+	if len(timers.armed()) == 0 {
+		t.Fatal("no deadline or expiry timer was armed")
+	}
+	if err := h.Close(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	for _, timer := range timers.armed() {
+		t.Errorf("a timer of %v is armed after close", timer.delay)
+	}
+}

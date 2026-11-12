@@ -619,3 +619,144 @@ func TestDocumentRetentionDropsIdleDocuments(t *testing.T) {
 		t.Fatalf("view documents=%v error=%v", view.Documents, err)
 	}
 }
+
+// slowReadStorage blocks one document read until released, before it
+// reaches storage.
+type slowReadStorage struct {
+	*aheadStorage
+	key     string
+	reading chan struct{}
+	proceed chan struct{}
+	once    sync.Once
+}
+
+func (s *slowReadStorage) Document(ctx context.Context, key string) (*DocumentRecord, error) {
+	if key == s.key {
+		blocked := false
+		s.once.Do(func() { blocked = true })
+		if blocked {
+			close(s.reading)
+			<-s.proceed
+		}
+	}
+	return s.aheadStorage.Document(ctx, key)
+}
+
+func (s *slowReadStorage) CommitDelta(ctx context.Context, expected uint64, delta *StateDelta) error {
+	return s.aheadStorage.CommitDelta(ctx, expected, delta)
+}
+
+func (s *slowReadStorage) CommitDeltas(ctx context.Context, expected uint64, deltas []*StateDelta) (int, error) {
+	return commitEach(ctx, s, expected, deltas)
+}
+
+func TestAColdReadRacingAStoreSeesThePublishedValue(t *testing.T) {
+	ctx := context.Background()
+	ahead := &aheadStorage{MemoryStorage: NewMemoryStorage(), stored: make(chan struct{}), release: make(chan struct{})}
+	store := &slowReadStorage{aheadStorage: ahead, reading: make(chan struct{}), proceed: make(chan struct{})}
+	h, root, notes, _ := idleDocuments(t, store)
+	store.key = documentKey(notes, uint64(root.ID()))
+	type doc struct{ N int }
+	var releaseOnce, proceedOnce sync.Once
+	release := func() { releaseOnce.Do(func() { close(ahead.release) }) }
+	proceed := func() { proceedOnce.Do(func() { close(store.proceed) }) }
+	defer release()
+	defer proceed()
+	read := make(chan int, 1)
+	go func() {
+		got, err := ReadDocument[doc](ctx, h, notes, uint64(root.ID()))
+		if err != nil {
+			t.Error(err)
+		}
+		read <- got.N
+	}()
+	<-store.reading
+	// The read passed the overlay; a commit stores a new value and waits
+	// before publication while the read reaches storage.
+	ahead.armed.Store(true)
+	committed := make(chan error, 1)
+	go func() {
+		committed <- h.Commit(ctx, func(tx *Tx) error {
+			return tx.PutDocument(notes, uint64(root.ID()), json.RawMessage(`{"n":9}`))
+		})
+	}()
+	<-ahead.stored
+	proceed()
+	if got := <-read; got != 1 {
+		t.Fatalf("a read racing a store saw %d, not the published 1", got)
+	}
+	release()
+	if err := <-committed; err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestObservedDocumentsOutliveTheirContext(t *testing.T) {
+	ctx := context.Background()
+	h, err := Open(ctx, NewMemoryStorage(), HarnessOptions{Settings: Settings{ContextRetentionMs: ptr(0.0)}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer h.Close(ctx)
+	root := testRoot(t, h)
+	cid := uint64(root.ID())
+	watched := DocumentDefinition{Kind: "test.watched", Version: 1, Scope: "conversation"}
+	other := DocumentDefinition{Kind: "test.other", Version: 1, Scope: "conversation"}
+	_, detach, err := ObserveDocument(h, watched, cid, Observer[json.RawMessage]{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer detach()
+	// The conversation is idle at once (retention 0): its range and
+	// documents leave, except the observed one.
+	if err := h.Commit(ctx, func(tx *Tx) error {
+		if err := tx.PutDocument(watched, cid, json.RawMessage(`{"n":1}`)); err != nil {
+			return err
+		}
+		return tx.PutDocument(other, cid, json.RawMessage(`{"n":2}`))
+	}); err != nil {
+		t.Fatal(err)
+	}
+	h.session.mu.Lock()
+	kept, dropped := h.session.state.Documents[documentKey(watched, cid)] != nil, h.session.state.Documents[documentKey(other, cid)] == nil
+	h.session.mu.Unlock()
+	if !kept || !dropped {
+		t.Fatalf("observed kept=%v unobserved dropped=%v", kept, dropped)
+	}
+}
+
+func TestAnUnpublishedConversationIsAbsent(t *testing.T) {
+	ctx := context.Background()
+	store := &aheadStorage{MemoryStorage: NewMemoryStorage(), stored: make(chan struct{}), release: make(chan struct{})}
+	h, err := Open(ctx, store, HarnessOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer h.Close(ctx)
+	testRoot(t, h)
+	var releaseOnce sync.Once
+	release := func() { releaseOnce.Do(func() { close(store.release) }) }
+	defer release()
+	store.armed.Store(true)
+	ids := make(chan ConversationID, 1)
+	committed := make(chan error, 1)
+	go func() {
+		committed <- h.Commit(ctx, func(tx *Tx) error {
+			id, err := tx.CreateConversation(ConversationOptions{})
+			ids <- id
+			return err
+		})
+	}()
+	<-store.stored
+	id := <-ids
+	if _, err := h.Conversation(ctx, id); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("a conversation an unpublished commit created: error=%v", err)
+	}
+	release()
+	if err := <-committed; err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.Conversation(ctx, id); err != nil {
+		t.Fatal(err)
+	}
+}

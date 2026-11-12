@@ -323,7 +323,8 @@ func (c *coldRecords) evictEntries(st *State, held map[string]time.Time) {
 	c.mu.Lock()
 	for key, doc := range st.Documents {
 		if doc.Scope == "conversation" && c.loaded[ConversationID(doc.ScopeID)].IsZero() {
-			if _, pinned := held[key]; !pinned {
+			_, pinned := held[key]
+			if !pinned && c.pins[key] == 0 && c.pinnedConversations[ConversationID(doc.ScopeID)] == 0 {
 				delete(st.Documents, key)
 				delete(c.documentTouched, key)
 			}

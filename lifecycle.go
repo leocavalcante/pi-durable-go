@@ -136,6 +136,15 @@ func (s *Session) finishClose() {
 	s.drainWriter()
 	// After the last adoption: the observers follow the next Session.
 	s.mu.Lock()
+	// No deadline or expiry runs after close (or a failure, which closes).
+	if s.heldTimer != nil {
+		s.heldTimer()
+		s.heldTimer = nil
+	}
+	if s.cold != nil && s.cold.expiry != nil {
+		s.cold.expiry()
+		s.cold.expiry = nil
+	}
 	if failure := s.failure.Load(); failure != nil {
 		s.endObserversLocked(WatchEnd{Kind: "failed", Err: failure.cause})
 	} else {
