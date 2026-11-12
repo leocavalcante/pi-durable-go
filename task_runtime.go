@@ -128,6 +128,13 @@ func (r *TaskRuntime) check() error {
 	return nil
 }
 func (r *TaskRuntime) Commit(ctx context.Context, change func(*Tx) (TaskTransition, error)) error {
+	return r.CommitWith(ctx, CommitOptions{}, change)
+}
+
+// CommitWith is Commit with persistence options (CommitOptions): a deferred
+// commit that keeps the task running unchanged and changes only conversation
+// documents is shown at once and stored within its window.
+func (r *TaskRuntime) CommitWith(ctx context.Context, options CommitOptions, change func(*Tx) (TaskTransition, error)) error {
 	if err := r.check(); err != nil {
 		return err
 	}
@@ -136,7 +143,7 @@ func (r *TaskRuntime) Commit(ctx context.Context, change func(*Tx) (TaskTransiti
 	}
 	var interrupted *Report
 	phaseChange := ""
-	err := r.h.Commit(ctx, func(tx *Tx) error {
+	err := r.h.CommitWith(ctx, options, func(tx *Tx) error {
 		interrupted = nil
 		if err := r.check(); err != nil {
 			return err

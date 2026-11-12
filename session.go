@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -52,6 +53,10 @@ type Session struct {
 	pending []*pendingCommit
 	writing bool
 	idle    *sync.Cond
+	// held are documents deferred commits changed and no store has carried
+	// yet, with the time each must be stored by; heldTimer stores them then.
+	held      map[string]time.Time
+	heldTimer *time.Timer
 	// observerPanic reports an observer that panicked.
 	observerPanic func(any)
 }
@@ -108,6 +113,12 @@ func (s *Session) Commit(ctx context.Context, fn func(*Tx) error) error {
 // Internal bookkeeping errors seal admission on the line, before another
 // caller can publish a write. Storage errors fail the Session either way.
 func (s *Session) commit(ctx context.Context, fn func(*Tx) error, internal bool) (err error) {
+	return s.commitWith(ctx, fn, internal, CommitOptions{}, 0)
+}
+
+// commitWith is commit with persistence options; within is the default
+// window of a deferred commit, in milliseconds.
+func (s *Session) commitWith(ctx context.Context, fn func(*Tx) error, internal bool, options CommitOptions, within float64) (err error) {
 	if err := s.Err(); err != nil {
 		return err
 	}
@@ -120,7 +131,15 @@ func (s *Session) commit(ctx context.Context, fn func(*Tx) error, internal bool)
 		s.mu.Unlock()
 		return err
 	}
-	admitted, err := s.admitLocked(ctx, fn, internal, true)
+	if options.Deferred {
+		if options.WithinMs != nil {
+			within = *options.WithinMs
+		}
+		if within <= 0 || math.IsNaN(within) {
+			options.Deferred = false // 0 stores it at once
+		}
+	}
+	admitted, err := s.admitLocked(ctx, fn, internal, true, options, within)
 	s.mu.Unlock()
 	if err != nil || admitted == nil {
 		return err
@@ -144,7 +163,7 @@ func (s *Session) writeAtClose(fn func(*Tx) error) error {
 		err := fn(tx)
 		noChange = errors.Is(err, errNoChange)
 		return err
-	}, true, false)
+	}, true, false, CommitOptions{}, 0)
 	s.mu.Unlock()
 	if noChange {
 		return nil
@@ -168,7 +187,7 @@ type pendingCommit struct {
 // admits its changes to the writer; nil when there is nothing to store. The
 // caller holds the line and has checked admission (or is writeAtClose). Only
 // callback-returned errNoChange suppresses an internal bookkeeping write.
-func (s *Session) admitLocked(ctx context.Context, fn func(*Tx) error, internal, publish bool) (admitted *pendingCommit, err error) {
+func (s *Session) admitLocked(ctx context.Context, fn func(*Tx) error, internal, publish bool, options CommitOptions, within float64) (admitted *pendingCommit, err error) {
 	callbackNoChange := false
 	defer func() {
 		if !internal || err == nil || callbackNoChange || s.failure.Load() != nil {
@@ -215,20 +234,175 @@ func (s *Session) admitLocked(ctx context.Context, fn func(*Tx) error, internal,
 	if !changed && !s.fullWrite {
 		return nil, nil
 	}
+	if options.Deferred && !s.fullWrite && holdable(base, candidate, delta) {
+		return s.holdLocked(candidate, delta, publish, within), nil
+	}
 	if base.Sequence == ^uint64(0) {
 		return nil, fmt.Errorf("%w: sequence space exhausted", ErrInvalid)
 	}
 	candidate.Sequence = base.Sequence + 1
 	candidate.base = nil
 	delta.Sequence = candidate.Sequence
+	// Documents deferred commits changed are stored in front of this one.
+	s.foldHeldLocked(candidate, delta)
+	return s.admitStoredLocked(candidate, delta, publish), nil
+}
+
+// admitStoredLocked queues a commit for the writer.
+func (s *Session) admitStoredLocked(candidate *State, delta *StateDelta, publish bool) *pendingCommit {
 	s.head = candidate
-	admitted = &pendingCommit{state: candidate, delta: delta, publish: publish, done: make(chan error, 1)}
+	admitted := &pendingCommit{state: candidate, delta: delta, publish: publish, done: make(chan error, 1)}
 	s.pending = append(s.pending, admitted)
 	if !s.writing {
 		s.writing = true
 		go s.writeLoop()
 	}
-	return admitted, nil
+	return admitted
+}
+
+// holdable reports whether a deferred commit can be held in memory: it
+// changes only documents that exist, are conversation-scoped with latest
+// history and the initial fork, keep their version, and are not removed.
+// Records it touched without changing them are left out first.
+func holdable(base, candidate *State, delta *StateDelta) bool {
+	trimUnchanged(base.Conversations, candidate.Conversations, delta.Conversations)
+	trimUnchanged(base.Entries, candidate.Entries, delta.Entries)
+	trimUnchanged(base.Tasks, candidate.Tasks, delta.Tasks)
+	trimUnchanged(base.Submissions, candidate.Submissions, delta.Submissions)
+	if len(delta.Conversations)+len(delta.Entries)+len(delta.Tasks)+len(delta.Submissions) > 0 ||
+		len(delta.Removed.Conversations)+len(delta.Removed.Entries)+len(delta.Removed.Tasks)+len(delta.Removed.Submissions)+len(delta.Removed.Documents) > 0 ||
+		base.Version != candidate.Version || base.NextID != candidate.NextID || base.Root != candidate.Root || len(delta.Documents) == 0 {
+		return false
+	}
+	for key, doc := range delta.Documents {
+		before := base.Documents[key]
+		if before == nil || doc.Scope != "conversation" || doc.History != "latest" || doc.Fork != "initial" || doc.Version != before.Version {
+			return false
+		}
+	}
+	return true
+}
+
+// trimUnchanged drops from a delta the records a commit touched without
+// changing them, and gives the candidate the committed ones back.
+func trimUnchanged[K comparable, V any](base, candidate, touched map[K]*V) {
+	for key, record := range touched {
+		committed := base[key]
+		if committed == nil {
+			continue
+		}
+		before, err1 := json.Marshal(committed)
+		after, err2 := json.Marshal(record)
+		if err1 == nil && err2 == nil && bytes.Equal(before, after) {
+			candidate[key] = committed
+			delete(touched, key)
+		}
+	}
+}
+
+// holdLocked adopts a deferred commit in memory: shown at once, or after the
+// commits admitted before it are published; its documents are stored later.
+func (s *Session) holdLocked(candidate *State, delta *StateDelta, publish bool, within float64) *pendingCommit {
+	candidate.Sequence = s.head.Sequence // memory only: no sequence of its own
+	candidate.base = nil
+	s.head = candidate
+	if s.held == nil {
+		s.held = map[string]time.Time{}
+	}
+	deadline := time.Time{} // zero: no deadline (math.Inf(1))
+	if !math.IsInf(within, 1) {
+		deadline = time.Now().Add(time.Duration(within * float64(time.Millisecond)))
+	}
+	for key := range delta.Documents {
+		if current, ok := s.held[key]; !ok || !deadline.IsZero() && (current.IsZero() || deadline.Before(current)) {
+			s.held[key] = deadline
+		}
+	}
+	s.armHeldLocked()
+	item := &pendingCommit{state: candidate, publish: publish, done: make(chan error, 1)}
+	if s.writing {
+		// Published when the commits before it are.
+		s.pending = append(s.pending, item)
+		return item
+	}
+	s.publishMemoryLocked(item)
+	item.done <- nil
+	return item
+}
+
+// publishMemoryLocked shows a held commit: adopted, without a store.
+func (s *Session) publishMemoryLocked(item *pendingCommit) {
+	s.state = item.state
+	s.recordCommitted(false)
+	if s.afterCommit != nil {
+		s.afterCommit(item.state)
+	}
+	if item.publish {
+		for w := range s.watchers {
+			s.offer(w, item.state)
+		}
+	}
+}
+
+// foldHeldLocked adds the held documents' current values to a commit being
+// stored, which stores them in front of its own changes.
+func (s *Session) foldHeldLocked(candidate *State, delta *StateDelta) {
+	if len(s.held) == 0 {
+		return
+	}
+	for key := range s.held {
+		if doc := candidate.Documents[key]; doc != nil {
+			if _, own := delta.Documents[key]; !own {
+				if delta.Documents == nil {
+					delta.Documents = map[string]*DocumentRecord{}
+				}
+				delta.Documents[key] = doc
+			}
+		}
+	}
+	s.held = nil
+	if s.heldTimer != nil {
+		s.heldTimer.Stop()
+		s.heldTimer = nil
+	}
+}
+
+// armHeldLocked arms the store of held documents at the earliest deadline.
+func (s *Session) armHeldLocked() {
+	if s.heldTimer != nil {
+		s.heldTimer.Stop()
+		s.heldTimer = nil
+	}
+	var earliest time.Time
+	for _, deadline := range s.held {
+		if !deadline.IsZero() && (earliest.IsZero() || deadline.Before(earliest)) {
+			earliest = deadline
+		}
+	}
+	if earliest.IsZero() {
+		return
+	}
+	s.heldTimer = time.AfterFunc(time.Until(earliest), func() { s.storeHeld(false) })
+}
+
+// storeHeld stores the held documents as a commit of their own: at a
+// deadline, or at close (waiting for the store).
+func (s *Session) storeHeld(wait bool) {
+	s.mu.Lock()
+	if len(s.held) == 0 || s.failure.Load() != nil {
+		s.mu.Unlock()
+		return
+	}
+	candidate := shallowState(s.head)
+	candidate.base = nil
+	candidate.Sequence = s.head.Sequence + 1
+	delta := &StateDelta{Version: candidate.Version, Sequence: candidate.Sequence, NextID: candidate.NextID, Root: candidate.Root}
+	s.foldHeldLocked(candidate, delta)
+	admitted := s.admitStoredLocked(candidate, delta, false)
+	s.mu.Unlock()
+	if wait {
+		<-admitted.done
+	}
 }
 
 // writeLoop is the Session's writer (upstream group commit): it stores every
@@ -251,18 +425,58 @@ func (s *Session) writeLoop() {
 			return
 		}
 		full := s.fullWrite
+		var stores []*pendingCommit
+		for _, item := range batch {
+			if item.delta != nil {
+				stores = append(stores, item)
+			}
+		}
 		s.mu.Unlock()
-		stored, err := s.store(batch, full)
+		stored, err := s.store(stores, full)
 		s.mu.Lock()
 		failed := s.failure.Load() != nil
-		for i, item := range batch[:stored] {
+		position := 0 // stores published so far
+		lastStore := len(stores) - 1
+		failure := func() error {
+			// Storage failures are final (upstream): the first error a commit
+			// returns, a certified rejection included, fails the Session
+			// before any commit of the call learns of it.
+			if err != nil && !failed {
+				s.failLocked(err)
+				failed = true
+			}
+			if err != nil {
+				return err
+			}
+			return s.Err()
+		}
+		for _, item := range batch {
+			if item.delta == nil {
+				// A held commit is published when the commits before it are.
+				switch {
+				case position > stored:
+					item.done <- failure() // a store before it failed
+				case failed:
+					item.done <- s.Err()
+				default:
+					s.publishMemoryLocked(item)
+					item.done <- nil
+				}
+				continue
+			}
+			if position >= stored {
+				item.done <- failure()
+				position++
+				continue
+			}
+			position++
 			if failed {
 				item.done <- s.Err()
 				continue
 			}
 			s.state = item.state
 			s.fullWrite = false
-			s.recordCommitted(i == len(batch)-1)
+			s.recordCommitted(position-1 == lastStore)
 			if s.afterCommit != nil {
 				s.afterCommit(item.state)
 			}
@@ -277,13 +491,7 @@ func (s *Session) writeLoop() {
 			item.done <- nil
 		}
 		if err != nil {
-			// Storage failures are final (upstream): the first error a
-			// commit returns, a certified rejection included, fails the
-			// Session, and every commit of the call gets it.
-			s.failLocked(err)
-			for _, item := range batch[stored:] {
-				item.done <- err
-			}
+			failure()
 		}
 		s.mu.Unlock()
 	}

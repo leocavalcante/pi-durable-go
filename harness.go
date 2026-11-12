@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"runtime/debug"
 	"sort"
 	"sync"
@@ -79,13 +80,40 @@ func Open(ctx context.Context, storage Storage, options HarnessOptions) (*Harnes
 func (h *Harness) Commit(ctx context.Context, change func(*Tx) error) error {
 	return h.commit(ctx, change, false)
 }
+
+// CommitWith is Commit with persistence options: a deferred commit of
+// conversation documents is shown at once and stored within its window
+// (CommitOptions). It returns once the commit is adopted: stored, or held in
+// memory.
+func (h *Harness) CommitWith(ctx context.Context, options CommitOptions, change func(*Tx) error) error {
+	return h.commitWith(ctx, change, false, options)
+}
+
+// progressCommit is the persistence of progress commits: partial answers and
+// running tool output (upstream PROGRESS_COMMIT).
+func progressCommit() CommitOptions { return CommitOptions{Deferred: true} }
+
 func (h *Harness) commit(ctx context.Context, change func(*Tx) error, internal bool) error {
+	return h.commitWith(ctx, change, internal, CommitOptions{})
+}
+
+func (h *Harness) commitWith(ctx context.Context, change func(*Tx) error, internal bool, options CommitOptions) error {
 	if h == nil || h.session == nil {
 		return ErrClosed
 	}
+	within := 0.0
+	if options.Deferred {
+		if ms := options.WithinMs; ms != nil && (*ms < 0 || math.IsNaN(*ms)) {
+			return fmt.Errorf("%w: CommitOptions.WithinMs must be a number of milliseconds, 0 or more", ErrInvalid)
+		}
+		within = 1000
+		if ms := h.settings().Progress.PersistWithinMs; ms != nil && *ms >= 0 && !math.IsNaN(*ms) {
+			within = *ms
+		}
+	}
 	sp := spanOf(ctx)
 	var appended, settled []map[string]any
-	err := h.session.commit(ctx, func(tx *Tx) error {
+	err := h.session.commitWith(ctx, func(tx *Tx) error {
 		// Submissions settled by this commit: open before it, or new in it.
 		var settledBefore map[SubmissionID]bool
 		if sp != nil {
@@ -137,7 +165,7 @@ func (h *Harness) commit(ctx context.Context, change func(*Tx) error, internal b
 			return nil
 		}
 		return syncInboxes(tx)
-	}, internal)
+	}, internal, options, within)
 	if err == nil {
 		sort.Slice(appended, func(i, j int) bool { return appended[i]["entry.id"].(uint64) < appended[j]["entry.id"].(uint64) })
 		for _, attributes := range appended {

@@ -619,6 +619,23 @@ type ProgressSettings struct {
 	// OutputIntervalMs: running tool output is committed to its slot at
 	// most this often (default 100); 0 commits each Output call at once.
 	OutputIntervalMs *float64
+	// PersistWithinMs: how long these progress commits, and other deferred
+	// commits without their own WithinMs, may stay in memory before they are
+	// stored (default 1,000; 0 stores them at once; math.Inf(1) stores them
+	// only with the next stored commit or at close). A crash loses at most
+	// about this much of an answer or of tool output.
+	PersistWithinMs *float64
+}
+
+// CommitOptions ask for a commit's persistence (upstream CommitPersistence).
+// A deferred commit that changes only existing conversation documents with
+// latest history and the initial fork is adopted and shown at once, and its
+// documents are stored later: with the next stored commit, within WithinMs
+// (default Settings.Progress.PersistWithinMs), or at close; a crash loses
+// them. Any other deferred commit is stored like an immediate one.
+type CommitOptions struct {
+	Deferred bool
+	WithinMs *float64
 }
 
 type HarnessOptions struct {

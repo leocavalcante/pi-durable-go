@@ -69,7 +69,7 @@ type outputThrottle struct {
 }
 
 func (r *ToolRuntime) commitOutput(ctx context.Context, text string, diagnostics ...ToolDiagnostic) error {
-	return r.Commit(ctx, func(tx *Tx) (TaskTransition, error) {
+	return r.CommitWith(ctx, progressCommit(), func(tx *Tx) (TaskTransition, error) {
 		task, err := tx.Task(r.ID)
 		if err != nil {
 			return TaskTransition{}, err

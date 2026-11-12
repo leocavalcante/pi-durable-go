@@ -1243,7 +1243,7 @@ func (p *partialStream) flush() {
 	p.dirty = false
 	p.inFlight.Add(1)
 	p.mu.Unlock()
-	err := p.r.Commit(context.Background(), func(tx *Tx) (TaskTransition, error) {
+	err := p.r.CommitWith(context.Background(), progressCommit(), func(tx *Tx) (TaskTransition, error) {
 		current, err := tx.Task(p.task.ID)
 		if err != nil {
 			return TaskTransition{}, err

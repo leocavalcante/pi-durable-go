@@ -46,6 +46,11 @@ func newCrashHosts(t *testing.T, backend Storage, options HarnessOptions) *crash
 	if backend == nil {
 		backend = NewMemoryStorage()
 	}
+	// As upstream's restart tests do: let deferred progress commits reach
+	// storage before a crash.
+	if options.Settings.Progress.PersistWithinMs == nil {
+		options.Settings.Progress.PersistWithinMs = ptr(0.0)
+	}
 	return &crashHosts{t: t, backend: backend, options: options}
 }
 

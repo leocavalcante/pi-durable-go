@@ -123,8 +123,10 @@ func (s *Session) finishClose() {
 	if s.beforeClose != nil {
 		s.beforeClose()
 	}
-	// The writer stores outside the line: let it finish what it admitted
-	// (or fail it) before touching the backend.
+	// Documents deferred commits changed are stored at close; then the writer
+	// stores outside the line: let it finish what it admitted (or fail it)
+	// before touching the backend.
+	s.storeHeld(true)
 	s.drainWriter()
 	err := s.storage.Close()
 	if err != nil && s.failure.CompareAndSwap(nil, &SessionFailedError{cause: err}) && s.failureHook != nil {
