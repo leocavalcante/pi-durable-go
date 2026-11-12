@@ -176,6 +176,7 @@ func orderToolResults(messages []Message) []Message {
 				ToolName:   call.Name,
 				IsError:    true,
 				Content:    "Tool result unavailable: history ends before this call completed.",
+				Details:    json.RawMessage(`{"reason":"missing_result"}`),
 			})
 		}
 

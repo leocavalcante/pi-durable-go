@@ -193,6 +193,10 @@ type Message struct {
 	// ProviderData is adapter-owned assistant replay data (for example signed
 	// thinking blocks). Persist it with the message; never put credentials here.
 	ProviderData json.RawMessage `json:"providerData,omitempty"`
+	// Details are a tool result's structured details for hooks and hosts,
+	// never sent to models: a result context derivation synthesized for a
+	// call without one has {"reason":"missing_result"}, as upstream's.
+	Details json.RawMessage `json:"details,omitempty"`
 	// Images of a user or tool-result message, after its text unless
 	// ImageOffsets place them: image i goes at byte offset ImageOffsets[i] of
 	// Content, as upstream's ordered content blocks (OrderedContent).

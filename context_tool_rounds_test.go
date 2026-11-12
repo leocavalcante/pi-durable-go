@@ -106,7 +106,7 @@ func TestContextToolResultsMatchWithinAssistantWindow(t *testing.T) {
 		{Role: "system", Content: "intervening system"},
 		{Role: "user", Content: "intervening user"},
 		{Role: "assistant", Content: "missing result", ToolCalls: []ToolCall{missingCall}},
-		{Role: "tool", ToolCallID: missingCall.ID, ToolName: missingCall.Name, IsError: true, Content: "Tool result unavailable: history ends before this call completed."},
+		{Role: "tool", ToolCallID: missingCall.ID, ToolName: missingCall.Name, IsError: true, Content: "Tool result unavailable: history ends before this call completed.", Details: json.RawMessage(`{"reason":"missing_result"}`)},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("context mismatch\n got: %#v\nwant: %#v", got, want)
@@ -135,11 +135,11 @@ func TestContextToolResultsDoNotCrossAssistantRoundsWithReusedIDs(t *testing.T) 
 	want := []Message{
 		{Role: "user", Content: "start"},
 		{Role: "assistant", Content: "round one", ToolCalls: []ToolCall{first}},
-		{Role: "tool", ToolCallID: first.ID, ToolName: first.Name, IsError: true, Content: "Tool result unavailable: history ends before this call completed."},
+		{Role: "tool", ToolCallID: first.ID, ToolName: first.Name, IsError: true, Content: "Tool result unavailable: history ends before this call completed.", Details: json.RawMessage(`{"reason":"missing_result"}`)},
 		{Role: "assistant", Content: "round two", ToolCalls: []ToolCall{second}},
 		{Role: "tool", ToolCallID: second.ID, ToolName: "second-round", Content: "second round result"},
 		{Role: "assistant", Content: "round three", ToolCalls: []ToolCall{third}},
-		{Role: "tool", ToolCallID: third.ID, ToolName: third.Name, IsError: true, Content: "Tool result unavailable: history ends before this call completed."},
+		{Role: "tool", ToolCallID: third.ID, ToolName: third.Name, IsError: true, Content: "Tool result unavailable: history ends before this call completed.", Details: json.RawMessage(`{"reason":"missing_result"}`)},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("context mismatch\n got: %#v\nwant: %#v", got, want)
@@ -213,7 +213,7 @@ func TestGenerationRequestUsesNormalizedToolRoundContext(t *testing.T) {
 	want := []Message{
 		{Role: "user", Content: "prior question"},
 		{Role: "assistant", Content: "calling lookup", ToolCalls: []ToolCall{call}},
-		{Role: "tool", ToolCallID: call.ID, ToolName: call.Name, IsError: true, Content: "Tool result unavailable: history ends before this call completed."},
+		{Role: "tool", ToolCallID: call.ID, ToolName: call.Name, IsError: true, Content: "Tool result unavailable: history ends before this call completed.", Details: json.RawMessage(`{"reason":"missing_result"}`)},
 		{Role: "user", Content: "intervening note"},
 		{Role: "user", Content: "continue"},
 	}
