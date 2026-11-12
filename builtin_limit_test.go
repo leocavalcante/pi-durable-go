@@ -104,16 +104,22 @@ func TestCrashLoopGenerationCutOffInEveryPhase(t *testing.T) {
 			if err := h.Commit(context.Background(), func(tx *Tx) error { tx.state.mutTask(id).Restarts = tc.restarts; return nil }); err != nil {
 				t.Fatal(err)
 			}
-			// Submit resumes scheduling, so it follows the seeded count.
-			queued, err := root.Submit(context.Background(), SubmissionRequest{Content: "queued"})
-			if err != nil {
+			// Admit the input while the run is live, without resuming
+			// scheduling (Submit resumes it before admission), then resume.
+			var queued SubmissionID
+			if err := h.Commit(context.Background(), func(tx *Tx) error {
+				var err error
+				queued, err = root.SubmitTx(tx, SubmissionRequest{Content: "queued"})
+				return err
+			}); err != nil {
 				t.Fatal(err)
 			}
+			h.Resume()
 			assertRestartLimitRun(t, h, sub, id, tc.text)
 			if len(model.calls()) != 0 {
 				t.Fatal("a cut-off generation sent a request")
 			}
-			if later, err := (&Submission{h: h, id: queued.ID()}).Record(context.Background()); err != nil || later.Status != "queued" {
+			if later, err := (&Submission{h: h, id: queued}).Record(context.Background()); err != nil || later.Status != "queued" {
 				t.Fatalf("queued input=%+v error=%v", later, err)
 			}
 			state, err := h.Snapshot(context.Background())
