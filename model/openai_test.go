@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -105,5 +106,40 @@ func TestOpenAICancellation(t *testing.T) {
 		}
 	case <-time.After(3 * time.Second):
 		t.Fatal("request did not cancel")
+	}
+}
+
+func TestOpenAIStreamsReasoningAndToolCallEvents(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		write := func(s string) { _, _ = w.Write([]byte(s)); w.(http.Flusher).Flush() }
+		// Both reasoning fields with the same text: the first non-empty one counts.
+		write(`data: {"choices":[{"delta":{"reasoning_content":"plan","reasoning":"plan"}}]}` + "\n\n")
+		write(`data: {"choices":[{"delta":{"content":"reading"}}]}` + "\n\n")
+		write(`data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call-1","type":"function","function":{"name":"read","arguments":"{\"path\": \"a"}}]}}]}` + "\n\n")
+		write(`data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":".txt\"}"}}]}}]}` + "\n\n")
+		write(`data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}` + "\n\n")
+		write("data: [DONE]\n\n")
+	}))
+	defer server.Close()
+	var events []durable.StreamEvent
+	got, err := OpenAI{BaseURL: server.URL + "/v1"}.GenerateEvents(context.Background(), durable.ModelRequest{Model: durable.ModelRef{ID: "m"}, Messages: []durable.Message{{Role: "user", Content: "hi"}}},
+		func(event durable.StreamEvent) error { events = append(events, event); return nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []durable.StreamEvent{
+		{Type: "thinking_delta", Index: 0, Delta: "plan"},
+		{Type: "text_delta", Index: 1, Delta: "reading"},
+		{Type: "toolcall_start", Index: 2, ID: "call-1", Name: "read"},
+		{Type: "toolcall_delta", Index: 2, Delta: `{"path": "a`},
+		{Type: "toolcall_delta", Index: 2, Delta: `.txt"}`},
+		{Type: "toolcall_end", Index: 2},
+	}
+	if !reflect.DeepEqual(events, want) {
+		t.Fatalf("events=%+v\nwant %+v", events, want)
+	}
+	if got.Thinking != "plan" || got.Content != "reading" || len(got.ToolCalls) != 1 {
+		t.Fatalf("response=%+v", got)
 	}
 }

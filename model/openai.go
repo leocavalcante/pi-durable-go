@@ -63,6 +63,17 @@ func imageURL(image durable.ImageContent) openAIContentPart {
 func (o OpenAI) ContextWindow(durable.ModelRef) int { return o.Window }
 
 func (o OpenAI) Generate(ctx context.Context, req durable.ModelRequest, onDelta func(string) error) (durable.ModelResponse, error) {
+	return o.GenerateEvents(ctx, req, func(event durable.StreamEvent) error {
+		if event.Type != "text_delta" || onDelta == nil {
+			return nil
+		}
+		return onDelta(event.Delta)
+	})
+}
+
+// GenerateEvents streams text, reasoning (as thinking), and tool-call
+// events, as pi-ai's openai-completions does (durable.EventModel).
+func (o OpenAI) GenerateEvents(ctx context.Context, req durable.ModelRequest, onEvent func(durable.StreamEvent) error) (durable.ModelResponse, error) {
 	endpoint, err := completionsURL(o.BaseURL)
 	if err != nil {
 		return durable.ModelResponse{}, err
@@ -239,7 +250,7 @@ func (o OpenAI) Generate(ctx context.Context, req durable.ModelRequest, onDelta 
 		maxBytes = defaultMaxResponseBytes
 	}
 	limited := &limitedReader{r: resp.Body, remaining: maxBytes}
-	response, err := parseSSE(ctx, limited, onDelta, req.Model.Provider)
+	response, err := parseSSE(ctx, limited, onEvent, req.Model.Provider)
 	if err != nil {
 		return durable.ModelResponse{}, err
 	}
@@ -306,6 +317,11 @@ type streamChunk struct {
 		Delta struct {
 			Content   string           `json:"content"`
 			ToolCalls []openAIToolCall `json:"tool_calls"`
+			// Reasoning fields some endpoints send; pi-ai reads the first
+			// non-empty one.
+			ReasoningContent string `json:"reasoning_content"`
+			Reasoning        string `json:"reasoning"`
+			ReasoningText    string `json:"reasoning_text"`
 		} `json:"delta"`
 		FinishReason *string `json:"finish_reason"`
 	} `json:"choices"`
@@ -339,12 +355,23 @@ func (r *limitedReader) Read(p []byte) (int, error) {
 
 type streamTool struct {
 	id, name  string
+	index     int
+	started   bool
 	arguments strings.Builder
 }
 
-func parseSSE(ctx context.Context, r io.Reader, onDelta func(string) error, provider string) (durable.ModelResponse, error) {
+func parseSSE(ctx context.Context, r io.Reader, onEvent func(durable.StreamEvent) error, provider string) (durable.ModelResponse, error) {
 	response := durable.ModelResponse{}
 	tools := map[int]*streamTool{}
+	emit := func(event durable.StreamEvent) error {
+		if onEvent == nil {
+			return nil
+		}
+		return onEvent(event)
+	}
+	// Content indices as pi-ai assigns them: blocks in order of appearance.
+	blocks := 0
+	thinkingIndex, textIndex := -1, -1
 	scanner := bufio.NewScanner(r)
 	scanner.Buffer(make([]byte, 4096), maxSSELineBytes)
 	var data []string
@@ -382,18 +409,38 @@ func parseSSE(ctx context.Context, r io.Reader, onDelta func(string) error, prov
 					response.StopReason = "stop"
 				}
 			}
+			// Reasoning before content: a proxy can send both in one delta,
+			// and the thinking comes first.
+			reasoning := choice.Delta.ReasoningContent
+			if reasoning == "" {
+				reasoning = choice.Delta.Reasoning
+			}
+			if reasoning == "" {
+				reasoning = choice.Delta.ReasoningText
+			}
+			if reasoning != "" {
+				if thinkingIndex < 0 {
+					thinkingIndex, blocks = blocks, blocks+1
+				}
+				response.Thinking += reasoning
+				if err := emit(durable.StreamEvent{Type: "thinking_delta", Index: thinkingIndex, Delta: reasoning}); err != nil {
+					return err
+				}
+			}
 			if choice.Delta.Content != "" {
+				if textIndex < 0 {
+					textIndex, blocks = blocks, blocks+1
+				}
 				response.Content += choice.Delta.Content
-				if onDelta != nil {
-					if err := onDelta(choice.Delta.Content); err != nil {
-						return err
-					}
+				if err := emit(durable.StreamEvent{Type: "text_delta", Index: textIndex, Delta: choice.Delta.Content}); err != nil {
+					return err
 				}
 			}
 			for _, delta := range choice.Delta.ToolCalls {
 				t := tools[delta.Index]
 				if t == nil {
-					t = &streamTool{}
+					t = &streamTool{index: blocks}
+					blocks++
 					tools[delta.Index] = t
 				}
 				if delta.ID != "" {
@@ -402,7 +449,18 @@ func parseSSE(ctx context.Context, r io.Reader, onDelta func(string) error, prov
 				if delta.Function.Name != "" {
 					t.name += delta.Function.Name
 				}
+				if !t.started {
+					t.started = true
+					if err := emit(durable.StreamEvent{Type: "toolcall_start", Index: t.index, ID: t.id, Name: t.name}); err != nil {
+						return err
+					}
+				}
 				t.arguments.WriteString(delta.Function.Arguments)
+				if delta.Function.Arguments != "" {
+					if err := emit(durable.StreamEvent{Type: "toolcall_delta", Index: t.index, Delta: delta.Function.Arguments}); err != nil {
+						return err
+					}
+				}
 			}
 		}
 		return nil
@@ -461,6 +519,11 @@ func parseSSE(ctx context.Context, r io.Reader, onDelta func(string) error, prov
 	for i := 1; i < len(indices); i++ {
 		for j := i; j > 0 && indices[j] < indices[j-1]; j-- {
 			indices[j], indices[j-1] = indices[j-1], indices[j]
+		}
+	}
+	for _, i := range indices {
+		if err := emit(durable.StreamEvent{Type: "toolcall_end", Index: tools[i].index}); err != nil {
+			return durable.ModelResponse{}, err
 		}
 	}
 	for _, i := range indices {

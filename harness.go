@@ -202,13 +202,31 @@ func (h *Harness) Snapshot(ctx context.Context) (*State, error) { return h.sessi
 
 // generate sends a model request with the Harness identity.
 func (h *Harness) generate(ctx context.Context, req ModelRequest, onDelta func(string) error) (ModelResponse, error) {
+	return h.model().Generate(ctx, h.sendable(req), onDelta)
+}
+
+// generateEvents streams a request's events: an EventModel's own, or a
+// Model's text deltas as text_delta events.
+func (h *Harness) generateEvents(ctx context.Context, req ModelRequest, onEvent func(StreamEvent) error) (ModelResponse, error) {
+	model := h.model()
+	if events, ok := model.(EventModel); ok {
+		return events.GenerateEvents(ctx, h.sendable(req), onEvent)
+	}
+	return model.Generate(ctx, h.sendable(req), func(text string) error {
+		return onEvent(StreamEvent{Type: "text_delta", Delta: text})
+	})
+}
+
+// sendable attaches what a request carries at send time: the identity and
+// the stream settings.
+func (h *Harness) sendable(req ModelRequest) ModelRequest {
 	if req.Identity == nil {
 		req.Identity = h.options.Identity
 	}
 	if stream := h.settings().Stream; req.Stream == nil && !stream.isZero() {
 		req.Stream = &stream
 	}
-	return h.model().Generate(ctx, req, onDelta)
+	return req
 }
 
 // harnessModel is the Harness model as tools see it: requests carry the
@@ -217,6 +235,11 @@ type harnessModel struct{ h *Harness }
 
 func (m harnessModel) Generate(ctx context.Context, req ModelRequest, onDelta func(string) error) (ModelResponse, error) {
 	return m.h.generate(ctx, req, onDelta)
+}
+
+// GenerateEvents streams events, as EventModel does.
+func (m harnessModel) GenerateEvents(ctx context.Context, req ModelRequest, onEvent func(StreamEvent) error) (ModelResponse, error) {
+	return m.h.generateEvents(ctx, req, onEvent)
 }
 
 // read returns the committed State for internal reading. It is shared with

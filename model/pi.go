@@ -130,6 +130,17 @@ func (p Pi) describe(ctx context.Context, ref durable.ModelRef) (catalogEntry, e
 }
 
 func (p Pi) Generate(ctx context.Context, req durable.ModelRequest, onDelta func(string) error) (durable.ModelResponse, error) {
+	return p.GenerateEvents(ctx, req, func(event durable.StreamEvent) error {
+		if event.Type != "text_delta" || onDelta == nil {
+			return nil
+		}
+		return onDelta(event.Delta)
+	})
+}
+
+// GenerateEvents streams pi-ai's text, thinking, and tool-call events
+// (durable.EventModel), so partial answers show them.
+func (p Pi) GenerateEvents(ctx context.Context, req durable.ModelRequest, onEvent func(durable.StreamEvent) error) (durable.ModelResponse, error) {
 	if err := ctx.Err(); err != nil {
 		return durable.ModelResponse{}, err
 	}
@@ -197,7 +208,7 @@ func (p Pi) Generate(ctx context.Context, req durable.ModelRequest, onDelta func
 	var response durable.ModelResponse
 	var readErr error
 	if writeErr == nil {
-		response, readErr = readPiOutput(&limitedReader{r: output, remaining: maxBytes}, onDelta)
+		response, readErr = readPiOutput(&limitedReader{r: output, remaining: maxBytes}, onEvent)
 	}
 	if writeErr != nil || readErr != nil {
 		cancel()
@@ -217,7 +228,7 @@ func (p Pi) Generate(ctx context.Context, req durable.ModelRequest, onDelta func
 	return response, nil
 }
 
-func readPiOutput(r io.Reader, onDelta func(string) error) (durable.ModelResponse, error) {
+func readPiOutput(r io.Reader, onEvent func(durable.StreamEvent) error) (durable.ModelResponse, error) {
 	scanner := bufio.NewScanner(r)
 	// The final record includes the assistant's native replay data, which can
 	// exceed a single provider SSE line. The reader still caps total output.
@@ -227,6 +238,9 @@ func readPiOutput(r io.Reader, onDelta func(string) error) (durable.ModelRespons
 		var event struct {
 			Type     string                 `json:"type"`
 			Delta    string                 `json:"delta"`
+			Index    int                    `json:"contentIndex"`
+			ID       string                 `json:"id"`
+			Name     string                 `json:"name"`
 			Response *durable.ModelResponse `json:"response"`
 			Code     string                 `json:"code"`
 			// pi-ai's classification of the provider error, computed in Node.
@@ -237,9 +251,13 @@ func readPiOutput(r io.Reader, onDelta func(string) error) (durable.ModelRespons
 			return durable.ModelResponse{}, sanitizedError("pi: invalid SDK stream", false)
 		}
 		switch event.Type {
-		case "delta":
-			if onDelta != nil {
-				if err := onDelta(event.Delta); err != nil {
+		case "delta", "thinking_delta", "toolcall_start", "toolcall_delta", "toolcall_end":
+			kind := event.Type
+			if kind == "delta" {
+				kind = "text_delta"
+			}
+			if onEvent != nil {
+				if err := onEvent(durable.StreamEvent{Type: kind, Index: event.Index, Delta: event.Delta, ID: event.ID, Name: event.Name}); err != nil {
 					return durable.ModelResponse{}, err
 				}
 			}

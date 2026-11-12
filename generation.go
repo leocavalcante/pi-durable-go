@@ -294,9 +294,9 @@ func requestGeneration(ctx context.Context, r *TaskRuntime, task TaskRecord, cp 
 	cp.Partial = ""
 	stream := newPartialStream(r, task, attempt)
 	started := time.Now()
-	response, err := r.h.generate(ctx, cp.Request, stream.delta)
+	response, err := r.h.generateEvents(ctx, cp.Request, stream.event)
 	stream.stop()
-	partial := stream.text()
+	partial := stream.message()
 	responseDurationMs := time.Since(started).Milliseconds()
 	if err != nil {
 		if ctx.Err() != nil {
@@ -309,7 +309,7 @@ func requestGeneration(ctx context.Context, r *TaskRuntime, task TaskRecord, cp 
 		text := diagnostic(err.Error())
 		// AfterResponse hooks see every response, a failed one too (upstream
 		// classify); retries and overflows follow the model's error.
-		seen := ModelResponse{Content: partial, Usage: response.Usage, StopReason: "error", ErrorMessage: text}
+		seen := ModelResponse{Content: partial.Content, Thinking: partial.Thinking, Usage: response.Usage, StopReason: "error", ErrorMessage: text}
 		if e := afterResponse(ctx, r, task, &seen); e != nil {
 			return e
 		}
@@ -914,19 +914,20 @@ func convertPartial(tx *Tx, task TaskRecord) error {
 	}
 	var fields map[string]json.RawMessage
 	_ = json.Unmarshal(current.Checkpoint, &fields)
-	var partial string
-	_ = json.Unmarshal(fields["partial"], &partial)
+	var legacy string
+	_ = json.Unmarshal(fields["partial"], &legacy)
+	partial := &Message{Role: "assistant", Content: legacy}
 	if live, err := readLive(tx, task.Conversation); err == nil && live.Generation != nil && live.Generation.Message != nil &&
 		(live.Run == nil || live.Run.TaskID == task.ID) {
-		if partial == "" {
-			partial = live.Generation.Message.Content
+		if legacy == "" {
+			partial = live.Generation.Message
 		}
 		live.Generation.Message = nil
 		if err := writeLive(tx, task.Conversation, live); err != nil {
 			return err
 		}
 	}
-	if partial == "" {
+	if partial.Content == "" && partial.Thinking == "" && len(partial.ToolCalls) == 0 {
 		return nil
 	}
 	var thinking string
@@ -939,9 +940,11 @@ func convertPartial(tx *Tx, task TaskRecord) error {
 	return err
 }
 
-// abortedMessage is a committed partial of an attempt that did not finish.
-func abortedMessage(partial, thinkingLevel string) *Message {
-	return &Message{Role: "assistant", Content: partial, Aborted: true, StopReason: "aborted", ThinkingLevel: thinkingLevel}
+// abortedMessage is a committed partial of an attempt that did not finish,
+// as it was shown: text, thinking, and tool calls.
+func abortedMessage(partial *Message, thinkingLevel string) *Message {
+	return &Message{Role: "assistant", Content: partial.Content, Thinking: partial.Thinking, ToolCalls: partial.ToolCalls,
+		Aborted: true, StopReason: "aborted", ThinkingLevel: thinkingLevel}
 }
 
 // failNoModel ends the run: no model is configured. Its inputs settle
@@ -1250,7 +1253,7 @@ type partialStream struct {
 	attempt  int
 	interval time.Duration
 	mu       sync.Mutex
-	partial  strings.Builder
+	partial  partialMessage
 	dirty    bool
 	armed    bool
 	stopped  bool
@@ -1266,13 +1269,13 @@ func newPartialStream(r *TaskRuntime, task TaskRecord, attempt int) *partialStre
 	return &partialStream{r: r, task: task, attempt: attempt, interval: interval}
 }
 
-func (p *partialStream) delta(text string) error {
+func (p *partialStream) event(event StreamEvent) error {
 	if err := p.r.check(); err != nil {
 		return err
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	p.partial.WriteString(text)
+	p.partial.observe(event)
 	p.dirty = true
 	if !p.armed && !p.stopped {
 		p.armed = true
@@ -1288,7 +1291,7 @@ func (p *partialStream) flush() {
 		p.mu.Unlock()
 		return
 	}
-	text := p.partial.String()
+	message := p.partial.message()
 	p.dirty = false
 	p.inFlight.Add(1)
 	p.mu.Unlock()
@@ -1301,7 +1304,7 @@ func (p *partialStream) flush() {
 			if live.Generation == nil {
 				live.Generation = &LiveGeneration{Attempt: p.attempt}
 			}
-			live.Generation.Message = &Message{Role: "assistant", Content: text}
+			live.Generation.Message = message
 			return nil
 		}); err != nil {
 			return TaskTransition{}, err
@@ -1334,10 +1337,11 @@ func (p *partialStream) stop() {
 	p.inFlight.Wait()
 }
 
-func (p *partialStream) text() string {
+// message is the partial message so far.
+func (p *partialStream) message() *Message {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	return p.partial.String()
+	return p.partial.message()
 }
 
 // createToolTask creates the tool task of one call, owned by the generation.

@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -310,5 +311,38 @@ func TestPiContextWindowFromCatalog(t *testing.T) {
 	}
 	if got := p.ContextWindow(durable.ModelRef{Provider: "fake", ID: "unknown"}); got != 0 {
 		t.Fatalf("unknown model window=%d", got)
+	}
+}
+
+func TestPiStreamsThinkingAndToolCallEvents(t *testing.T) {
+	var events []durable.StreamEvent
+	response, err := fakePi(t).GenerateEvents(context.Background(), durable.ModelRequest{Model: durable.ModelRef{Provider: "fake", ID: "events"}}, func(event durable.StreamEvent) error {
+		events = append(events, event)
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []durable.StreamEvent{
+		{Type: "thinking_delta", Index: 0, Delta: "plan"},
+		{Type: "text_delta", Index: 1, Delta: "reading"},
+		{Type: "toolcall_start", Index: 2, ID: "call-9", Name: "read"},
+		{Type: "toolcall_delta", Index: 2, Delta: `{"path": "a`},
+		{Type: "toolcall_delta", Index: 2, Delta: `.txt"}`},
+		{Type: "toolcall_end", Index: 2},
+	}
+	if !reflect.DeepEqual(events, want) {
+		t.Fatalf("events=%+v\nwant %+v", events, want)
+	}
+	if len(response.ToolCalls) != 1 || string(response.ToolCalls[0].Arguments) != `{"path":"a.txt"}` {
+		t.Fatalf("response=%+v", response)
+	}
+	// Generate still streams only the text.
+	var deltas []string
+	if _, err := fakePi(t).Generate(context.Background(), durable.ModelRequest{Model: durable.ModelRef{Provider: "fake", ID: "events"}}, func(text string) error {
+		deltas = append(deltas, text)
+		return nil
+	}); err != nil || !reflect.DeepEqual(deltas, []string{"reading"}) {
+		t.Fatalf("deltas=%v error=%v", deltas, err)
 	}
 }

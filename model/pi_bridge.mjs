@@ -246,7 +246,15 @@ async function main() {
     });
     let result;
     for await (const event of stream) {
-      if (event.type === "text_delta") await emit({ type: "delta", delta: event.delta });
+      // Partial answers show text, thinking, and tool-call arguments, as
+      // pi-ai streams them (upstream Durable partial messages).
+      if (event.type === "text_delta") await emit({ type: "delta", delta: event.delta, contentIndex: event.contentIndex });
+      else if (event.type === "thinking_delta") await emit({ type: "thinking_delta", delta: event.delta, contentIndex: event.contentIndex });
+      else if (event.type === "toolcall_start") {
+        const call = event.partial?.content?.[event.contentIndex];
+        await emit({ type: "toolcall_start", contentIndex: event.contentIndex, id: typeof call?.id === "string" ? call.id : "", name: typeof call?.name === "string" ? call.name : "" });
+      } else if (event.type === "toolcall_delta") await emit({ type: "toolcall_delta", delta: event.delta, contentIndex: event.contentIndex });
+      else if (event.type === "toolcall_end") await emit({ type: "toolcall_end", contentIndex: event.contentIndex });
       else if (event.type === "done") result = event.message;
       else if (event.type === "error") {
         if (controller.signal.aborted) return { type: "error", code: "provider" };

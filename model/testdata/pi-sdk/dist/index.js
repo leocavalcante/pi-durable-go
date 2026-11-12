@@ -49,6 +49,16 @@ export class ModelRuntime {
       result.content = [{ type: "text", text: "summary" }];
     } else if (model.id === "inspect") {
       result.content = [{ type: "text", text: JSON.stringify({ create: this.options, model, context, options }) }];
+    } else if (model.id === "events") {
+      yield { type: "thinking_delta", contentIndex: 0, delta: "plan" };
+      yield { type: "text_delta", contentIndex: 1, delta: "reading" };
+      const call = { type: "toolCall", id: "call-9", name: "read", arguments: {} };
+      yield { type: "toolcall_start", contentIndex: 2, partial: { ...result, content: [{ type: "thinking", thinking: "plan" }, { type: "text", text: "reading" }, call] } };
+      yield { type: "toolcall_delta", contentIndex: 2, delta: '{"path": "a' };
+      yield { type: "toolcall_delta", contentIndex: 2, delta: '.txt"}' };
+      yield { type: "toolcall_end", contentIndex: 2, toolCall: { ...call, arguments: { path: "a.txt" } } };
+      result.content = [{ type: "thinking", thinking: "plan" }, { type: "text", text: "reading" }, { ...call, arguments: { path: "a.txt" } }];
+      result.stopReason = "toolUse";
     } else if (model.id === "hold") {
       yield { type: "text_delta", delta: "started" };
       if (!options.signal.aborted) await new Promise((accept) => options.signal.addEventListener("abort", accept, { once: true }));

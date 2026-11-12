@@ -1,6 +1,6 @@
 # Model adapters
 
-Both adapters implement `durable.Model`. Go continues to own commits, scheduling, tool execution, and recovery.
+Both adapters implement `durable.Model` and `durable.EventModel`: they stream text, thinking (pi-ai's events, or the `reasoning_content`/`reasoning`/`reasoning_text` fields Chat Completions endpoints send), and tool-call argument text, so partial answers show them. Go continues to own commits, scheduling, tool execution, and recovery.
 
 ## Pi coding-agent authentication and providers
 
