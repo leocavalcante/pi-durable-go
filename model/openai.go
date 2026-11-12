@@ -35,6 +35,10 @@ type OpenAI struct {
 	// NoImages marks a model that takes no images: they are sent as
 	// pi-ai's placeholders instead.
 	NoImages bool
+	// NoStrictMode marks an endpoint without strict tool schemas (pi-ai
+	// compat.supportsStrictMode false): no strict field is sent, and a tool
+	// that requires constrained sampling fails the request.
+	NoStrictMode bool
 }
 
 var (
@@ -159,7 +163,27 @@ func (o OpenAI) Generate(ctx context.Context, req durable.ModelRequest, onDelta 
 			if err := json.Unmarshal(tool.Parameters, &parameters); err != nil {
 				return durable.ModelResponse{}, sanitizedError(fmt.Sprintf("invalid parameters schema for tool %q", tool.Name), false)
 			}
-			payload.Tools = append(payload.Tools, openAITool{Type: "function", Function: openAIFunctionDefinition{Name: tool.Name, Description: tool.Description, Parameters: parameters}})
+			definition := openAIFunctionDefinition{Name: tool.Name, Description: tool.Description, Parameters: json.RawMessage(compactParameters(tool.Parameters))}
+			// pi-ai sends constrained JSON-schema tools in strict mode, with
+			// their schema in the strict subset, and strict false otherwise.
+			if !o.NoStrictMode {
+				strict, err := strictSampling(tool, true)
+				if err != nil {
+					return durable.ModelResponse{}, sanitizedError(err.Error(), false)
+				}
+				on := strict != nil && *strict
+				if on {
+					converted, err := makeStrictSchema(tool.Parameters)
+					if err != nil {
+						return durable.ModelResponse{}, sanitizedError(err.Error(), false)
+					}
+					definition.Parameters = converted
+				}
+				definition.Strict = &on
+			} else if _, err := strictSampling(tool, false); err != nil {
+				return durable.ModelResponse{}, sanitizedError(err.Error(), false)
+			}
+			payload.Tools = append(payload.Tools, openAITool{Type: "function", Function: definition})
 		}
 	}
 	body, err := json.Marshal(payload)
@@ -252,10 +276,20 @@ type openAITool struct {
 	Function openAIFunctionDefinition `json:"function"`
 }
 type openAIFunctionDefinition struct {
-	Name        string `json:"name"`
-	Description string `json:"description,omitempty"`
-	Parameters  any    `json:"parameters"`
+	Name        string          `json:"name"`
+	Description string          `json:"description,omitempty"`
+	Parameters  json.RawMessage `json:"parameters"`
+	Strict      *bool           `json:"strict,omitempty"`
 }
+
+func compactParameters(raw json.RawMessage) []byte {
+	var out bytes.Buffer
+	if json.Compact(&out, raw) != nil {
+		return raw
+	}
+	return out.Bytes()
+}
+
 type openAIToolCall struct {
 	Index    int            `json:"index,omitempty"`
 	ID       string         `json:"id,omitempty"`

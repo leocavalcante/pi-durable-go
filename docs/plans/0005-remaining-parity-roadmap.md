@@ -32,7 +32,6 @@
 1. **Group commit.** Deferred in [plan 0006](0006-incremental-commits-and-record-storage.md). Upstream stores commits that arrive during a storage call together, and every storage error is fatal there; the Go Session lets a caller's cancellation and a certified rejection fail one commit without failing the Session, which grouping would give up, for throughput only.
 2. **Image order.** Images interleaved with text in one message; Go puts a message's images after its text.
 3. **Environment parity.** The `env` package's bounded binary and directory readers and file watching. Hosts can use the Go standard library directly; tools need none of them today.
-4. **Strict tool schemas in `model.OpenAI`.** pi-ai turns `constrainedSampling` into OpenAI strict-mode schemas; the Go adapter does no provider-specific schema conversion. The Pi bridge passes the declaration to pi-ai, which does.
 
 ## 3. Not planned
 
