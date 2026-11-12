@@ -23,14 +23,14 @@
 | Entry paging, view windows, client transcript, task graph, telemetry spans, events, and metrics, JSONL compaction | `conversation.go`, `view.go`, `transcript.go`, `task_graph.go`, `telemetry.go`, `storage/jsonl.go` |
 | Tool output throttling and dropped counters; upstream read (streaming), edit (fuzzy matching, diff details), and bash (timeout, spill, exit codes) results; the PowerShell tool | `tool_runtime.go`, `tools/read_text.go`, `tools/edit_diff.go`, `tools/diff.go`, `tools/coding.go` |
 
+| Positional system messages and context edits (spec §7.4) | `prompt.go`, `context.go` |
 | Incremental commits and shared reads ([plan 0006](0006-incremental-commits-and-record-storage.md)); commit observers; read-only JSONL; images end to end with a processor and catalog limits; identity and tool model access; structured tool output; `Tx.Configure` | `cow.go`, `delta.go`, `storage/`, `tools/images.go`, `harness.go` |
 
 ## 2. Remaining work, in proposed order
 
-1. **Positional system updates (spec §7.4).** Upstream records prompt sections and tool declarations as positional `pi.system` messages (PR #9548 `SystemMessage` patches with `toolsAdded`/`toolsRemoved`, rebaselined after a head marker with `ContextEdit` omissions), replays them to know what the model saw, and lets pi-ai send them positionally or fold them. Go renders one leading system message per request and journals the result. Porting needs a system-message model, context-edit omissions, replay in context derivation, and both adapters; it changes what providers cache, not what a run does.
-2. **Group commit.** Deferred in [plan 0006](0006-incremental-commits-and-record-storage.md): it would replace per-commit storage cancellation semantics that the Session's failure rules and tests encode, for throughput only.
-3. **Image order.** Images interleaved with text in one message.
-4. **Environment parity.** The `env` package's bounded binary and directory readers and file watching. Hosts can use the Go standard library directly; tools need none of them today.
+1. **Group commit.** Deferred in [plan 0006](0006-incremental-commits-and-record-storage.md): it would replace per-commit storage cancellation semantics that the Session's failure rules and tests encode, for throughput only.
+2. **Image order.** Images interleaved with text in one message.
+3. **Environment parity.** The `env` package's bounded binary and directory readers and file watching. Hosts can use the Go standard library directly; tools need none of them today.
 
 ## 3. Not planned
 

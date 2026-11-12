@@ -75,8 +75,9 @@ func TestCompactionBlockingThresholdCompactsBeforeTheRequest(t *testing.T) {
 	if len(tasks) == 0 || tasks[0].Owner.Task == 0 || tasks[0].Outcome.Status != OutcomeCompleted {
 		t.Fatalf("blocking compaction=%+v", tasks)
 	}
-	if request := lastRequest(model); !strings.HasPrefix(request.Messages[0].Content, summaryPrefix) {
-		t.Fatalf("the request after compacting does not start with the summary: %+v", request.Messages[0])
+	// After the head marker, the request's prompt is a new baseline, then the summary.
+	if messages := withoutSystem(lastRequest(model).Messages); !strings.HasPrefix(messages[0].Content, summaryPrefix) {
+		t.Fatalf("the request after compacting does not start with the summary: %+v", messages[0])
 	}
 }
 

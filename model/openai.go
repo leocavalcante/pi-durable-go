@@ -73,7 +73,21 @@ func (o OpenAI) Generate(ctx context.Context, req durable.ModelRequest, onDelta 
 			toolImages = nil
 		}
 	}
-	for _, m := range req.Messages {
+	// Chat Completions takes no system messages mid-conversation: fold them
+	// into one leading message with the replayed prompt and tools, as pi-ai
+	// does for such providers.
+	messages := durable.CollapseSystemMessages(req.Messages)
+	tools := req.Tools
+	if durable.HasToolChanges(req.Messages) {
+		tools = durable.CurrentTools(req.Messages)
+	}
+	for _, m := range messages {
+		if m.Role == "system" {
+			m.Content = durable.SystemText(m)
+			if m.Content == "" {
+				continue
+			}
+		}
 		role := m.Role
 		switch role {
 		case "user", "assistant", "system", "developer", "tool":
@@ -134,9 +148,9 @@ func (o OpenAI) Generate(ctx context.Context, req durable.ModelRequest, onDelta 
 		payload.Messages = append(payload.Messages, msg)
 	}
 	flushToolImages()
-	if len(req.Tools) > 0 {
-		payload.Tools = make([]openAITool, 0, len(req.Tools))
-		for _, tool := range req.Tools {
+	if len(tools) > 0 {
+		payload.Tools = make([]openAITool, 0, len(tools))
+		for _, tool := range tools {
 			var parameters any
 			if len(tool.Parameters) == 0 || !json.Valid(tool.Parameters) {
 				return durable.ModelResponse{}, sanitizedError(fmt.Sprintf("invalid parameters schema for tool %q", tool.Name), false)

@@ -81,3 +81,31 @@ func TestOpenAISendsTheIdentityUserAgent(t *testing.T) {
 		t.Fatalf("user agents=%q", agents)
 	}
 }
+
+func TestOpenAIFoldsPositionalSystemMessages(t *testing.T) {
+	first, second := "<preamble>\nfirst\n</preamble>", "<preamble>\nsecond\n</preamble>"
+	var body struct {
+		Messages []map[string]any `json:"messages"`
+		Tools    []map[string]any `json:"tools"`
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"ok\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n"))
+	}))
+	defer server.Close()
+	req := durable.ModelRequest{Model: durable.ModelRef{ID: "m"}, Messages: []durable.Message{
+		{Role: "system", Sections: []durable.SystemSection{{Name: "preamble", Text: &first}}, ToolsAdded: []durable.ToolSpec{{Name: "read", Parameters: json.RawMessage(`{"type":"object"}`)}}},
+		{Role: "user", Content: "one"},
+		{Role: "system", Sections: []durable.SystemSection{{Name: "preamble", Text: &second}}, ToolsAdded: []durable.ToolSpec{{Name: "bash", Parameters: json.RawMessage(`{"type":"object"}`)}}},
+		{Role: "user", Content: "two"},
+	}}
+	if _, err := (OpenAI{BaseURL: server.URL}).Generate(context.Background(), req, nil); err != nil {
+		t.Fatal(err)
+	}
+	if len(body.Messages) != 3 || body.Messages[0]["role"] != "system" || body.Messages[0]["content"] != second || body.Messages[1]["content"] != "one" {
+		t.Fatalf("messages=%v", body.Messages)
+	}
+	if len(body.Tools) != 2 {
+		t.Fatalf("tools=%v", body.Tools)
+	}
+}

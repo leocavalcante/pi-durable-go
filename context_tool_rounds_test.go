@@ -80,7 +80,9 @@ func TestContextToolResultsMatchWithinAssistantWindow(t *testing.T) {
 		messageEntry("pi.tool-result", Message{Role: "tool", ToolCallID: "orphan", Content: "before any assistant"}),
 		messageEntry("pi.user", Message{Role: "user", Content: "question"}),
 		messageEntry("pi.assistant", Message{Role: "assistant", Content: "working", ToolCalls: []ToolCall{callA, callB}}),
-		messageEntry("pi.system", Message{Role: "system", Content: "intervening system"}),
+		// Not a pi.system baseline: a system message another entry carries
+		// stays where it was committed.
+		messageEntry("app.system", Message{Role: "system", Content: "intervening system"}),
 		messageEntry("pi.tool-result", Message{Role: "tool", ToolCallID: callB.ID, ToolName: "stored-beta", Content: "first beta", IsError: true}),
 		messageEntry("pi.user", Message{Role: "user", Content: "intervening user"}),
 		messageEntry("pi.tool-result", Message{Role: "tool", ToolCallID: "unknown", Content: "unmatched"}),

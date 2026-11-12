@@ -222,6 +222,26 @@ func (m Message) detached() Message {
 	if m.Images != nil {
 		out.Images = append([]ImageContent{}, m.Images...)
 	}
+	if m.Sections != nil {
+		out.Sections = make([]SystemSection, len(m.Sections))
+		for i, section := range m.Sections {
+			if section.Text != nil {
+				text := *section.Text
+				section.Text = &text
+			}
+			out.Sections[i] = section
+		}
+	}
+	if m.ToolsAdded != nil {
+		out.ToolsAdded = make([]ToolSpec, len(m.ToolsAdded))
+		for i, tool := range m.ToolsAdded {
+			tool.Parameters = cloneRaw(tool.Parameters)
+			out.ToolsAdded[i] = tool
+		}
+	}
+	if m.ToolsRemoved != nil {
+		out.ToolsRemoved = append([]string{}, m.ToolsRemoved...)
+	}
 	return out
 }
 
@@ -232,5 +252,19 @@ func (e Entry) detached() Entry {
 		out.Message = &m
 	}
 	out.Data = cloneRaw(e.Data)
+	if e.Edits != nil {
+		out.Edits = make([]ContextEdit, len(e.Edits))
+		for i, edit := range e.Edits {
+			messages := make([]Message, len(edit.Messages))
+			for j, m := range edit.Messages {
+				messages[j] = m.detached()
+			}
+			if edit.Messages == nil {
+				messages = nil
+			}
+			edit.Messages = messages
+			out.Edits[i] = edit
+		}
+	}
 	return out
 }

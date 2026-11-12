@@ -206,10 +206,10 @@ func prepareGeneration(ctx context.Context, r *TaskRuntime, task TaskRecord, cp 
 			return failRun(ctx, r, task, runEnd{reason: RunModelError, detail: text}, text, false)
 		}
 	}
-	request := buildRequest(ctx, r, state, *c)
+	request, planned := buildRequest(ctx, r, state, *c)
 	threshold := ""
 	if cp.Compacted == 0 {
-		threshold = thresholdCompaction(r, state, *c, request)
+		threshold = thresholdCompaction(r, state, *c, planned)
 	}
 	if threshold == "blocking" {
 		// Compact first and prepare again; the transcript is unchanged until
@@ -236,28 +236,10 @@ func prepareGeneration(ctx context.Context, r *TaskRuntime, task TaskRecord, cp 
 				}
 			}
 		}
-		metadata, err := json.Marshal(struct {
-			Messages []Message  `json:"system"`
-			Tools    []ToolSpec `json:"tools"`
-		}{systemMessages(request.Messages), request.Tools})
-		if err != nil {
-			return TaskTransition{}, err
-		}
-		// Journal prompt/tool choices, while the complete prepared request is
-		// the recovery authority. Native positional system-update caching is
-		// not ported.
-		entries, err := entriesFromState(tx.state, task.Conversation)
-		if err != nil {
-			return TaskTransition{}, err
-		}
-		var previous json.RawMessage
-		for _, e := range entries {
-			if e.Kind == "pi.system" {
-				previous = e.Data
-			}
-		}
-		if string(previous) != string(metadata) {
-			if _, err := tx.Append(task.Conversation, Entry{Kind: "pi.system", Data: metadata}); err != nil {
+		// The prompt and tool changes the request was planned with, at their
+		// transcript positions (spec §7.4).
+		for _, entry := range planned {
+			if _, err := tx.Append(task.Conversation, entry); err != nil {
 				return TaskTransition{}, err
 			}
 		}
@@ -745,23 +727,22 @@ func retryTransition(tx *Tx, cid ConversationID, attempt int, until time.Time, t
 	return TaskTransition{Status: "sleeping", Checkpoint: next, WakeAt: &wake}, err
 }
 
-func systemMessages(messages []Message) []Message {
-	var out []Message
-	for _, m := range messages {
-		if m.Role == "system" {
-			out = append(out, m)
-		}
+// buildRequest plans the prompt and tool changes of the next request (spec
+// §7.4): it renders the agent's sections, plans the pi.system entries that
+// make the replayed prompt and tools equal them, derives the request's
+// messages as if those entries were appended, and runs BeforeRequest hooks.
+// A section or hook that fails is reported as extension_error and skipped,
+// as upstream's hooks.each does; a failed section keeps the text the model
+// was shown.
+func buildRequest(ctx context.Context, r *TaskRuntime, state *State, c ConversationRecord) (ModelRequest, []Entry) {
+	request := ModelRequest{Model: c.Agent.Model, SessionID: c.ProviderSessionID, ThinkingLevel: c.Agent.ThinkingLevel}
+	view, err := deriveContextView(state, c.ID, 0)
+	if err != nil {
+		return request, nil
 	}
-	return out
-}
-
-// buildRequest renders sections and runs BeforeRequest hooks. A section or
-// hook that fails is reported as extension_error and skipped, as upstream's
-// hooks.each does; the request goes on without it.
-func buildRequest(ctx context.Context, r *TaskRuntime, state *State, c ConversationRecord) ModelRequest {
-	messages, _ := contextFromState(state, c.ID)
+	shown := replaySections(view.messages)
 	registry := r.Registry()
-	var prompt strings.Builder
+	var desired orderedText
 	for _, section := range registry.sections(c.Agent) {
 		if section.Render == nil {
 			continue
@@ -769,22 +750,32 @@ func buildRequest(ctx context.Context, r *TaskRuntime, state *State, c Conversat
 		text, err := section.Render(ctx, c, r.h)
 		if err != nil {
 			r.reportExtension(err, section.extension)
+			if kept, ok := shown.text[section.Name]; ok {
+				desired.set(section.Name, kept)
+			}
 			continue
 		}
 		if text != "" {
-			fmt.Fprintf(&prompt, "<%s>\n%s\n</%s>\n", section.Name, text, section.Name)
+			desired.set(section.Name, fmt.Sprintf("<%s>\n%s\n</%s>", section.Name, text, section.Name))
 		}
 	}
 	if c.Agent.Instructions != "" {
-		fmt.Fprintf(&prompt, "<instructions>\n%s\n</instructions>", c.Agent.Instructions)
+		desired.set("instructions", "<instructions>\n"+c.Agent.Instructions+"\n</instructions>")
 	}
-	if prompt.Len() > 0 {
-		messages = append([]Message{{Role: "system", Content: prompt.String()}}, messages...)
-	}
-	request := ModelRequest{Model: c.Agent.Model, SessionID: c.ProviderSessionID, ThinkingLevel: c.Agent.ThinkingLevel, Messages: messages}
+	var tools []ToolSpec
 	for _, tool := range offeredTools(registry.Tools(c.Agent), c.Agent.ModelTools) {
-		request.Tools = append(request.Tools, tool.ToolSpec)
+		tools = append(tools, tool.ToolSpec)
 	}
+	planned := planSystemEntries(view, desired, tools)
+	request.Messages = view.messages
+	if len(planned) > 0 {
+		if messages, err := messagesWith(state, c.ID, planned); err == nil {
+			request.Messages = messages
+		}
+	}
+	// The system messages declare the tools; the list mirrors them for
+	// adapters that send a tool list.
+	request.Tools = CurrentTools(request.Messages)
 	for _, hook := range registry.hooks(c.Agent) {
 		if hook.BeforeRequest != nil {
 			replaced := request
@@ -797,7 +788,25 @@ func buildRequest(ctx context.Context, r *TaskRuntime, state *State, c Conversat
 			request = replaced
 		}
 	}
-	return request
+	return request, planned
+}
+
+// messagesWith derives the conversation's context as if the planned entries
+// were appended after its newest entry.
+func messagesWith(state *State, cid ConversationID, planned []Entry) ([]Message, error) {
+	history, err := entriesFromState(state, cid)
+	if err != nil {
+		return nil, err
+	}
+	for i, e := range planned {
+		e.ID, e.Conversation = EntryID(state.NextID+uint64(i)), cid
+		history = append(history, e)
+	}
+	view, err := deriveContext(history)
+	if err != nil {
+		return nil, err
+	}
+	return view.messages, nil
 }
 
 // reportExtension reports extension code the task called that failed.
@@ -1347,7 +1356,7 @@ func unofferedCall(live *LiveState, callID string) bool {
 // above the background threshold below that, and only when range selection
 // finds a cut. The context window comes from a ContextWindowModel; unknown
 // disables thresholds.
-func thresholdCompaction(r *TaskRuntime, state *State, c ConversationRecord, request ModelRequest) string {
+func thresholdCompaction(r *TaskRuntime, state *State, c ConversationRecord, planned []Entry) string {
 	model, ok := r.h.options.Model.(ContextWindowModel)
 	if !ok {
 		return ""
@@ -1361,7 +1370,13 @@ func thresholdCompaction(r *TaskRuntime, state *State, c ConversationRecord, req
 	if err != nil {
 		return ""
 	}
-	tokens := float64(estimateContext(view, systemMessages(request.Messages)))
+	var extra []Message
+	for _, entry := range planned {
+		if entry.Message != nil {
+			extra = append(extra, *entry.Message)
+		}
+	}
+	tokens := float64(estimateContext(view, extra))
 	blocking := window - policy.reserveTokens
 	background := blocking - policy.backgroundTokens
 	over := ""

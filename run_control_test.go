@@ -253,7 +253,7 @@ func TestRunControlResetAtPostToolsBoundary(t *testing.T) {
 		t.Fatalf("a run started in the commit that ended the failed one keeps its failure: %+v", live.RunFailure)
 	}
 	context, err := root.Context(context.Background())
-	if err != nil || context[0].Content != "fresh context" {
+	if err != nil || withoutSystem(context)[0].Content != "fresh context" {
 		t.Fatalf("context=%+v error=%v", context, err)
 	}
 }

@@ -54,6 +54,25 @@ function project(message) {
   return { content, thinking, toolCalls };
 }
 
+// A system message with its positional prompt sections and tool changes
+// (pi-ai SystemMessage); pi-ai sends it in place to a provider that takes
+// system messages mid-conversation and folds it otherwise.
+function systemMessage(message, timestamp) {
+  const result = { role: "system", content: message.content ?? "", timestamp };
+  if (Array.isArray(message.sections) && message.sections.length > 0) {
+    result.sections = {};
+    for (const section of message.sections) result.sections[String(section.name)] = section.text ?? null;
+  }
+  if (Array.isArray(message.toolsAdded) && message.toolsAdded.length > 0) {
+    result.toolsAdded = message.toolsAdded.map((tool) => ({ name: tool.name, description: tool.description ?? "",
+      parameters: tool.parameters ?? { type: "object" } }));
+  }
+  if (Array.isArray(message.toolsRemoved) && message.toolsRemoved.length > 0) {
+    result.toolsRemoved = message.toolsRemoved.map((name) => ({ name: String(name) }));
+  }
+  return result;
+}
+
 // Text, then images, as pi-ai content blocks; pi-ai downgrades them for a
 // model without image input.
 function withImages(message) {
@@ -69,7 +88,7 @@ function toMessage(message, model) {
   switch (message.role) {
     case "system":
     case "developer":
-      return { role: "system", content: message.content, timestamp };
+      return systemMessage(message, timestamp);
     case "user":
       if (Array.isArray(message.images) && message.images.length > 0) {
         return { role: "user", content: withImages(message), timestamp };
@@ -193,7 +212,11 @@ async function main() {
       if (reasoning && !["off", "minimal", "low", "medium", "high", "xhigh", "max"].includes(reasoning)) {
         throw new Error("invalid thinking level");
       }
-      context = { messages: (request.messages ?? []).map((message) => toMessage(message, model)), tools: request.tools ?? [] };
+      const messages = (request.messages ?? []).map((message) => toMessage(message, model));
+      // System messages that change tools declare them; a separate list would
+      // declare them again in a leading message (pi-ai normalizeContext).
+      const declared = messages.some((message) => message.role === "system" && (message.toolsAdded || message.toolsRemoved));
+      context = declared ? { messages } : { messages, tools: request.tools ?? [] };
     } catch {
       return { type: "error", code: "request" };
     }

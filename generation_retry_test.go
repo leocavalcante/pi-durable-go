@@ -174,8 +174,8 @@ func TestRetryPolicyGenerationRetriesTransientErrorAndPreparesAgain(t *testing.T
 	if len(calls) != 2 {
 		t.Fatalf("model calls=%d, want 2", len(calls))
 	}
-	if !strings.Contains(calls[0].Messages[0].Content, "before") || !strings.Contains(calls[1].Messages[0].Content, "after") {
-		t.Fatalf("retry did not prepare again: %q / %q", calls[0].Messages[0].Content, calls[1].Messages[0].Content)
+	if !strings.Contains(promptText(calls[0].Messages), "before") || !strings.Contains(promptText(calls[1].Messages), "after") {
+		t.Fatalf("retry did not prepare again: %q / %q", promptText(calls[0].Messages), promptText(calls[1].Messages))
 	}
 	for _, message := range calls[1].Messages {
 		if message.Content == "par" {

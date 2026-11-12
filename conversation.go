@@ -107,50 +107,11 @@ func (c *Conversation) Context(ctx context.Context) ([]Message, error) {
 	return contextFromState(s, c.id)
 }
 func contextFromState(s *State, cid ConversationID) ([]Message, error) {
-	entries, err := entriesFromState(s, cid)
+	view, err := deriveContextView(s, cid, 0)
 	if err != nil {
 		return nil, err
 	}
-	var messages []Message
-	for _, e := range entries {
-		switch e.Kind {
-		case "pi.reset":
-			messages = nil
-			if e.Message != nil && e.Message.Content != "" {
-				messages = append(messages, *e.Message)
-			}
-		case "pi.compaction":
-			summary, cut, err := compactionSummary(e)
-			if err != nil {
-				return nil, err
-			}
-			// Reconstruct everything after the cut, including messages that arrived
-			// while the summary was generated. A summary never deletes stored history.
-			next := []Message{summary}
-			seen := false
-			for _, older := range entries {
-				if older.ID == cut {
-					seen = true
-					continue
-				}
-				if older.ID == e.ID {
-					break
-				}
-				if seen && older.Message != nil && contributesContext(older.Message) {
-					next = append(next, *older.Message)
-				}
-			}
-			if !seen {
-				return nil, fmt.Errorf("%w: compaction cut", ErrInvalid)
-			}
-			messages = next
-		default:
-			if e.Message != nil && contributesContext(e.Message) {
-				messages = append(messages, *e.Message)
-			}
-		}
-	}
-	return orderToolResults(messages), nil
+	return view.messages, nil
 }
 
 // orderToolResults normalizes each assistant's tool round independently. Result

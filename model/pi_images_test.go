@@ -62,3 +62,43 @@ func TestPiBridgePassesTheIdentity(t *testing.T) {
 		t.Fatalf("identity=%v", inspect.Options.Identity)
 	}
 }
+
+func TestPiBridgeSendsSystemMessagesInPlace(t *testing.T) {
+	p := fakePi(t)
+	text := "<preamble>\nbe brief\n</preamble>"
+	req := piRequest("inspect")
+	req.Messages = []durable.Message{
+		{Role: "system", Sections: []durable.SystemSection{{Name: "preamble", Text: &text}},
+			ToolsAdded: []durable.ToolSpec{{Name: "read", Description: "Read", Parameters: json.RawMessage(`{"type":"object"}`)}}},
+		{Role: "user", Content: "hello"},
+		{Role: "system", Sections: []durable.SystemSection{{Name: "preamble"}}, ToolsRemoved: []string{"read"}},
+	}
+	req.Tools = durable.CurrentTools(req.Messages)
+	response, err := p.Generate(context.Background(), req, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var inspect struct {
+		Context struct {
+			Messages []map[string]any `json:"messages"`
+			Tools    []any            `json:"tools"`
+		} `json:"context"`
+	}
+	if err := json.Unmarshal([]byte(response.Content), &inspect); err != nil {
+		t.Fatal(err)
+	}
+	messages := inspect.Context.Messages
+	if len(messages) != 3 || inspect.Context.Tools != nil {
+		t.Fatalf("context=%+v", inspect.Context)
+	}
+	sections, _ := messages[0]["sections"].(map[string]any)
+	added, _ := messages[0]["toolsAdded"].([]any)
+	if sections["preamble"] != text || len(added) != 1 {
+		t.Fatalf("baseline=%v", messages[0])
+	}
+	later, _ := messages[2]["sections"].(map[string]any)
+	removed, _ := messages[2]["toolsRemoved"].([]any)
+	if value, ok := later["preamble"]; !ok || value != nil || len(removed) != 1 {
+		t.Fatalf("update=%v", messages[2])
+	}
+}

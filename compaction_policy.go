@@ -106,76 +106,6 @@ func resolveCompaction(harness CompactionSettings, conversation *CompactionSetti
 	return policy
 }
 
-// contextView is the active transcript as compaction reads it: the newest
-// head marker (a reset or a summary), then the entries it keeps and the ones
-// after it, each with the messages it contributes to model context.
-type contextView struct {
-	head          *Entry
-	entries       []Entry
-	contributions [][]Message
-}
-
-// deriveContextView derives the view; with at, as of that entry, as the
-// context a fork at it would start with.
-func deriveContextView(state *State, cid ConversationID, at EntryID) (contextView, error) {
-	entries, err := entriesFromState(state, cid)
-	if err != nil {
-		return contextView{}, err
-	}
-	if at != 0 {
-		for i, e := range entries {
-			if e.ID > at {
-				entries = entries[:i]
-				break
-			}
-		}
-	}
-	contribution := func(e Entry) []Message {
-		if e.Message != nil && contributesContext(e.Message) {
-			return []Message{*e.Message}
-		}
-		return nil
-	}
-	var view contextView
-	for i, e := range entries {
-		switch e.Kind {
-		case "pi.reset":
-			head := e
-			view = contextView{head: &head, entries: []Entry{e}}
-			var messages []Message
-			if e.Message != nil && e.Message.Content != "" {
-				messages = []Message{*e.Message}
-			}
-			view.contributions = [][]Message{messages}
-		case "pi.compaction":
-			summary, cut, err := compactionSummary(e)
-			if err != nil {
-				return contextView{}, err
-			}
-			head := e
-			view = contextView{head: &head, entries: []Entry{e}, contributions: [][]Message{{summary}}}
-			seen := false
-			for _, older := range entries[:i] {
-				if older.ID == cut {
-					seen = true
-					continue
-				}
-				if seen && older.Kind != "pi.compaction" && older.Kind != "pi.reset" {
-					view.entries = append(view.entries, older)
-					view.contributions = append(view.contributions, contribution(older))
-				}
-			}
-			if !seen {
-				return contextView{}, fmt.Errorf("%w: compaction cut", ErrInvalid)
-			}
-		default:
-			view.entries = append(view.entries, e)
-			view.contributions = append(view.contributions, contribution(e))
-		}
-	}
-	return view, nil
-}
-
 // Upstream's summary message around a compaction summary.
 const (
 	summaryPrefix = "The conversation history before this point was compacted into the following summary:\n\n<summary>\n"
@@ -205,6 +135,23 @@ func compactionSummary(e Entry) (Message, EntryID, error) {
 const estimatedImageChars = 4800
 
 func estimateMessageTokens(m Message) int {
+	if m.Role == "system" {
+		// pi-ai: the rendered prompt text, plus the JSON of the tool changes.
+		tokens := estimateTextTokens(SystemText(m))
+		if len(m.ToolsAdded) > 0 {
+			data, _ := json.Marshal(m.ToolsAdded)
+			tokens += estimateTextTokens(string(data))
+		}
+		if len(m.ToolsRemoved) > 0 {
+			removed := make([]map[string]string, 0, len(m.ToolsRemoved))
+			for _, name := range m.ToolsRemoved {
+				removed = append(removed, map[string]string{"name": name})
+			}
+			data, _ := json.Marshal(removed)
+			tokens += estimateTextTokens(string(data))
+		}
+		return tokens
+	}
 	chars := len([]rune(m.Content)) + estimatedImageChars*len(m.Images)
 	if m.Role == "assistant" {
 		chars += len([]rune(m.Thinking))
@@ -213,6 +160,10 @@ func estimateMessageTokens(m Message) int {
 		}
 	}
 	return int(math.Ceil(float64(chars) / 3.5))
+}
+
+func estimateTextTokens(text string) int {
+	return int(math.Ceil(float64(len([]rune(text))) / 3.5))
 }
 
 func usageTokens(u Usage) int {

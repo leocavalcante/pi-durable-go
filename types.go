@@ -117,8 +117,27 @@ type Entry struct {
 	Kind         string          `json:"kind"`
 	Message      *Message        `json:"message,omitempty"`
 	Data         json.RawMessage `json:"data,omitempty"`
-	Sequence     uint64          `json:"sequence"`
-	CreatedAt    time.Time       `json:"createdAt"`
+	// Edits omit or replace earlier entries' messages in model context
+	// (upstream ContextEdit); the newest edit of a target wins.
+	Edits     []ContextEdit `json:"edits,omitempty"`
+	Sequence  uint64        `json:"sequence"`
+	CreatedAt time.Time     `json:"createdAt"`
+}
+
+// ContextEdit changes what an earlier entry contributes to model context:
+// Action "omit" contributes nothing, "replace" contributes Messages instead.
+// Stored history is unchanged.
+type ContextEdit struct {
+	Target   EntryID   `json:"target"`
+	Action   string    `json:"action"`
+	Messages []Message `json:"messages,omitempty"`
+}
+
+// SystemSection is one named prompt section of a system message; a nil Text
+// removes the section.
+type SystemSection struct {
+	Name string  `json:"name"`
+	Text *string `json:"text"`
 }
 type Message struct {
 	Role       string     `json:"role"`
@@ -146,6 +165,15 @@ type Message struct {
 	ProviderData json.RawMessage `json:"providerData,omitempty"`
 	// Images of a user or tool-result message, after its text.
 	Images []ImageContent `json:"images,omitempty"`
+	// A system message's prompt sections and tool changes (pi-ai
+	// SystemMessage): Sections set or remove named sections in order, and
+	// ToolsAdded and ToolsRemoved change the tools on offer from this point.
+	// Replaying the system messages in order gives the current prompt and
+	// tools; a model that takes no system messages mid-conversation gets them
+	// folded into one leading message (CollapseSystemMessages).
+	Sections     []SystemSection `json:"sections,omitempty"`
+	ToolsAdded   []ToolSpec      `json:"toolsAdded,omitempty"`
+	ToolsRemoved []string        `json:"toolsRemoved,omitempty"`
 }
 
 // ImageContent is an image in a message: base64 data and its MIME type,

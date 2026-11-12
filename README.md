@@ -141,6 +141,8 @@ It makes real model requests only when you run it. Review tools and isolate the 
 
 A Harness owns one Session and scheduler. A conversation is a transcript, not a goroutine. Entries, tasks, submissions, and JSON documents change on one serialized atomic commit line. Storage succeeds before snapshots or progress are published.
 
+Each request's prompt and tools are recorded as positional `pi.system` messages, patched as sections and tools change and rebaselined after a compaction or reset (upstream spec §7.4); entries can omit or replace earlier entries' messages in context (`Entry.Edits`). A model that takes no system messages mid-conversation gets them folded into one leading prompt.
+
 Clients read state through views: `Conversation.WatchWindow` keeps a window over a conversation's history with its built-in documents (`pi.live`, `pi.inbox`, …), `ConversationTranscript` merges its values into the client's whole transcript with gaps to fill, `Conversation.ScanEntries` pages raw history, and `Harness.TaskGraph`/`WatchTaskGraph` show live tasks. `HarnessOptions.Telemetry` receives upstream's content-free spans, events, and metrics.
 
 Tasks are checkpointed state machines, not persisted Go stacks. Define their initial checkpoint, phase handler, and optional abort/migration handlers. Task records include start/end times; assistant and tool-result messages include per-attempt durations. Owned child tasks and conversations support cancellation trees. `TaskRuntime.OwnedTasks(ctx)` lists live direct task children, including those from earlier invocations; `AbortOwned(ctx, id)` durably marks a direct child and waits for it to settle. These calls belong outside commit callbacks. Background work can outlive an ordinary conversation abort.

@@ -286,3 +286,55 @@ func TestPiInstalledSDKErrorClassification(t *testing.T) {
 		})
 	}
 }
+
+func TestPiInstalledSDKPositionalSystemMessages(t *testing.T) {
+	var mu sync.Mutex
+	var body struct {
+		Messages []map[string]any `json:"messages"`
+		Tools    []map[string]any `json:"tools"`
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		mu.Unlock()
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"local reply\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
+	}))
+	defer server.Close()
+	p := installedPi(t, server.URL)
+	writeJSON(t, filepath.Join(p.AgentDir, "models.json"), map[string]any{"providers": map[string]any{"openai": map[string]any{
+		"baseUrl": server.URL + "/v1", "api": "openai-completions", "apiKey": "fake-models-key",
+		"models": []any{map[string]any{"id": "durable-test", "api": "openai-completions"}},
+	}}})
+	first, second := "<preamble>\nfirst\n</preamble>", "<preamble>\nsecond\n</preamble>"
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	messages := []durable.Message{
+		{Role: "system", Sections: []durable.SystemSection{{Name: "preamble", Text: &first}},
+			ToolsAdded: []durable.ToolSpec{{Name: "read", Description: "Read a file", Parameters: json.RawMessage(`{"type":"object","properties":{}}`)}}},
+		{Role: "user", Content: "one"},
+		{Role: "assistant", Content: "ok"},
+		{Role: "user", Content: "two"},
+		{Role: "system", Sections: []durable.SystemSection{{Name: "preamble", Text: &second}},
+			ToolsAdded: []durable.ToolSpec{{Name: "bash", Description: "Run a command", Parameters: json.RawMessage(`{"type":"object","properties":{}}`)}}},
+	}
+	response, err := p.Generate(ctx, durable.ModelRequest{Model: durable.ModelRef{Provider: "openai", ID: "durable-test"},
+		Messages: messages, Tools: durable.CurrentTools(messages)}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.Content != "local reply" {
+		t.Fatalf("response=%+v", response)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	// pi-ai folds the system messages for this transport: the current prompt
+	// leads, and both tools are declared once.
+	if len(body.Messages) == 0 || body.Messages[0]["role"] != "system" || !strings.Contains(fmt.Sprint(body.Messages[0]["content"]), "second") ||
+		strings.Contains(fmt.Sprint(body.Messages[0]["content"]), "first") {
+		t.Fatalf("messages=%v", body.Messages)
+	}
+	if len(body.Tools) != 2 {
+		t.Fatalf("tools=%v", body.Tools)
+	}
+}

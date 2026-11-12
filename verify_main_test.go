@@ -81,3 +81,23 @@ func (m *MemoryStorage) storedStateJSON() []byte {
 	}
 	return data
 }
+
+// promptText is the system prompt a request's messages fold into.
+func promptText(messages []Message) string {
+	folded := CollapseSystemMessages(messages)
+	if len(folded) == 0 || folded[0].Role != "system" {
+		return ""
+	}
+	return SystemText(folded[0])
+}
+
+// withoutSystem drops system messages, for tests about the conversation.
+func withoutSystem(messages []Message) []Message {
+	var out []Message
+	for _, m := range messages {
+		if m.Role != "system" {
+			out = append(out, m)
+		}
+	}
+	return out
+}
