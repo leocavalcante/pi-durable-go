@@ -14,6 +14,8 @@ import (
 
 	"github.com/santhosh-tekuri/jsonschema/v6"
 	"github.com/santhosh-tekuri/jsonschema/v6/kind"
+	"golang.org/x/text/language"
+	"golang.org/x/text/message"
 )
 
 // Tool arguments are coerced before they are checked, as pi-ai's
@@ -42,6 +44,9 @@ type toolValidator struct {
 }
 
 const toolSchemaLocation = "urn:pi-durable-go:tool"
+
+// schemaPrinter words the failures pi-schema has no wording for.
+var schemaPrinter = message.NewPrinter(language.English)
 
 // toolValidators caches validators by schema, as pi-ai caches compiled
 // validators per schema object (a WeakMap that lets them go with their
@@ -72,6 +77,10 @@ func toolValidatorFor(schema json.RawMessage) (*toolValidator, error) {
 	// rejects only values at its place (pi-ai: unresolvedRefs "reject"),
 	// instead of making every call fail; nothing is ever loaded.
 	document = rejectUnresolvedRefs(document, document)
+	// pi-schema compiles any schema it can read and ignores keyword values
+	// of the wrong shape; the Go compiler checks schemas against their
+	// metaschema, so they are made to pass it first.
+	document = lenientSchema(document, !olderDraft(document))
 	compiler := jsonschema.NewCompiler()
 	compiler.UseLoader(noSchemaNetwork{})
 	if err := compiler.AddResource(toolSchemaLocation, document); err != nil {
@@ -326,7 +335,7 @@ func (v *toolValidator) explain(e *jsonschema.ValidationError, instance any) []i
 	case *kind.Group, *kind.AllOf, *kind.Reference, *kind.Schema:
 	default:
 		if len(e.Causes) == 0 {
-			at(e.ErrorKind.LocalizedString(nil))
+			at(e.ErrorKind.LocalizedString(schemaPrinter))
 		}
 	}
 	for _, cause := range e.Causes {
@@ -544,7 +553,13 @@ type coercion struct {
 	v       *toolValidator
 	entered []enteredPair
 	cuts    int
-	memo    map[string]map[any]any
+	memo    map[string]map[any]memoEntry
+}
+
+// memoEntry keeps the value it is keyed by alive, so its address is not
+// reused by another value during the call (a JavaScript Map holds its keys).
+type memoEntry struct {
+	value, result any
 }
 
 type enteredPair struct {
@@ -642,6 +657,9 @@ func itemSchemaAt(schema map[string]any, pointer string, index int) (any, string
 	}
 	if prefix, ok := schema["prefixItems"].([]any); ok && index < len(prefix) {
 		return prefix[index], pointerTo(pointer, "prefixItems", strconv.Itoa(index))
+	}
+	if schema[uncoercedRest] == true {
+		return nil, ""
 	}
 	if items, ok := schema["items"]; ok {
 		return items, pointerTo(pointer, "items")
@@ -775,8 +793,8 @@ func (c *coercion) reenter(node any, pointer string, value any, memoize bool) an
 		}
 	}
 	if memoize {
-		if result, ok := c.memo[pointer][id]; ok {
-			return result
+		if entry, ok := c.memo[pointer][id]; ok {
+			return entry.result
 		}
 	}
 	cuts := c.cuts
@@ -785,12 +803,12 @@ func (c *coercion) reenter(node any, pointer string, value any, memoize bool) an
 	c.entered = c.entered[:len(c.entered)-1]
 	if memoize && c.cuts == cuts {
 		if c.memo == nil {
-			c.memo = map[string]map[any]any{}
+			c.memo = map[string]map[any]memoEntry{}
 		}
 		if c.memo[pointer] == nil {
-			c.memo[pointer] = map[any]any{}
+			c.memo[pointer] = map[any]memoEntry{}
 		}
-		c.memo[pointer][id] = result
+		c.memo[pointer][id] = memoEntry{value: value, result: result}
 	}
 	return result
 }
@@ -922,7 +940,7 @@ func (c *coercion) convertArray(node map[string]any, pointer string, value any) 
 			return value
 		}
 		rest, hasRest := node["items"]
-		if prefixKeyword == "items" {
+		if prefixKeyword == "items" || node[uncoercedRest] == true {
 			hasRest = false
 		}
 		return mapItems(items, func(item any, i int) any {
@@ -1534,4 +1552,190 @@ func firstSchemaFailure(schema, raw json.RawMessage) (path, message string, ok b
 		}
 	}
 	return "root", "invalid", false
+}
+
+// olderDraft reports whether a schema declares draft 4, 6, or 7, which the
+// compiler then reads as such (draft-7 tuples included).
+func olderDraft(document any) bool {
+	root, ok := document.(map[string]any)
+	if !ok {
+		return false
+	}
+	declared, _ := root["$schema"].(string)
+	return strings.Contains(declared, "draft-04") || strings.Contains(declared, "draft-06") || strings.Contains(declared, "draft-07")
+}
+
+// uncoercedRest marks a tuple whose rest items came from draft 7's
+// additionalItems: they are checked but not coerced.
+const uncoercedRest = "x-pi-durable-uncoerced-rest"
+
+var schemaTypes = map[string]bool{"null": true, "boolean": true, "object": true, "array": true, "number": true, "integer": true, "string": true}
+
+// lenientSchema is a schema as pi-schema reads it, in a form the 2020-12
+// metaschema accepts: draft-7 tuples become prefixItems (when tuples is
+// set), keyword values of the wrong shape are dropped as pi-schema ignores
+// them, and an invalid type or an empty union matches nothing, as there.
+func lenientSchema(node any, tuples bool) any {
+	object, ok := node.(map[string]any)
+	if !ok {
+		return node
+	}
+	out := make(map[string]any, len(object))
+	never := false
+	schema := func(value any) (any, bool) {
+		switch value.(type) {
+		case bool, map[string]any:
+			return lenientSchema(value, tuples), true
+		}
+		return nil, false
+	}
+	schemas := func(value any) ([]any, bool) {
+		list, ok := value.([]any)
+		if !ok {
+			return nil, false
+		}
+		out := make([]any, 0, len(list))
+		for _, member := range list {
+			if converted, ok := schema(member); ok {
+				out = append(out, converted)
+			}
+		}
+		return out, true
+	}
+	schemaMap := func(value any) (map[string]any, bool) {
+		members, ok := value.(map[string]any)
+		if !ok {
+			return nil, false
+		}
+		out := make(map[string]any, len(members))
+		for name, member := range members {
+			if converted, ok := schema(member); ok {
+				out[name] = converted
+			}
+		}
+		return out, true
+	}
+	count := func(value any) bool {
+		f, ok := numberOf(value)
+		return ok && f >= 0 && f == math.Trunc(f)
+	}
+	for key, value := range object {
+		switch key {
+		case "type":
+			switch v := value.(type) {
+			case string:
+				if schemaTypes[v] {
+					out[key] = v
+				} else {
+					never = true
+				}
+			case []any:
+				var valid []any
+				for _, member := range v {
+					if name, ok := member.(string); ok && schemaTypes[name] {
+						valid = append(valid, name)
+					}
+				}
+				if len(valid) == 0 {
+					never = true
+				} else {
+					out[key] = valid
+				}
+			default:
+				never = true
+			}
+		case "properties", "patternProperties", "$defs", "definitions", "dependentSchemas":
+			if converted, ok := schemaMap(value); ok {
+				out[key] = converted
+			}
+		case "items":
+			if list, ok := value.([]any); ok && tuples {
+				if converted, ok := schemas(list); ok {
+					out["prefixItems"] = converted
+				}
+				continue
+			}
+			if converted, ok := schema(value); ok {
+				out[key] = converted
+			} else if converted, ok := schemas(value); ok && !tuples {
+				out[key] = converted
+			}
+		case "additionalItems":
+			if converted, ok := schema(value); ok {
+				if _, tuple := object["items"].([]any); tuple && tuples {
+					// Checked like draft 7's additionalItems, which pi-schema
+					// never coerces.
+					out["items"] = converted
+					out[uncoercedRest] = true
+				} else if !tuples {
+					out[key] = converted
+				}
+			}
+		case "prefixItems":
+			if converted, ok := schemas(value); ok {
+				out[key] = converted
+			}
+		case "additionalProperties", "not", "if", "then", "else", "contains", "propertyNames", "unevaluatedProperties", "unevaluatedItems", "contentSchema":
+			if converted, ok := schema(value); ok {
+				out[key] = converted
+			}
+		case "anyOf", "oneOf":
+			if converted, ok := schemas(value); ok {
+				if len(converted) == 0 {
+					never = true
+				} else {
+					out[key] = converted
+				}
+			}
+		case "allOf":
+			if converted, ok := schemas(value); ok && len(converted) > 0 {
+				out[key] = converted
+			}
+		case "required":
+			if list, ok := value.([]any); ok {
+				var names []any
+				seen := map[string]bool{}
+				for _, member := range list {
+					if name, ok := member.(string); ok && !seen[name] {
+						seen[name] = true
+						names = append(names, name)
+					}
+				}
+				out[key] = append([]any{}, names...)
+			}
+		case "enum":
+			if list, ok := value.([]any); ok {
+				out[key] = list
+			}
+		case "minLength", "maxLength", "minItems", "maxItems", "minProperties", "maxProperties", "minContains", "maxContains":
+			if count(value) {
+				out[key] = value
+			}
+		case "minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum":
+			if _, ok := numberOf(value); ok {
+				out[key] = value
+			} else if b, isBool := value.(bool); isBool && !tuples {
+				out[key] = b // draft 4's boolean exclusive bounds
+			}
+		case "multipleOf":
+			if f, ok := numberOf(value); ok && f > 0 {
+				out[key] = value
+			}
+		case "pattern", "format", "$ref", "$id", "$anchor", "$schema", "$comment", "title", "description":
+			if _, ok := value.(string); ok {
+				out[key] = value
+			}
+		case "uniqueItems":
+			if _, ok := value.(bool); ok {
+				out[key] = value
+			}
+		default:
+			out[key] = value
+		}
+	}
+	if never {
+		all, _ := out["allOf"].([]any)
+		out["allOf"] = append(append([]any(nil), all...), false)
+	}
+	return out
 }

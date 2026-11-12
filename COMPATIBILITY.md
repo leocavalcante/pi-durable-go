@@ -97,6 +97,7 @@ Tool arguments are repaired, coerced, and checked as upstream's are. `ToolDefini
 - Patterns use Go's RE2 rather than JavaScript regular expressions.
 - Coercion follows only local `#/...` references.
 - Format checks come from the Go JSON Schema library.
+- Schemas are read as leniently as pi-schema reads them, since the Go library checks schemas against their metaschema. Malformed keyword values are dropped, draft-7 tuples become `prefixItems` (their `additionalItems` still uncoerced), and an invalid `type` or empty union matches nothing.
 
 The coding tools' parameter schemas are upstream's, checked against 1.5.2. So `read` takes numbers for `offset` and `limit`, unknown fields are ignored, and an empty `bash` command runs. `bash` and `powershell` keep their output's tail, as their output limits say. `read` selects lines from fractional numbers as `Array.prototype.slice` does, but its continuation note counts whole lines where upstream prints the fractions. A `limit` ending before the start selects nothing, where upstream's slice counts a negative end from the file's end.
 

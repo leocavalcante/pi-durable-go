@@ -288,3 +288,34 @@ func TestToolValidatorsAreBounded(t *testing.T) {
 		t.Fatalf("%d validators cached, %d in order", len(toolValidators.byKey), len(toolValidators.order))
 	}
 }
+
+// Schemas are read as leniently as pi-schema reads them (its results for the
+// same schemas and arguments): malformed keyword values are ignored, draft-7
+// tuples work (their additionalItems unconverted), and an invalid type or an
+// empty union matches nothing. A reference cycle fails without a panic.
+func TestToolSchemasAreReadLikePiSchema(t *testing.T) {
+	for _, c := range []struct {
+		schema, args, want string
+	}{
+		{`{"type":"object","properties":5}`, `{"a":1}`, `{"a":1}`},
+		{`{"enum":5}`, `{}`, `{}`},
+		{`{"required":"a"}`, `{}`, `{}`},
+		{`{"type":"string","minLength":-1}`, `"x"`, `"x"`},
+		{`{"type":"array","items":[{"type":"integer"},true]}`, `["1","x"]`, `[1,"x"]`},
+		{`{"$schema":"http://json-schema.org/draft-07/schema#","type":"array","items":[{"type":"integer"}],"additionalItems":false}`, `["1"]`, `[1]`},
+		{`{"definitions":{"a":{"type":"integer"}},"properties":{"x":{"$ref":"#/definitions/a"}}}`, `{"x":"3"}`, `{"x":3}`},
+		{`{"type":"array","items":[{"type":"integer"}],"additionalItems":{"type":"string"}}`, `["1",2]`, ""},
+		{`{"type":5}`, `{}`, ""},
+		{`{"type":"objekt"}`, `{}`, ""},
+		{`{"anyOf":[]}`, `{}`, ""},
+		{`{"$ref":"#"}`, `{"a":1}`, ""},
+	} {
+		got, err := validateToolArguments(ToolSpec{Name: "t", Parameters: json.RawMessage(c.schema)}, json.RawMessage(c.args))
+		switch {
+		case c.want == "" && err == nil:
+			t.Errorf("%s accepted %s as %s", c.schema, c.args, got)
+		case c.want != "" && (err != nil || string(got) != c.want):
+			t.Errorf("%s with %s: %s error=%v, want %s", c.schema, c.args, got, err, c.want)
+		}
+	}
+}
