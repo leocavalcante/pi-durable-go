@@ -140,16 +140,14 @@ func estimateMessageTokens(m Message) int {
 		// pi-ai: the rendered prompt text, plus the JSON of the tool changes.
 		tokens := estimateTextTokens(SystemText(m))
 		if len(m.ToolsAdded) > 0 {
-			data, _ := json.Marshal(m.ToolsAdded)
-			tokens += estimateTextTokens(string(data))
+			tokens += estimateTextTokens(stringifyJSON(m.ToolsAdded))
 		}
 		if len(m.ToolsRemoved) > 0 {
 			removed := make([]map[string]string, 0, len(m.ToolsRemoved))
 			for _, name := range m.ToolsRemoved {
 				removed = append(removed, map[string]string{"name": name})
 			}
-			data, _ := json.Marshal(removed)
-			tokens += estimateTextTokens(string(data))
+			tokens += estimateTextTokens(stringifyJSON(removed))
 		}
 		return tokens
 	}
@@ -166,6 +164,18 @@ func estimateMessageTokens(m Message) int {
 
 func estimateTextTokens(text string) int {
 	return int(math.Ceil(float64(utf16Len(text)) / 3.5))
+}
+
+// stringifyJSON encodes v as JavaScript's JSON.stringify does for estimates:
+// compact, without Go's HTML escapes of <, >, and &.
+func stringifyJSON(v any) string {
+	var out strings.Builder
+	encoder := json.NewEncoder(&out)
+	encoder.SetEscapeHTML(false)
+	if encoder.Encode(v) != nil {
+		return ""
+	}
+	return strings.TrimSuffix(out.String(), "\n")
 }
 
 // utf16Len is a string's JavaScript length: UTF-16 code units.

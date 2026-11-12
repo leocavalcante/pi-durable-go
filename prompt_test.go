@@ -182,3 +182,14 @@ func TestEstimatesCountJavaScriptLengths(t *testing.T) {
 		t.Fatal("constrainedSampling is part of the declaration")
 	}
 }
+
+func TestToolEstimatesCountJSONStringifyLength(t *testing.T) {
+	tool := ToolSpec{Name: "read", Description: "Read <path> & more", Parameters: json.RawMessage(`{"type":"object"}`)}
+	text := stringifyJSON([]ToolSpec{tool})
+	if strings.Contains(text, `\u003c`) || !strings.Contains(text, "<path> & more") {
+		t.Fatalf("stringified=%s", text)
+	}
+	if got, want := estimateMessageTokens(Message{Role: "system", ToolsAdded: []ToolSpec{tool}}), estimateTextTokens(text); got != want {
+		t.Fatalf("estimate=%d, want %d", got, want)
+	}
+}
