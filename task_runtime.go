@@ -35,7 +35,7 @@ func (r *TaskRuntime) Registry() *RegistrySnapshot {
 	if snapshot := r.snapshot.Load(); snapshot != nil {
 		return snapshot
 	}
-	return r.h.registry.Snapshot()
+	return r.h.agentSnapshot(r.h.registry.Snapshot())
 }
 
 // Report enqueues a best-effort diagnostic without waiting for host code. It

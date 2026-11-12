@@ -168,3 +168,34 @@ func TestSettingsStreamReachesRequests(t *testing.T) {
 		t.Fatalf("stream=%+v", seen)
 	}
 }
+
+func TestSettingsExtensionsAreTheDefaultSelection(t *testing.T) {
+	var mu sync.Mutex
+	var offered []string
+	model := taskModelFunc(func(_ context.Context, req ModelRequest, _ func(string) error) (ModelResponse, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		for _, tool := range req.Tools {
+			offered = append(offered, tool.Name)
+		}
+		return ModelResponse{Content: "ok"}, nil
+	})
+	registry := NewRegistry()
+	for _, name := range []string{"a", "b"} {
+		if err := registry.Install(Extension{Name: name, Tools: []ToolDefinition{{ToolSpec: ToolSpec{Name: "tool-" + name, Parameters: json.RawMessage(`{"type":"object"}`)},
+			Execute: func(context.Context, json.RawMessage, *ToolRuntime) (ToolResult, error) { return ToolResult{}, nil }}}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	h := taskTestHarness(t, HarnessOptions{Model: model, Registry: registry, Settings: Settings{Extensions: []string{"b"}}})
+	root, err := h.Root(context.Background(), ConversationOptions{Agent: Agent{Model: ModelRef{Provider: "fake", ID: "m"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitSettled(t, h, submit(t, root, SubmissionRequest{Content: "go"}))
+	mu.Lock()
+	defer mu.Unlock()
+	if len(offered) != 1 || offered[0] != "tool-b" {
+		t.Fatalf("offered=%v", offered)
+	}
+}

@@ -433,7 +433,7 @@ func (s *Scheduler) reserve(id TaskID) error {
 		ctx, cancel := context.WithCancel(context.Background())
 		inv = &taskInvocation{ctx: ctx, cancel: cancel, done: make(chan struct{}), aborting: t.AbortRequested}
 		r := &TaskRuntime{h: s.h, ID: id, invocation: inv, aborting: inv.aborting, extension: resolved.Extension, kind: t.Kind, conversation: t.Conversation}
-		r.snapshot.Store(snapshot)
+		r.snapshot.Store(s.h.agentSnapshot(snapshot))
 		inv.runtime = r
 		s.mu.Lock()
 		s.invocations[id] = inv

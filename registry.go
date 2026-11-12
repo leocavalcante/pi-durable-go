@@ -22,6 +22,17 @@ type Registry struct {
 type RegistrySnapshot struct {
 	extensions []Extension
 	tasks      map[string]resolvedTask
+	// defaults is Settings.Extensions: the selection of an agent that names
+	// none; nil selects every installed extension.
+	defaults []string
+}
+
+// selection is the extensions an agent selects: its own, or the defaults.
+func (s *RegistrySnapshot) selection(agent Agent) []string {
+	if agent.Extensions != nil {
+		return agent.Extensions
+	}
+	return s.defaults
 }
 
 type resolvedTask struct {
@@ -204,7 +215,7 @@ func (s *RegistrySnapshot) Tools(agent Agent) []ToolDefinition {
 	if s == nil {
 		return nil
 	}
-	selected := selectedExtensions(s.extensions, agent.Extensions)
+	selected := selectedExtensions(s.extensions, s.selection(agent))
 	tools := []ToolDefinition{}
 	positions := map[string]int{}
 	for _, ext := range selected {
@@ -254,7 +265,7 @@ func (s *RegistrySnapshot) Sections(agent Agent) []Section {
 	}
 	out := []Section{}
 	positions := map[string]int{}
-	for _, ext := range selectedExtensions(s.extensions, agent.Extensions) {
+	for _, ext := range selectedExtensions(s.extensions, s.selection(agent)) {
 		for _, sec := range ext.Sections {
 			if i, ok := positions[sec.Name]; ok {
 				out[i] = sec
@@ -286,7 +297,7 @@ func (s *RegistrySnapshot) sections(agent Agent) []namedSection {
 	}
 	out := []namedSection{}
 	positions := map[string]int{}
-	for _, ext := range selectedExtensions(s.extensions, agent.Extensions) {
+	for _, ext := range selectedExtensions(s.extensions, s.selection(agent)) {
 		for _, sec := range ext.Sections {
 			named := namedSection{Section: sec, extension: ext.Name}
 			if i, ok := positions[sec.Name]; ok {
@@ -306,7 +317,7 @@ func (s *RegistrySnapshot) hooks(agent Agent) []namedHooks {
 	if s == nil {
 		return out
 	}
-	for _, ext := range selectedExtensions(s.extensions, agent.Extensions) {
+	for _, ext := range selectedExtensions(s.extensions, s.selection(agent)) {
 		if ext.Hooks.BeforeRequest != nil || ext.Hooks.AfterResponse != nil || ext.Hooks.BeforeTool != nil || ext.Hooks.AfterTool != nil || ext.Hooks.AfterTools != nil || ext.Hooks.OnYield != nil || ext.Hooks.AfterRun != nil || ext.Hooks.BeforeCompact != nil {
 			out = append(out, namedHooks{Hooks: ext.Hooks, extension: ext.Name})
 		}
@@ -319,7 +330,7 @@ func (s *RegistrySnapshot) Hooks(agent Agent, kind string) []Hooks {
 	if s == nil {
 		return out
 	}
-	for _, ext := range selectedExtensions(s.extensions, agent.Extensions) {
+	for _, ext := range selectedExtensions(s.extensions, s.selection(agent)) {
 		if ext.Hooks.BeforeRequest != nil || ext.Hooks.AfterResponse != nil || ext.Hooks.BeforeTool != nil || ext.Hooks.AfterTool != nil || ext.Hooks.AfterTools != nil || ext.Hooks.OnYield != nil || ext.Hooks.AfterRun != nil || ext.Hooks.BeforeCompact != nil {
 			out = append(out, ext.Hooks)
 		}
@@ -390,4 +401,15 @@ func (s *RegistrySnapshot) toolByName(_ TaskRecord, name string) (*ToolDefinitio
 		}
 	}
 	return nil, false
+}
+
+// agentSnapshot is snapshot with the Harness's default extension selection.
+func (h *Harness) agentSnapshot(snapshot *RegistrySnapshot) *RegistrySnapshot {
+	defaults := h.settings().Extensions
+	if defaults == nil || snapshot == nil {
+		return snapshot
+	}
+	out := *snapshot
+	out.defaults = append([]string{}, defaults...)
+	return &out
 }

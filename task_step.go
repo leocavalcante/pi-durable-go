@@ -115,7 +115,7 @@ func (s *Scheduler) runInvocation(id TaskID, inv *taskInvocation, resolved resol
 		if err != nil || !continuePhase {
 			return
 		}
-		r.snapshot.Store(snapshot)
+		r.snapshot.Store(s.h.agentSnapshot(snapshot))
 		previousCheckpoint = append(json.RawMessage(nil), record.Checkpoint...)
 		phase, attempt := checkpointPhase(record.Checkpoint)
 		kind := "run"

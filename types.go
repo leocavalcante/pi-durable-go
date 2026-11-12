@@ -569,6 +569,10 @@ type Settings struct {
 	// Stream holds the pi-ai request options of every model request
 	// (settings.stream); zero fields keep the adapter defaults.
 	Stream StreamOptions
+	// Extensions is the default extension selection of an agent that names
+	// none (settings.extensions); nil selects every installed extension, in
+	// install order.
+	Extensions []string
 	// SteeringMode and FollowUpMode select how many queued steers or
 	// follow-ups a boundary places: QueueOneAtATime (default) or QueueAll.
 	SteeringMode string
