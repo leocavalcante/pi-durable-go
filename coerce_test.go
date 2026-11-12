@@ -319,3 +319,42 @@ func TestToolSchemasAreReadLikePiSchema(t *testing.T) {
 		}
 	}
 }
+
+func TestCoercionReviewCases(t *testing.T) {
+	// A percent-encoded reference resolves.
+	got, err := validateToolArguments(ToolSpec{Name: "t", Parameters: json.RawMessage(`{"$defs":{"N":{"type":"integer"}},"properties":{"n":{"$ref":"#/%24defs/N"}}}`)}, json.RawMessage(`{"n":"4"}`))
+	if err != nil || string(got) != `{"n":4}` {
+		t.Fatalf("percent-encoded reference: %s error=%v", got, err)
+	}
+	// Property names that need escaping in a URI fragment are checked too.
+	got, err = validateToolArguments(ToolSpec{Name: "t", Parameters: json.RawMessage(`{"type":"object","properties":{"a b%":{"anyOf":[{"type":"integer"},{"type":"null"}]}}}`)}, json.RawMessage(`{"a b%":"5"}`))
+	if err != nil || string(got) != `{"a b%":5}` {
+		t.Fatalf("escaped property: %s error=%v", got, err)
+	}
+	// Number("0x-1") is NaN.
+	if got, err := validateToolArguments(ToolSpec{Name: "t", Parameters: json.RawMessage(`{"type":"object","properties":{"n":{"type":"number"}}}`)}, json.RawMessage(`{"n":"0x-1"}`)); err == nil {
+		t.Fatalf("0x-1 coerced to %s", got)
+	}
+	// String(Infinity).
+	if got, err := validateToolArguments(ToolSpec{Name: "t", Parameters: json.RawMessage(`{"type":"object","properties":{"s":{"type":"string"}}}`)}, json.RawMessage(`{"s":1e400}`)); err != nil || string(got) != `{"s":"Infinity"}` {
+		t.Fatalf("infinity: %s error=%v", got, err)
+	}
+	// A recursive union whose branches all fail is exponential to check,
+	// in pi-schema too (a stack overflow after seconds at depth 10); the
+	// conversion work stays bounded, so a shallow one finishes.
+	schema := `{"$defs":{"N":{"anyOf":[{"$ref":"#/$defs/N"},{"type":"object","properties":{"child":{"$ref":"#/$defs/N"},"bad":{"type":"integer"}},"required":["bad"]},{"type":"object","properties":{"child":{"$ref":"#/$defs/N"},"bad":{"type":"boolean"}},"required":["bad"]}]}},"$ref":"#/$defs/N"}`
+	value := `{"bad":"x"}`
+	for i := 0; i < 6; i++ {
+		value = `{"bad":"x","child":` + value + `}`
+	}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_, _ = validateToolArguments(ToolSpec{Name: "t", Parameters: json.RawMessage(schema)}, json.RawMessage(value))
+	}()
+	select {
+	case <-done:
+	case <-time.After(20 * time.Second):
+		t.Fatal("a recursive union did not finish")
+	}
+}

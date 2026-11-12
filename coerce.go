@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"math/big"
+	"net/url"
 	"reflect"
 	"regexp"
 	"strconv"
@@ -150,6 +151,10 @@ func resolvePointer(root any, ref string) (any, bool) {
 	}
 	node := root
 	for _, token := range strings.Split(ref[2:], "/") {
+		// A URI fragment: percent escapes first, then the pointer's own.
+		if unescaped, err := url.PathUnescape(token); err == nil {
+			token = unescaped
+		}
 		token = strings.ReplaceAll(strings.ReplaceAll(token, "~1", "/"), "~0", "~")
 		switch n := node.(type) {
 		case map[string]any:
@@ -171,6 +176,33 @@ func resolvePointer(root any, ref string) (any, bool) {
 	return node, true
 }
 
+// decodedPointer is a "#/..." reference as a plain JSON pointer.
+func decodedPointer(ref string) string {
+	pointer := strings.TrimPrefix(ref, "#")
+	if pointer == "" {
+		return ""
+	}
+	tokens := strings.Split(pointer[1:], "/")
+	for i, token := range tokens {
+		if unescaped, err := url.PathUnescape(token); err == nil {
+			tokens[i] = unescaped
+		}
+	}
+	return "/" + strings.Join(tokens, "/")
+}
+
+// fragmentOf is a JSON pointer as a URI fragment: each token escaped.
+func fragmentOf(pointer string) string {
+	if pointer == "" {
+		return ""
+	}
+	tokens := strings.Split(pointer[1:], "/")
+	for i, token := range tokens {
+		tokens[i] = url.PathEscape(token)
+	}
+	return "/" + strings.Join(tokens, "/")
+}
+
 // passes reports whether value passes the schema at pointer, and false for
 // ok when that schema cannot be compiled.
 func (v *toolValidator) passes(pointer string, value any) (passes, ok bool) {
@@ -178,7 +210,7 @@ func (v *toolValidator) passes(pointer string, value any) (passes, ok bool) {
 	compiled, cached := v.checks[pointer]
 	if !cached {
 		var err error
-		compiled, err = v.compiler.Compile(toolSchemaLocation + "#" + pointer)
+		compiled, err = v.compiler.Compile(toolSchemaLocation + "#" + fragmentOf(pointer))
 		if err != nil {
 			compiled = nil
 		}
@@ -547,13 +579,21 @@ func validationPath(pointer string) string {
 	return strings.Join(tokens, ".")
 }
 
+// maxCoercionSteps bounds the schema nodes one call converts.
+const maxCoercionSteps = 100000
+
 // coercion is one coerce call's state: the (node, value) pairs pass 2 is
 // converting through a re-entry point, and memoized $ref results.
 type coercion struct {
 	v       *toolValidator
 	entered []enteredPair
 	cuts    int
-	memo    map[string]map[any]memoEntry
+	// steps bounds a call's conversion work: a recursive union whose
+	// branches all fail can convert the same values exponentially often
+	// (pi-schema memoizes only results computed without a cut). Past the
+	// budget, values are left as they are for the check to judge.
+	steps int
+	memo  map[string]map[any]memoEntry
 }
 
 // memoEntry keeps the value it is keyed by alive, so its address is not
@@ -769,6 +809,9 @@ func (c *coercion) convert(schema any, pointer string, value any) any {
 	if !ok {
 		return value
 	}
+	if c.steps++; c.steps > maxCoercionSteps {
+		return value
+	}
 	if ref, isRef := node["$ref"].(string); isRef {
 		target, resolved := resolvePointer(c.v.root, ref)
 		if !resolved {
@@ -777,7 +820,7 @@ func (c *coercion) convert(schema any, pointer string, value any) any {
 		if _, isObject := target.(map[string]any); !isObject {
 			return value
 		}
-		return c.reenter(target, strings.TrimPrefix(ref, "#"), value, true)
+		return c.reenter(target, decodedPointer(ref), value, true)
 	}
 	return c.convertNode(node, pointer, value)
 }
@@ -1454,7 +1497,11 @@ func jsNumber(s string) (float64, bool) {
 			base = 2
 		}
 		if base != 0 {
-			n, ok := new(big.Int).SetString(t[2:], base)
+			digits := t[2:]
+			if digits == "" || digits[0] == '+' || digits[0] == '-' || strings.Contains(digits, "_") {
+				return 0, false
+			}
+			n, ok := new(big.Int).SetString(digits, base)
 			if !ok {
 				return 0, false
 			}
@@ -1480,8 +1527,15 @@ func jsNumber(s string) (float64, bool) {
 
 // jsNumberString is Number.prototype.toString() for a finite number.
 func jsNumberString(f float64) string {
-	if f == 0 {
+	switch {
+	case f == 0:
 		return "0"
+	case math.IsNaN(f):
+		return "NaN"
+	case math.IsInf(f, 1):
+		return "Infinity"
+	case math.IsInf(f, -1):
+		return "-Infinity"
 	}
 	sign := ""
 	if f < 0 {
