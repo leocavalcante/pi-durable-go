@@ -186,11 +186,28 @@ func orderToolResults(messages []Message) []Message {
 func (c *Conversation) Fork(ctx context.Context, at EntryID, opts ConversationOptions) (*Conversation, error) {
 	var id ConversationID
 	err := c.h.Commit(ctx, func(tx *Tx) error {
-		parent, err := tx.Conversation(c.id)
+		var err error
+		id, err = tx.Fork(c.id, at, opts)
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &Conversation{h: c.h, id: id}, nil
+}
+
+// Fork creates a history fork of a conversation at one visible entry inside
+// the caller's commit (upstream tx.forkConversation): the child shares the
+// parent's history up to at, inherits the agent there (or opts.Agent), and
+// copies the documents that fork (current or as of the entry).
+func (tx *Tx) Fork(parentID ConversationID, at EntryID, opts ConversationOptions) (ConversationID, error) {
+	var id ConversationID
+	err := func() error {
+		parent, err := tx.Conversation(parentID)
 		if err != nil {
 			return err
 		}
-		entries, err := entriesFromState(tx.state, c.id)
+		entries, err := entriesFromState(tx.state, parentID)
 		if err != nil {
 			return err
 		}
@@ -227,7 +244,7 @@ func (c *Conversation) Fork(ctx context.Context, at EntryID, opts ConversationOp
 		child := tx.state.mutConversation(id)
 		delete(tx.state.Entries, child.Head) // replace the unobserved creation baseline
 		child.Agent = agent
-		child.Parent = c.id
+		child.Parent = parentID
 		child.ForkAt = at
 		child.Head = at
 		baseline, err := json.Marshal(agent)
@@ -240,7 +257,7 @@ func (c *Conversation) Fork(ctx context.Context, at EntryID, opts ConversationOp
 		// Copy only conversation documents; task/session documents never fork.
 		var docs []*DocumentRecord
 		for _, doc := range tx.state.Documents {
-			if doc.Scope == "conversation" && doc.ScopeID == uint64(c.id) {
+			if doc.Scope == "conversation" && doc.ScopeID == uint64(parentID) {
 				docs = append(docs, doc)
 			}
 		}
@@ -280,11 +297,8 @@ func (c *Conversation) Fork(ctx context.Context, at EntryID, opts ConversationOp
 			return opts.Init(tx, id)
 		}
 		return nil
-	})
-	if err != nil {
-		return nil, err
-	}
-	return &Conversation{h: c.h, id: id}, nil
+	}()
+	return id, err
 }
 
 // SubmitTx admits a submission inside the caller's commit, with Submit's
@@ -639,23 +653,40 @@ type EntryPage struct {
 // including those a summary or reset left behind, newest first unless the
 // query is ascending. Pass the previous page's Next to continue.
 func (c *Conversation) ScanEntries(ctx context.Context, query EntryQuery, limit int, cursor *EntryCursor) (EntryPage, error) {
-	if limit <= 0 {
-		return EntryPage{}, fmt.Errorf("%w: limit must be positive", ErrInvalid)
-	}
-	order := query.Order
-	if cursor != nil {
-		order = cursor.Order
-	}
-	if order == "" {
-		order = "descending"
-	}
-	if order != "ascending" && order != "descending" {
-		return EntryPage{}, fmt.Errorf("%w: order", ErrInvalid)
+	if err := checkEntryScan(query, limit, cursor); err != nil {
+		return EntryPage{}, err
 	}
 	entries, err := c.Entries(ctx)
 	if err != nil {
 		return EntryPage{}, err
 	}
+	return scanEntries(entries, query, limit, cursor), nil
+}
+
+func checkEntryScan(query EntryQuery, limit int, cursor *EntryCursor) error {
+	if limit <= 0 {
+		return fmt.Errorf("%w: limit must be positive", ErrInvalid)
+	}
+	if order := scanOrder(query.Order, cursor, "descending"); order != "ascending" && order != "descending" {
+		return fmt.Errorf("%w: order", ErrInvalid)
+	}
+	return nil
+}
+
+// scanOrder is a scan's order: the cursor's, the query's, or the default.
+func scanOrder(order string, cursor *EntryCursor, fallback string) string {
+	if cursor != nil {
+		order = cursor.Order
+	}
+	if order == "" {
+		order = fallback
+	}
+	return order
+}
+
+// scanEntries pages through entries in ID order (oldest first).
+func scanEntries(entries []Entry, query EntryQuery, limit int, cursor *EntryCursor) EntryPage {
+	order := scanOrder(query.Order, cursor, "descending")
 	if order == "descending" {
 		for i, j := 0, len(entries)-1; i < j; i, j = i+1, j-1 {
 			entries[i], entries[j] = entries[j], entries[i]
@@ -676,5 +707,5 @@ func (c *Conversation) ScanEntries(ctx context.Context, query EntryQuery, limit 
 		}
 		page.Items = append(page.Items, e)
 	}
-	return page, nil
+	return page
 }
