@@ -357,7 +357,8 @@ func ReadDocument[T any](ctx context.Context, h *Harness, def DocumentDefinition
 }
 
 // WatchDocument delivers detached latest values; nil means absent/retired state.
-// It is convergent observation, not an audit journal.
+// It is convergent observation, not an audit journal. A task document's
+// watch closes once its task is terminal, after delivering the retirement.
 func WatchDocument(ctx context.Context, h *Harness, def DocumentDefinition, id uint64) (<-chan json.RawMessage, func(), error) {
 	if err := validateDocument(def); err != nil {
 		return nil, nil, err
@@ -393,6 +394,13 @@ func WatchDocument(ctx context.Context, h *Harness, def DocumentDefinition, id u
 					select {
 					case out <- value:
 					case <-ctx.Done():
+						return
+					}
+				}
+				// A task document's watch ends with its task, after the
+				// retirement it delivered (upstream ended).
+				if def.Scope == "task" {
+					if task, _ := s.task(TaskID(id)); task == nil || task.Status == "terminal" {
 						return
 					}
 				}

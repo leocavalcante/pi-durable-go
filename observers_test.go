@@ -7,6 +7,7 @@ import (
 	"math"
 	"sync"
 	"testing"
+	"time"
 )
 
 // recorder records an observer's calls.
@@ -193,5 +194,46 @@ func TestConversationObserveFollowsTheWindow(t *testing.T) {
 	last := values[len(values)-1]
 	if n := len(last.Entries); n < 2 || n > 3 {
 		t.Fatalf("window=%d entries", n)
+	}
+}
+
+func TestTaskDocumentWatchesEndWithTheirTask(t *testing.T) {
+	notes := DocumentDefinition{Kind: "test.watched-notes", Version: 1, Scope: "task"}
+	release := make(chan struct{})
+	definition := TaskDefinition{Kind: "test.watched", Version: 1, Run: func(ctx context.Context, r *TaskRuntime, task TaskRecord) error {
+		if err := r.Commit(ctx, func(tx *Tx) (TaskTransition, error) {
+			return TaskTransition{Status: "running", Checkpoint: task.Checkpoint}, tx.PutDocument(notes, uint64(task.ID), json.RawMessage(`{"note":1}`))
+		}); err != nil {
+			return err
+		}
+		<-release
+		return r.Complete(ctx, Outcome{Status: OutcomeCompleted})
+	}}
+	registry := NewRegistry()
+	installTasks(t, registry, "watched", definition)
+	h := taskTestHarness(t, HarnessOptions{Registry: registry})
+	id := createTaskForTest(t, h, definition)
+	values, stop, err := WatchDocument(context.Background(), h, notes, uint64(id))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stop()
+	h.Resume()
+	close(release)
+	var last json.RawMessage
+	deadline := time.After(5 * time.Second)
+	for {
+		select {
+		case value, ok := <-values:
+			if !ok {
+				if last != nil {
+					t.Fatalf("the watch ended on %s, want the retirement", last)
+				}
+				return
+			}
+			last = value
+		case <-deadline:
+			t.Fatal("the watch did not end with its task")
+		}
 	}
 }
