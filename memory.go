@@ -85,3 +85,13 @@ func (m *MemoryStorage) CommitDelta(ctx context.Context, expected uint64, delta 
 	}
 	return detached.ApplyTo(m.state)
 }
+
+// CommitDeltas stores several commits' changes in order (BatchDeltaStorage).
+func (m *MemoryStorage) CommitDeltas(ctx context.Context, expected uint64, deltas []*StateDelta) (int, error) {
+	for i, delta := range deltas {
+		if err := m.CommitDelta(ctx, expected+uint64(i), delta); err != nil {
+			return i, err
+		}
+	}
+	return len(deltas), nil
+}

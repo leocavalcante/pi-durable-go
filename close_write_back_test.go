@@ -332,7 +332,7 @@ func TestCloseWriteBackFailureShutdownWritesNothing(t *testing.T) {
 	before := loadCloseWriteBackState(t, store.MemoryStorage)
 	writes := store.writes.Load()
 	store.fail.Store(true)
-	if err := h.Commit(ctx, nil); err != cause {
+	if err := h.Commit(ctx, touchStorage); err != cause {
 		t.Fatal(err)
 	}
 	if _, err := h.WaitClosed(ctx); err != nil {

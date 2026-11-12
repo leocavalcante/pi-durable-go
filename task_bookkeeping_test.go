@@ -48,9 +48,9 @@ func TestTaskSchedulerRejectedWritesFailTheSession(t *testing.T) {
 			defer h.Close(context.Background())
 			store.fail.Store(true)
 			if internal {
-				_, err = h.scheduler.commitInternal(ctx, func(*Tx) error { return nil })
+				_, err = h.scheduler.commitInternal(ctx, touchStorage)
 			} else {
-				err = h.Commit(ctx, nil)
+				err = h.Commit(ctx, touchStorage)
 			}
 			if err != cause || !errors.Is(h.Err(), ErrPoisoned) || !errors.Is(h.Err(), cause) {
 				t.Fatalf("rejection: error=%v Session=%v", err, h.Err())
@@ -157,7 +157,7 @@ func TestTaskSchedulerStorageDecisionSentinelIsNotANoOp(t *testing.T) {
 			}
 			defer h.Close(context.Background())
 			store.fail.Store(true)
-			committed, err := h.scheduler.commitInternal(context.Background(), nil)
+			committed, err := h.scheduler.commitInternal(context.Background(), touchStorage)
 			if committed || err != cause || !errors.Is(h.Err(), ErrPoisoned) {
 				t.Fatalf("storage error swallowed: committed=%v error=%v Session=%v", committed, err, h.Err())
 			}
@@ -183,7 +183,7 @@ func TestTaskSchedulerCancelledStorageErrorsFailTheSession(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			store.cancel = cancel
-			committed, err := h.scheduler.commitInternal(ctx, func(*Tx) error { return nil })
+			committed, err := h.scheduler.commitInternal(ctx, touchStorage)
 			if committed || !errors.Is(err, tc.cause) || !errors.Is(h.Err(), ErrPoisoned) {
 				t.Fatalf("committed=%v error=%v Session=%v", committed, err, h.Err())
 			}

@@ -369,59 +369,88 @@ func (s *sqliteStorage) CommitDelta(ctx context.Context, expected uint64, delta 
 	if delta == nil {
 		return &durable.RejectedError{Err: durable.ErrInvalid}
 	}
-	return s.write(ctx, expected, delta.Sequence, func(tx *sql.Tx) error {
-		for id, v := range delta.Conversations {
-			if err := putRecord(ctx, tx, kindConversation, uintKey(id), v); err != nil {
+	return s.write(ctx, expected, delta.Sequence, func(tx *sql.Tx) error { return applyDelta(ctx, tx, delta) })
+}
+
+// CommitDeltas stores a group of commits in one transaction, so one sync
+// covers them all (durable.BatchDeltaStorage). The transaction is atomic:
+// either every commit is stored or none is.
+func (s *sqliteStorage) CommitDeltas(ctx context.Context, expected uint64, deltas []*durable.StateDelta) (int, error) {
+	if len(deltas) == 0 {
+		return 0, nil
+	}
+	for i, delta := range deltas {
+		if delta == nil || delta.Sequence != expected+uint64(i)+1 {
+			return 0, &durable.RejectedError{Err: durable.ErrInvalid}
+		}
+	}
+	err := s.write(ctx, expected, expected+1, func(tx *sql.Tx) error {
+		for _, delta := range deltas {
+			if err := applyDelta(ctx, tx, delta); err != nil {
 				return err
 			}
 		}
-		for id, v := range delta.Entries {
-			if err := putRecord(ctx, tx, kindEntry, uintKey(id), v); err != nil {
-				return err
-			}
-		}
-		for id, v := range delta.Tasks {
-			if err := putRecord(ctx, tx, kindTask, uintKey(id), v); err != nil {
-				return err
-			}
-		}
-		for id, v := range delta.Submissions {
-			if err := putRecord(ctx, tx, kindSubmission, uintKey(id), v); err != nil {
-				return err
-			}
-		}
-		for key, v := range delta.Documents {
-			if err := putRecord(ctx, tx, kindDocument, key, v); err != nil {
-				return err
-			}
-		}
-		for _, id := range delta.Removed.Conversations {
-			if err := deleteRecord(ctx, tx, kindConversation, uintKey(id)); err != nil {
-				return err
-			}
-		}
-		for _, id := range delta.Removed.Entries {
-			if err := deleteRecord(ctx, tx, kindEntry, uintKey(id)); err != nil {
-				return err
-			}
-		}
-		for _, id := range delta.Removed.Tasks {
-			if err := deleteRecord(ctx, tx, kindTask, uintKey(id)); err != nil {
-				return err
-			}
-		}
-		for _, id := range delta.Removed.Submissions {
-			if err := deleteRecord(ctx, tx, kindSubmission, uintKey(id)); err != nil {
-				return err
-			}
-		}
-		for _, key := range delta.Removed.Documents {
-			if err := deleteRecord(ctx, tx, kindDocument, key); err != nil {
-				return err
-			}
-		}
-		return writeHeader(ctx, tx, header{Version: delta.Version, Sequence: delta.Sequence, NextID: delta.NextID, Root: delta.Root})
+		return nil
 	})
+	if err != nil {
+		return 0, err
+	}
+	return len(deltas), nil
+}
+
+// applyDelta writes one commit's records, removals, and header.
+func applyDelta(ctx context.Context, tx *sql.Tx, delta *durable.StateDelta) error {
+	for id, v := range delta.Conversations {
+		if err := putRecord(ctx, tx, kindConversation, uintKey(id), v); err != nil {
+			return err
+		}
+	}
+	for id, v := range delta.Entries {
+		if err := putRecord(ctx, tx, kindEntry, uintKey(id), v); err != nil {
+			return err
+		}
+	}
+	for id, v := range delta.Tasks {
+		if err := putRecord(ctx, tx, kindTask, uintKey(id), v); err != nil {
+			return err
+		}
+	}
+	for id, v := range delta.Submissions {
+		if err := putRecord(ctx, tx, kindSubmission, uintKey(id), v); err != nil {
+			return err
+		}
+	}
+	for key, v := range delta.Documents {
+		if err := putRecord(ctx, tx, kindDocument, key, v); err != nil {
+			return err
+		}
+	}
+	for _, id := range delta.Removed.Conversations {
+		if err := deleteRecord(ctx, tx, kindConversation, uintKey(id)); err != nil {
+			return err
+		}
+	}
+	for _, id := range delta.Removed.Entries {
+		if err := deleteRecord(ctx, tx, kindEntry, uintKey(id)); err != nil {
+			return err
+		}
+	}
+	for _, id := range delta.Removed.Tasks {
+		if err := deleteRecord(ctx, tx, kindTask, uintKey(id)); err != nil {
+			return err
+		}
+	}
+	for _, id := range delta.Removed.Submissions {
+		if err := deleteRecord(ctx, tx, kindSubmission, uintKey(id)); err != nil {
+			return err
+		}
+	}
+	for _, key := range delta.Removed.Documents {
+		if err := deleteRecord(ctx, tx, kindDocument, key); err != nil {
+			return err
+		}
+	}
+	return writeHeader(ctx, tx, header{Version: delta.Version, Sequence: delta.Sequence, NextID: delta.NextID, Root: delta.Root})
 }
 
 func (s *sqliteStorage) Close() error {

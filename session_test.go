@@ -67,7 +67,7 @@ func TestSessionPoisonsUncertainWrite(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = s.Commit(context.Background(), func(*Tx) error { return nil }); err == nil {
+	if err = s.Commit(context.Background(), touchStorage); err == nil {
 		t.Fatal("expected storage failure")
 	}
 	if _, err = s.Snapshot(context.Background()); !errors.Is(err, ErrPoisoned) {

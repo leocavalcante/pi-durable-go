@@ -29,13 +29,11 @@
 
 ## 2. Remaining work, in proposed order
 
-1. **Group commit.** Deferred in [plan 0006](0006-incremental-commits-and-record-storage.md). Upstream stores commits that arrive during a storage call together, and every storage error is fatal there; the Go Session lets a caller's cancellation and a certified rejection fail one commit without failing the Session, which grouping would give up, for throughput only.
-2. **Image order.** Images interleaved with text in one message; Go puts a message's images after its text.
-3. **Environment parity.** The `env` package's bounded binary and directory readers and file watching. Hosts can use the Go standard library directly; tools need none of them today.
+1. **Image order.** Images interleaved with text in one message; Go puts a message's images after its text.
+2. **Environment parity.** The `env` package's bounded binary and directory readers and file watching. Hosts can use the Go standard library directly; tools need none of them today.
 
 ## 3. Not planned
 
-- **Deferred commits (`persistWithinMs`).** Upstream publishes progress to watches before storing it; this port's rule that visible state is committed before publication (AGENTS.md) forbids that. Progress commits are throttled instead.
 - **Code mode.** It runs model-written scripts in pi-codemode's QuickJS sandbox with deterministic replay; Go would need an embedded engine and a port of pi-codemode.
 - **Upstream storage formats and Chord.** Go keeps its own backends; no file-format compatibility is claimed.
 - **Provider payload hooks (`beforeProviderRequest`).** Go's `Model` boundary builds provider payloads in adapters, not in the Harness.

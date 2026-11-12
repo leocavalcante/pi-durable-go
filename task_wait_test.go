@@ -65,7 +65,7 @@ func TestTaskWaitCancellationDoesNotJoinBlockedStorage(t *testing.T) {
 				}
 				store.block.Store(true)
 				committed := make(chan error, 1)
-				go func() { committed <- h.Commit(context.Background(), nil) }()
+				go func() { committed <- h.Commit(context.Background(), touchStorage) }()
 				select {
 				case <-store.started:
 				case <-time.After(3 * time.Second):

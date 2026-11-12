@@ -73,7 +73,8 @@ func TestSessionDefaultsNewStateToCurrentVersion(t *testing.T) {
 	if state.Version != stateVersion {
 		t.Fatalf("new Session version=%d, want %d", state.Version, stateVersion)
 	}
-	if err := s.Commit(ctx, nil); err != nil {
+	// The first commit with a write stores the new State.
+	if err := s.Commit(ctx, touchStorage); err != nil {
 		t.Fatal(err)
 	}
 	store.mu.Lock()

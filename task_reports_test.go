@@ -291,7 +291,7 @@ func TestSessionFailureReportForUncertainWrite(t *testing.T) {
 	q := newReportQueue(func(report Report) { received <- report })
 	s.failureHook = func(err error) { q.enqueue(Report{Kind: ReportStorageFailed, Err: err}) }
 	s.afterClose = q.closeAdmission
-	if err := s.Commit(ctx, nil); err != cause {
+	if err := s.Commit(ctx, touchStorage); err != cause {
 		t.Fatalf("Commit error=%v", err)
 	}
 	if _, err := s.WaitClosed(ctx); err != nil {

@@ -43,6 +43,15 @@ type DeltaStorage interface {
 	CommitDelta(ctx context.Context, expected uint64, delta *StateDelta) error
 }
 
+// BatchDeltaStorage is a DeltaStorage that stores several commits' changes in
+// one call, as the Session's writer sends them (upstream group commit):
+// in order, each checked against the one before, in as few round trips as
+// it can. It returns how many it stored before an error; those stand.
+type BatchDeltaStorage interface {
+	DeltaStorage
+	CommitDeltas(ctx context.Context, expected uint64, deltas []*StateDelta) (int, error)
+}
+
 // Clone returns a detached copy of the delta.
 func (d *StateDelta) Clone() (*StateDelta, error) {
 	return strictClone(d)

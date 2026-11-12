@@ -385,3 +385,68 @@ func copyState(v *durable.State) (*durable.State, error) {
 	e = json.Unmarshal(b, &cp)
 	return &cp, e
 }
+
+// CommitDeltas appends a group of commits with one write and one sync
+// (durable.BatchDeltaStorage); a crash keeps the complete lines before a torn
+// one, each a commit.
+func (s *jsonlStorage) CommitDeltas(ctx context.Context, expected uint64, deltas []*durable.StateDelta) (int, error) {
+	if len(deltas) == 0 {
+		return 0, nil
+	}
+	s.mu.Lock()
+	if s.state == nil {
+		// A log starts with a whole State: store the first commit alone.
+		s.mu.Unlock()
+		if err := s.CommitDelta(ctx, expected, deltas[0]); err != nil {
+			return 0, err
+		}
+		stored, err := s.CommitDeltas(ctx, expected+1, deltas[1:])
+		return 1 + stored, err
+	}
+	defer s.mu.Unlock()
+	if s.readOnly {
+		return 0, &durable.RejectedError{Err: durable.ErrReadOnly}
+	}
+	if s.closed {
+		return 0, &durable.RejectedError{Err: durable.ErrClosed}
+	}
+	if err := ctx.Err(); err != nil {
+		return 0, &durable.RejectedError{Err: err}
+	}
+	if s.state.Sequence != expected {
+		return 0, &durable.RejectedError{Err: fmt.Errorf("%w: expected sequence %d, have %d", durable.ErrConflict, expected, s.state.Sequence)}
+	}
+	var lines []byte
+	detached := make([]*durable.StateDelta, len(deltas))
+	for i, delta := range deltas {
+		if delta == nil || delta.Sequence != expected+uint64(i)+1 {
+			return 0, &durable.RejectedError{Err: durable.ErrInvalid}
+		}
+		b, err := json.Marshal(deltaLine{Delta: delta})
+		if err != nil {
+			return 0, &durable.RejectedError{Err: err}
+		}
+		if detached[i], err = delta.Clone(); err != nil {
+			return 0, &durable.RejectedError{Err: err}
+		}
+		lines = append(append(lines, b...), '\n')
+	}
+	if _, err := s.file.Write(lines); err != nil {
+		return 0, err
+	}
+	if err := s.file.Sync(); err != nil {
+		return 0, err
+	}
+	s.size += int64(len(lines))
+	for _, delta := range detached {
+		if err := delta.ApplyTo(s.state); err != nil {
+			return 0, err
+		}
+	}
+	if deltas := s.size - s.snapshotSize; deltas >= compactMinBytes && deltas > s.snapshotSize {
+		if snapshot, err := json.Marshal(s.state); err == nil {
+			_ = s.compact(append(snapshot, '\n'))
+		}
+	}
+	return len(deltas), nil
+}

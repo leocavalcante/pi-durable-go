@@ -116,14 +116,16 @@ func (s *Session) closeWatchersLocked() {
 }
 
 func (s *Session) finishClose() {
-	// Every storage commit runs under this mutex. Wait for an admitted one to
-	// settle before touching the backend; newly queued calls see ErrClosed.
+	// Newly queued calls see ErrClosed; the writer drains below.
 	s.mu.Lock()
 	s.closeWatchersLocked()
 	s.mu.Unlock()
 	if s.beforeClose != nil {
 		s.beforeClose()
 	}
+	// The writer stores outside the line: let it finish what it admitted
+	// (or fail it) before touching the backend.
+	s.drainWriter()
 	err := s.storage.Close()
 	if err != nil && s.failure.CompareAndSwap(nil, &SessionFailedError{cause: err}) && s.failureHook != nil {
 		// A backend close failure is also reported, before afterClose closes

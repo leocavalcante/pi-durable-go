@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Status | In progress: M1 done |
+| Status | In progress: M1 and M2 done |
 | Compatibility target | Pi Durable **v1.5.2** (tag `v1.5.2`, commit `b4afdddf44e059c67ccf5097e5317d913521b470`) |
 | Supersedes | The deferrals in [plan 0006](0006-incremental-commits-and-record-storage.md) §5 (group commit) and plan 0005 §3 (deferred commits) |
 | Main code areas | `session.go`, `lifecycle.go`, `delta.go`, `storage/`, `generation.go`, `tool_runtime.go`, `prompt.go` |
@@ -31,3 +31,4 @@ Each milestone passes `make check` before it is pushed. Tests that encoded the e
 ## 3. Implementation record
 
 - **M1** (`18486ed`): `commitLocked` fails the Session on any storage commit error and stores an admitted commit with a context that its caller's cancellation does not reach (`context.WithoutCancel`). Tests that encoded the certified-rejection and caller-cancellation exemptions now assert upstream's: a rejected write fails the Session, a storage error wrapping a cancellation is final, and a callback that cancels its own context still has its commit stored.
+- **M2**: `admitLocked` runs a callback on `Session.head`, the newest admitted State, and admits a commit with writes to `pending` with the next sequence; a commit without writes never reaches storage, except the first after an in-memory upgrade. `writeLoop` stores every pending commit in one call (`BatchDeltaStorage.CommitDeltas`: one SQLite transaction, one JSONL write and sync; memory applies them in order), then publishes them in line order. A failed store fails the Session; the commits of the call get its error, later ones `SessionFailed`. Close drains the writer before closing storage. Tests that forced storage with an empty commit now write a document (`touchStorage`).

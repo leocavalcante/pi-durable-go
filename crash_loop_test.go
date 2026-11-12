@@ -74,7 +74,7 @@ func (c *crashHosts) openWith(options HarnessOptions, crashOn func(*State) bool)
 func (c *crashHosts) crash(h *Harness) {
 	c.t.Helper()
 	c.store.crashed.Store(true)
-	if err := h.Commit(context.Background(), nil); err == nil {
+	if err := h.Commit(context.Background(), touchStorage); err == nil {
 		c.t.Fatal("commit succeeded on a crashed host")
 	}
 	c.died(h)

@@ -44,6 +44,14 @@ type Session struct {
 	fullWrite bool
 	// commitObservers get each published commit's changes, in order.
 	commitObservers map[*commitObserver]struct{}
+	// Group commit (upstream): head is the newest admitted State, which
+	// commit callbacks build on; pending are admitted commits the writer has
+	// not sent yet, in line order; writing says a writer goroutine runs, and
+	// idle signals when it stops.
+	head    *State
+	pending []*pendingCommit
+	writing bool
+	idle    *sync.Cond
 	// observerPanic reports an observer that panicked.
 	observerPanic func(any)
 }
@@ -84,7 +92,8 @@ func NewSession(ctx context.Context, storage Storage, now func() time.Time) (*Se
 	if err := upgradeState(st); err != nil {
 		return nil, fmt.Errorf("durable: cannot upgrade stored state: %w", err)
 	}
-	s := &Session{storage: storage, state: st, now: now, watchers: map[*stateWatcher]struct{}{}, closing: make(chan struct{}), closeDone: make(chan struct{})}
+	s := &Session{storage: storage, state: st, head: st, now: now, watchers: map[*stateWatcher]struct{}{}, closing: make(chan struct{}), closeDone: make(chan struct{})}
+	s.idle = sync.NewCond(&s.mu)
 	// The upgrade changed records no delta would carry: the first commit
 	// stores the whole State.
 	s.fullWrite = upgraded
@@ -103,14 +112,22 @@ func (s *Session) commit(ctx context.Context, fn func(*Tx) error, internal bool)
 		return err
 	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	if err := s.Err(); err != nil {
+		s.mu.Unlock()
 		return err
 	}
 	if err := ctx.Err(); err != nil {
+		s.mu.Unlock()
 		return err
 	}
-	return s.commitLocked(ctx, fn, internal, true)
+	admitted, err := s.admitLocked(ctx, fn, internal, true)
+	s.mu.Unlock()
+	if err != nil || admitted == nil {
+		return err
+	}
+	// The caller gets its commit's outcome once the writer stored and
+	// published it, whatever happens to ctx meanwhile.
+	return <-admitted.done
 }
 
 // writeAtClose is private shutdown bookkeeping, called after invocations join.
@@ -118,40 +135,55 @@ func (s *Session) commit(ctx context.Context, fn func(*Tx) error, internal bool)
 // nothing. A failed Session never writes; any real error fails a healthy one.
 func (s *Session) writeAtClose(fn func(*Tx) error) error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	if s.failure.Load() != nil {
+		s.mu.Unlock()
 		return nil
 	}
 	noChange := false
-	err := s.commitLocked(context.Background(), func(tx *Tx) error {
+	admitted, err := s.admitLocked(context.Background(), func(tx *Tx) error {
 		err := fn(tx)
 		noChange = errors.Is(err, errNoChange)
 		return err
 	}, true, false)
+	s.mu.Unlock()
 	if noChange {
 		return nil
 	}
-	return err
+	if err != nil || admitted == nil {
+		return err
+	}
+	return <-admitted.done
 }
 
-// The caller holds the line and has checked admission (or is writeAtClose).
-// Only callback-returned errNoChange suppresses an internal bookkeeping write;
-// an identical error from storage must still fail the Session.
-func (s *Session) commitLocked(ctx context.Context, fn func(*Tx) error, internal, publish bool) (err error) {
+// pendingCommit is a commit admitted to the writer: stored in its batch,
+// then published in line order (upstream group commit).
+type pendingCommit struct {
+	state   *State
+	delta   *StateDelta
+	publish bool
+	done    chan error
+}
+
+// admitLocked runs a commit's callback on the newest admitted State and
+// admits its changes to the writer; nil when there is nothing to store. The
+// caller holds the line and has checked admission (or is writeAtClose). Only
+// callback-returned errNoChange suppresses an internal bookkeeping write.
+func (s *Session) admitLocked(ctx context.Context, fn func(*Tx) error, internal, publish bool) (admitted *pendingCommit, err error) {
 	callbackNoChange := false
 	defer func() {
 		if !internal || err == nil || callbackNoChange || s.failure.Load() != nil {
 			return
 		}
-		// Storage errors were failed below. A cancellation the callback
-		// returned for its own cancelled context does not fail the Session.
+		// A cancellation the callback returned for its own cancelled context
+		// does not fail the Session; storage errors fail it in the writer.
 		if ctx.Err() != nil && (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)) {
 			return
 		}
 		s.failLocked(err)
 	}()
 	s.verifyCommitted("before a commit")
-	candidate := shallowState(s.state)
+	base := s.head
+	candidate := shallowState(base)
 	tx := &Tx{state: candidate, active: true, now: s.now}
 	func() {
 		defer func() { tx.active = false }()
@@ -161,57 +193,146 @@ func (s *Session) commitLocked(ctx context.Context, fn func(*Tx) error, internal
 		}
 	}()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	s.verifyCommitted("during a commit")
 	// Strict JSON round trips of the records the callback added or changed
 	// validate them and detach every value the callback retained.
-	changed, delta, err := detachChanges(s.state, candidate, s.readOnly)
+	changed, delta, err := detachChanges(base, candidate, s.readOnly)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if s.readOnly {
 		// A commit that writes nothing passes; one with writes is refused
 		// before it reaches storage, and nothing is adopted.
 		if changed {
-			return fmt.Errorf("%w: a commit with writes refused", ErrReadOnly)
+			return nil, fmt.Errorf("%w: a commit with writes refused", ErrReadOnly)
 		}
-		return nil
+		return nil, nil
 	}
-	if s.state.Sequence == ^uint64(0) {
-		return fmt.Errorf("%w: sequence space exhausted", ErrInvalid)
+	// A commit without writes never reaches storage (upstream); a State
+	// upgraded in memory at open is a write the next commit stores.
+	if !changed && !s.fullWrite {
+		return nil, nil
 	}
-	candidate.Sequence = s.state.Sequence + 1
+	if base.Sequence == ^uint64(0) {
+		return nil, fmt.Errorf("%w: sequence space exhausted", ErrInvalid)
+	}
+	candidate.Sequence = base.Sequence + 1
 	candidate.base = nil
-	// Cancellation was checked when the job started: an admitted commit is
-	// stored, whatever happens to its caller's context meanwhile (upstream).
-	storeCtx := context.WithoutCancel(ctx)
-	if deltas, ok := s.storage.(DeltaStorage); ok && !s.fullWrite {
-		delta.Sequence = candidate.Sequence
-		err = deltas.CommitDelta(storeCtx, s.state.Sequence, delta)
-	} else {
-		err = s.storage.Commit(storeCtx, s.state.Sequence, candidate)
+	delta.Sequence = candidate.Sequence
+	s.head = candidate
+	admitted = &pendingCommit{state: candidate, delta: delta, publish: publish, done: make(chan error, 1)}
+	s.pending = append(s.pending, admitted)
+	if !s.writing {
+		s.writing = true
+		go s.writeLoop()
 	}
-	if err != nil {
-		// Storage failures are final (upstream): the first error a commit
-		// returns, a certified rejection included, fails the Session.
-		s.failLocked(err)
-		return err
+	return admitted, nil
+}
+
+// writeLoop is the Session's writer (upstream group commit): it stores every
+// commit admitted while no store call is in flight in one call, off the
+// line, and publishes them one by one in line order. Storage failures are
+// final: the commits of the failed call get its error, later ones the
+// Session's failure.
+func (s *Session) writeLoop() {
+	for {
+		s.mu.Lock()
+		batch := s.pending
+		s.pending = nil
+		if len(batch) == 0 || s.failure.Load() != nil {
+			for _, item := range batch {
+				item.done <- s.Err()
+			}
+			s.writing = false
+			s.idle.Broadcast()
+			s.mu.Unlock()
+			return
+		}
+		full := s.fullWrite
+		s.mu.Unlock()
+		stored, err := s.store(batch, full)
+		s.mu.Lock()
+		failed := s.failure.Load() != nil
+		for i, item := range batch[:stored] {
+			if failed {
+				item.done <- s.Err()
+				continue
+			}
+			s.state = item.state
+			s.fullWrite = false
+			s.recordCommitted(i == len(batch)-1)
+			if s.afterCommit != nil {
+				s.afterCommit(item.state)
+			}
+			// Observers follow storage, including the unpublished close
+			// write-back.
+			s.notifyCommitObservers(item.delta, item.state)
+			if item.publish {
+				for w := range s.watchers {
+					s.offer(w, item.state)
+				}
+			}
+			item.done <- nil
+		}
+		if err != nil {
+			// Storage failures are final (upstream): the first error a
+			// commit returns, a certified rejection included, fails the
+			// Session, and every commit of the call gets it.
+			s.failLocked(err)
+			for _, item := range batch[stored:] {
+				item.done <- err
+			}
+		}
+		s.mu.Unlock()
 	}
-	s.state = candidate
-	s.fullWrite = false
-	s.recordCommitted()
-	if s.afterCommit != nil {
-		s.afterCommit(candidate)
+}
+
+// store sends one batch, in order, each commit checked against the one
+// before it: deltas in one call where the storage takes several
+// (BatchDeltaStorage), one call per commit otherwise, and whole States where
+// it takes no deltas or an upgraded State must be written whole. It returns
+// how many commits it stored before an error.
+func (s *Session) store(batch []*pendingCommit, full bool) (int, error) {
+	ctx := context.Background() // admitted commits are stored whatever their callers do
+	deltas, isDelta := s.storage.(DeltaStorage)
+	start := 0
+	for start < len(batch) && (!isDelta || full && start == 0) {
+		item := batch[start]
+		if err := s.storage.Commit(ctx, item.state.Sequence-1, item.state); err != nil {
+			return start, err
+		}
+		start++
 	}
-	// Observers follow storage, including the unpublished close write-back.
-	s.notifyCommitObservers(delta, candidate)
-	if publish {
-		for w := range s.watchers {
-			s.offer(w, candidate)
+	rest := batch[start:]
+	if len(rest) == 0 {
+		return start, nil
+	}
+	if many, ok := s.storage.(BatchDeltaStorage); ok && len(rest) > 1 {
+		list := make([]*StateDelta, len(rest))
+		for i, item := range rest {
+			list[i] = item.delta
+		}
+		stored, err := many.CommitDeltas(ctx, rest[0].state.Sequence-1, list)
+		return start + stored, err
+	}
+	for i, item := range rest {
+		if err := deltas.CommitDelta(ctx, item.state.Sequence-1, item.delta); err != nil {
+			return start + i, err
 		}
 	}
-	return nil
+	return len(batch), nil
+}
+
+// drainWriter waits until the writer stored and published every admitted
+// commit, or failed them.
+func (s *Session) drainWriter() {
+	s.mu.Lock()
+	for s.writing {
+		s.idle.Wait()
+	}
+	s.mu.Unlock()
 }
 
 func (s *Session) Snapshot(ctx context.Context) (*State, error) {
@@ -254,7 +375,7 @@ func (s *Session) view(ctx context.Context) (*State, error) {
 var verifyCommittedState bool
 
 // recordCommitted notes the adopted State for verifyCommitted.
-func (s *Session) recordCommitted() {
+func (s *Session) recordCommitted(storeCaughtUp ...bool) {
 	if !verifyCommittedState {
 		return
 	}
@@ -264,8 +385,10 @@ func (s *Session) recordCommitted() {
 	}
 	s.committedJSON = data
 	// A test storage that can show what it holds must hold the same State,
-	// once an upgraded State has been written.
-	if stored, ok := s.storage.(interface{ storedStateJSON() []byte }); ok && !s.fullWrite {
+	// once an upgraded State has been written and the batch that stored this
+	// commit published its last one.
+	caughtUp := len(storeCaughtUp) == 0 || storeCaughtUp[0]
+	if stored, ok := s.storage.(interface{ storedStateJSON() []byte }); ok && !s.fullWrite && caughtUp {
 		if held := stored.storedStateJSON(); held != nil && !bytes.Equal(held, data) {
 			panic(fmt.Sprintf("durable: storage diverged from the committed state: %s", firstDifference(data, held)))
 		}

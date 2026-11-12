@@ -180,7 +180,7 @@ func TestStorageRejectionFailsTheSession(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer s.Close()
-	if err := s.Commit(context.Background(), nil); !errors.Is(err, cause) {
+	if err := s.Commit(context.Background(), touchStorage); !errors.Is(err, cause) {
 		t.Fatalf("rejection=%v", err)
 	}
 	if !errors.Is(s.Err(), ErrPoisoned) || !errors.Is(s.Err(), cause) {
@@ -343,7 +343,7 @@ func TestFailureShutdownJoinsNonCooperativeCode(t *testing.T) {
 		t.Fatal("model did not start")
 	}
 	store.fail.Store(true)
-	if err := h.Commit(ctx, nil); err != cause {
+	if err := h.Commit(ctx, touchStorage); err != cause {
 		t.Fatal(err)
 	}
 	if _, err := sub.Wait(ctx); !errors.Is(err, cause) {
@@ -401,7 +401,7 @@ func TestCloseSealsWithoutWaitingOnAdmittedCommit(t *testing.T) {
 	defer func() { once.Do(func() { close(store.release) }); _ = h.Close(context.Background()) }()
 	store.block.Store(true)
 	committed := make(chan error, 1)
-	go func() { committed <- h.Commit(context.Background(), nil) }()
+	go func() { committed <- h.Commit(context.Background(), touchStorage) }()
 	select {
 	case <-store.started:
 	case <-ctx.Done():

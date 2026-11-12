@@ -3,7 +3,9 @@ package durable
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
+	"sync/atomic"
 	"testing"
 )
 
@@ -100,4 +102,53 @@ func withoutSystem(messages []Message) []Message {
 		}
 	}
 	return out
+}
+
+// commitEach stores a batch through a storage's own CommitDelta, so test
+// storages that override it see every commit of a group.
+func commitEach(ctx context.Context, store DeltaStorage, expected uint64, deltas []*StateDelta) (int, error) {
+	for i, delta := range deltas {
+		if err := store.CommitDelta(ctx, expected+uint64(i), delta); err != nil {
+			return i, err
+		}
+	}
+	return len(deltas), nil
+}
+
+func (s *closeWriteBackStorage) CommitDeltas(ctx context.Context, expected uint64, deltas []*StateDelta) (int, error) {
+	return commitEach(ctx, s, expected, deltas)
+}
+
+func (s *faultWriteStorage) CommitDeltas(ctx context.Context, expected uint64, deltas []*StateDelta) (int, error) {
+	return commitEach(ctx, s, expected, deltas)
+}
+
+func (s *lifecycleStorage) CommitDeltas(ctx context.Context, expected uint64, deltas []*StateDelta) (int, error) {
+	return commitEach(ctx, s, expected, deltas)
+}
+
+func (s *blockedCommitStorage) CommitDeltas(ctx context.Context, expected uint64, deltas []*StateDelta) (int, error) {
+	return commitEach(ctx, s, expected, deltas)
+}
+
+func (f *failingStorage) CommitDeltas(ctx context.Context, expected uint64, deltas []*StateDelta) (int, error) {
+	return commitEach(ctx, f, expected, deltas)
+}
+
+func (s *cancelBookkeepingStorage) CommitDeltas(ctx context.Context, expected uint64, deltas []*StateDelta) (int, error) {
+	return commitEach(ctx, s, expected, deltas)
+}
+
+func (s *taskBlockedStorageSpy) CommitDeltas(ctx context.Context, expected uint64, deltas []*StateDelta) (int, error) {
+	return commitEach(ctx, s, expected, deltas)
+}
+
+// touchDocument and touchStorage give a test commit one write, so it reaches
+// storage: a commit without writes never does.
+var touchDocument = DocumentDefinition{Kind: "test.touch", Version: 1, Scope: "session"}
+
+var touches atomic.Int64
+
+func touchStorage(tx *Tx) error {
+	return tx.PutDocument(touchDocument, 0, json.RawMessage(fmt.Sprintf(`{"n":%d}`, touches.Add(1))))
 }
