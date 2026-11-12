@@ -184,7 +184,14 @@ func reverseEntries(entries []Entry) {
 // from the smallest start among the loaded conversations whose lineage
 // passes through it; the others leave st. Reads of what is not kept fall
 // back to storage. The caller holds the line; st is not shared yet.
-func (c *coldRecords) keepEntries(st, head *State, delta *StateDelta, now time.Time, retention time.Duration, held map[string]time.Time) error {
+// laterState is a State admitted after the one being published, with the
+// delta that made it (nil for a held commit).
+type laterState struct {
+	state *State
+	delta *StateDelta
+}
+
+func (c *coldRecords) keepEntries(st *State, later []laterState, delta *StateDelta, now time.Time, retention time.Duration, held map[string]time.Time) error {
 	changed := false
 	if delta != nil {
 		touched := map[ConversationID]bool{}
@@ -203,7 +210,7 @@ func (c *coldRecords) keepEntries(st, head *State, delta *StateDelta, now time.T
 				continue
 			}
 			if _, loaded := c.loaded[id]; !loaded {
-				if err := c.load(st, head, id); err != nil {
+				if err := c.load(st, later, id); err != nil {
 					return err
 				}
 				changed = true
@@ -234,9 +241,11 @@ func (c *coldRecords) keepEntries(st, head *State, delta *StateDelta, now time.T
 	return nil
 }
 
-// load reads a conversation's context range and documents into st (and
-// head) and notes where the range starts.
-func (c *coldRecords) load(st, head *State, id ConversationID) error {
+// load reads a conversation's context range and documents into st and
+// every later State admitted meanwhile, so each of them holds all of a
+// loaded conversation's documents (State.loaded promises it); a document a
+// later commit retired stays out of that State and those after it.
+func (c *coldRecords) load(st *State, later []laterState, id ConversationID) error {
 	entries, err := rangeEntries(st, id)
 	if err != nil {
 		return err
@@ -245,29 +254,38 @@ func (c *coldRecords) load(st, head *State, id ConversationID) error {
 	if err != nil {
 		return err
 	}
-	for _, doc := range docs {
-		key := keyOfRecord(doc)
-		if st.Documents[key] == nil {
-			st.Documents[key] = doc
+	insert := func(target *State, removed map[string]bool) {
+		for _, doc := range docs {
+			key := keyOfRecord(doc)
+			if target.Documents[key] == nil && !removed[key] {
+				target.Documents[key] = doc
+			}
 		}
-		if head != nil && head != st && head.Documents[key] == nil {
-			head.Documents[key] = doc
+		for i := range entries {
+			entry := entries[i]
+			if target.Entries[entry.ID] == nil {
+				target.Entries[entry.ID] = &entry
+			}
 		}
+	}
+	insert(st, nil)
+	removed := map[string]bool{}
+	for _, next := range later {
+		if next.state == st {
+			continue
+		}
+		if next.delta != nil {
+			for _, key := range next.delta.Removed.Documents {
+				removed[key] = true
+			}
+		}
+		insert(next.state, removed)
 	}
 	start := EntryID(0)
 	for i := len(entries) - 1; i >= 0; i-- {
 		if isHeadMarker(entries[i]) {
 			start = markerBound(entries[i])
 			break
-		}
-	}
-	for i := range entries {
-		entry := entries[i]
-		if st.Entries[entry.ID] == nil {
-			st.Entries[entry.ID] = &entry
-		}
-		if head != nil && head != st && head.Entries[entry.ID] == nil {
-			head.Entries[entry.ID] = &entry
 		}
 	}
 	c.starts[id] = start

@@ -116,7 +116,9 @@ func TestAPartialWithToolCallsIsKeptWhenItsAttemptIsCutOff(t *testing.T) {
 	deadline := time.Now().Add(5 * time.Second)
 	for {
 		live := readLiveState(t, h, root.ID())
-		if live.Generation != nil && live.Generation.Message != nil && len(live.Generation.Message.ToolCalls) == 1 {
+		// The last event's partial: its arguments are in.
+		if live.Generation != nil && live.Generation.Message != nil && len(live.Generation.Message.ToolCalls) == 1 &&
+			string(live.Generation.Message.ToolCalls[0].Arguments) == `{"path":"a"}` {
 			break
 		}
 		if time.Now().After(deadline) {

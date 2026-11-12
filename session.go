@@ -530,7 +530,7 @@ func (s *Session) writeLoop() {
 				// entry is safe meanwhile.
 				s.cold.forgetDocuments(item.delta)
 				s.cold.forgetConversations(item.delta)
-				_ = s.cold.keepEntries(item.state, s.head, item.delta, time.Now(), retention, s.held)
+				_ = s.cold.keepEntries(item.state, s.laterStates(batch, item), item.delta, time.Now(), retention, s.held)
 				s.cold.evictConversations(item.state)
 			}
 			s.state = item.state
@@ -591,6 +591,23 @@ func (s *Session) store(batch []*pendingCommit, full bool) (int, error) {
 		}
 	}
 	return len(batch), nil
+}
+
+// laterStates are the States admitted after item: the rest of its batch,
+// then the pending commits, in line order. The caller holds s.mu.
+func (s *Session) laterStates(batch []*pendingCommit, item *pendingCommit) []laterState {
+	var later []laterState
+	after := false
+	for _, other := range batch {
+		if after {
+			later = append(later, laterState{state: other.state, delta: other.delta})
+		}
+		after = after || other == item
+	}
+	for _, other := range s.pending {
+		later = append(later, laterState{state: other.state, delta: other.delta})
+	}
+	return later
 }
 
 // sweepContexts unloads the context ranges of conversations idle for the
