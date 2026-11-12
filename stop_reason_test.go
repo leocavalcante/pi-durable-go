@@ -99,3 +99,31 @@ func TestAfterResponseSeesFailedAttempts(t *testing.T) {
 		t.Fatalf("failed attempt entry=%+v", last)
 	}
 }
+
+func TestARewrittenErrorIsClassifiedAsRewritten(t *testing.T) {
+	calls := 0
+	var mu sync.Mutex
+	model := taskModelFunc(func(ctx context.Context, request ModelRequest, delta func(string) error) (ModelResponse, error) {
+		mu.Lock()
+		calls++
+		mu.Unlock()
+		return ModelResponse{}, errors.New("invalid request")
+	})
+	extension := Extension{Name: "transient", Hooks: Hooks{AfterResponse: func(_ context.Context, response *ModelResponse, _ *TaskRuntime) error {
+		if response.StopReason == "error" {
+			response.ErrorMessage = "503 Service Unavailable"
+		}
+		return nil
+	}}}
+	h, root := runHarness(t, model, Settings{Retry: RetrySettings{MaxRetries: ptr(1.0), BaseDelayMs: ptr(1.0)}}, extension)
+	if err := root.Configure(context.Background(), Agent{Model: ModelRef{Provider: "fake", ID: "m"}, Extensions: []string{"transient"}}); err != nil {
+		t.Fatal(err)
+	}
+	record := waitSettled(t, h, submit(t, root, SubmissionRequest{Content: "hi"}))
+	mu.Lock()
+	defer mu.Unlock()
+	// The rewritten message is transient: the attempt retried once.
+	if record.Reason != RunModelError || calls != 2 {
+		t.Fatalf("submission=%+v calls=%d", record, calls)
+	}
+}

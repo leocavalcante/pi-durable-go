@@ -346,8 +346,11 @@ func classifyAttempt(ctx context.Context, r *TaskRuntime, task TaskRecord, cp ge
 		if e := afterResponse(ctx, r, task, &seen); e != nil {
 			return e
 		}
-		if seen.ErrorMessage != "" {
+		if seen.ErrorMessage != "" && seen.ErrorMessage != text {
+			// A hook rewrote the error: classify what it left, as upstream
+			// classifies the message the hooks return.
 			text = diagnostic(seen.ErrorMessage)
+			err = errors.New(seen.ErrorMessage)
 		}
 		// The failed attempt is kept as an error entry, which context
 		// derivation excludes, with what it streamed.
