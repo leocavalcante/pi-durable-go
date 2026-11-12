@@ -220,9 +220,8 @@ func (h *Harness) generateEvents(ctx context.Context, req ModelRequest, onEvent 
 // sendable attaches what a request carries at send time: the identity and
 // the stream settings.
 func (h *Harness) sendable(req ModelRequest) ModelRequest {
-	if req.Identity == nil {
-		req.Identity = h.options.Identity
-	}
+	// Pi's attribution, then the host's identity, then the request's own.
+	req.Identity = MergeClientIdentity(&DefaultHarnessIdentity, h.options.Identity, req.Identity)
 	if stream := h.settings().Stream; req.Stream == nil && !stream.isZero() {
 		req.Stream = &stream
 	}

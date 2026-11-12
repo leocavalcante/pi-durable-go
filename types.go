@@ -537,6 +537,37 @@ type ClientIdentity struct {
 	// Version is the version in the detailed User-Agent.
 	Version string `json:"version,omitempty"`
 }
+
+// DefaultHarnessIdentity is what every Harness request carries under
+// HarnessOptions.Identity (upstream DEFAULT_HARNESS_IDENTITY): Pi's provider
+// attribution. An identity with a JSON null Attribution turns it off.
+var DefaultHarnessIdentity = ClientIdentity{Attribution: json.RawMessage(`{"name":"pi","url":"https://pi.dev","categories":["cli-agent"]}`)}
+
+// MergeClientIdentity merges identities field by field, as pi-ai's
+// mergeClientIdentity: later sources win, and empty fields are skipped. Nil
+// when every source is nil.
+func MergeClientIdentity(sources ...*ClientIdentity) *ClientIdentity {
+	var merged *ClientIdentity
+	for _, source := range sources {
+		if source == nil {
+			continue
+		}
+		if merged == nil {
+			merged = &ClientIdentity{}
+		}
+		if len(source.UserAgent) > 0 {
+			merged.UserAgent = append(json.RawMessage(nil), source.UserAgent...)
+		}
+		if len(source.Attribution) > 0 {
+			merged.Attribution = append(json.RawMessage(nil), source.Attribution...)
+		}
+		if source.Version != "" {
+			merged.Version = source.Version
+		}
+	}
+	return merged
+}
+
 type ModelResponse struct {
 	Content   string     `json:"content"`
 	Thinking  string     `json:"thinking,omitempty"`

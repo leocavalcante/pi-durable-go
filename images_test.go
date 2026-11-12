@@ -91,9 +91,10 @@ func TestIdentityReachesRequestsWithoutBeingStored(t *testing.T) {
 	if len(seen) != 3 {
 		t.Fatalf("%d requests", len(seen))
 	}
+	// Each request carries the host's identity over Pi's attribution.
 	for i, got := range seen {
-		if got != identity {
-			t.Fatalf("request %d identity=%v", i, got)
+		if got == nil || string(got.UserAgent) != `"short"` || string(got.Attribution) != string(DefaultHarnessIdentity.Attribution) {
+			t.Fatalf("request %d identity=%+v", i, got)
 		}
 	}
 	state, err := h.Snapshot(context.Background())
@@ -304,5 +305,22 @@ func TestModelFuncIsReadAtEachUse(t *testing.T) {
 	}
 	if answer != "second" {
 		t.Fatalf("answer=%q", answer)
+	}
+}
+
+func TestMergeClientIdentityLetsLaterSourcesWin(t *testing.T) {
+	off := &ClientIdentity{Attribution: json.RawMessage(`null`), Version: "2"}
+	merged := MergeClientIdentity(&DefaultHarnessIdentity, nil, &ClientIdentity{UserAgent: json.RawMessage(`"short"`)}, off)
+	if merged == nil || string(merged.UserAgent) != `"short"` || string(merged.Attribution) != `null` || merged.Version != "2" {
+		t.Fatalf("merged=%+v", merged)
+	}
+	if MergeClientIdentity(nil, nil) != nil {
+		t.Fatal("no sources merged to an identity")
+	}
+	// Merging never shares the sources' bytes.
+	merged = MergeClientIdentity(&DefaultHarnessIdentity)
+	merged.Attribution[0] = 'x'
+	if DefaultHarnessIdentity.Attribution[0] != '{' {
+		t.Fatal("the default identity was changed through a merge")
 	}
 }
