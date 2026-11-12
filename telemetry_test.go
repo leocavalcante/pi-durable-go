@@ -3,6 +3,9 @@ package durable
 import (
 	"context"
 	"errors"
+	"fmt"
+	"reflect"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -16,18 +19,22 @@ type recordedSpan struct {
 }
 
 type recordingTelemetry struct {
-	mu      sync.Mutex
-	spans   []*recordedSpan
-	panic   bool
-	active  map[string]float64
-	phases  int
-	metrics bool
-	reports map[string]float64
+	// violations are what the Harness emitted outside the schema
+	// (DurableTelemetrySchema); conforms fails a test on them.
+	violations []string
+	mu         sync.Mutex
+	spans      []*recordedSpan
+	panic      bool
+	active     map[string]float64
+	phases     int
+	metrics    bool
+	reports    map[string]float64
 }
 
 func (r *recordingTelemetry) Add(name string, delta float64, attributes map[string]any) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	r.checkMetric(name, "counter", attributes)
 	if name == "pi.durable.reports" {
 		if r.reports == nil {
 			r.reports = map[string]float64{}
@@ -44,6 +51,7 @@ func (r *recordingTelemetry) Add(name string, delta float64, attributes map[stri
 func (r *recordingTelemetry) Record(name string, value float64, attributes map[string]any) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	r.checkMetric(name, "histogram", attributes)
 	if name == "pi.durable.phase.duration" && value >= 0 && attributes["outcome"] != nil {
 		r.phases++
 	}
@@ -55,6 +63,11 @@ func (r *recordingTelemetry) StartSpan(ctx context.Context, name string, attribu
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if schema, ok := telemetrySchema.Spans[name]; !ok {
+		r.violations = append(r.violations, fmt.Sprintf("undeclared span %q", name))
+	} else {
+		r.violations = append(r.violations, schemaViolations(name+" start", schema.StartAttributes, attributes, true)...)
+	}
 	span := &recordedSpan{name: name, attributes: map[string]any{}}
 	for k, v := range attributes {
 		span.attributes[k] = v
@@ -71,6 +84,7 @@ type recordingSpan struct {
 func (s *recordingSpan) SetAttributes(attributes map[string]any) {
 	s.owner.mu.Lock()
 	defer s.owner.mu.Unlock()
+	s.owner.violations = append(s.owner.violations, schemaViolations(s.span.name+" end", telemetrySchema.Spans[s.span.name].EndAttributes, attributes, false)...)
 	for k, v := range attributes {
 		s.span.attributes[k] = v
 	}
@@ -78,6 +92,11 @@ func (s *recordingSpan) SetAttributes(attributes map[string]any) {
 func (s *recordingSpan) AddEvent(name string, attributes map[string]any) {
 	s.owner.mu.Lock()
 	defer s.owner.mu.Unlock()
+	if event, ok := telemetrySchema.Spans[s.span.name].Events[name]; !ok {
+		s.owner.violations = append(s.owner.violations, fmt.Sprintf("undeclared event %q on %s", name, s.span.name))
+	} else {
+		s.owner.violations = append(s.owner.violations, schemaViolations(s.span.name+" event "+name, event.Attributes, attributes, true)...)
+	}
 	switch name {
 	case "pi.durable.entry":
 		s.span.events = append(s.span.events, name+":"+attributes["entry.kind"].(string))
@@ -95,8 +114,82 @@ func (s *recordingSpan) End(error) {
 	s.span.ended = true
 }
 
+var telemetrySchema = DurableTelemetrySchema()
+
+// checkMetric records what a metric emission does outside the schema; the
+// caller holds r.mu.
+func (r *recordingTelemetry) checkMetric(name, call string, attributes map[string]any) {
+	metric, ok := telemetrySchema.Metrics[name]
+	switch {
+	case !ok:
+		r.violations = append(r.violations, fmt.Sprintf("undeclared metric %q", name))
+		return
+	case call == "histogram" && metric.Kind != "histogram", call == "counter" && metric.Kind == "histogram":
+		r.violations = append(r.violations, fmt.Sprintf("metric %q of kind %s recorded as a %s", name, metric.Kind, call))
+	}
+	r.violations = append(r.violations, schemaViolations("metric "+name, metric.Attributes, attributes, true)...)
+}
+
+// schemaViolations lists the attributes outside declared: undeclared names,
+// wrong types, values outside the declared ones, and, when complete, missing
+// required ones.
+func schemaViolations(where string, declared map[string]TelemetryAttribute, attributes map[string]any, complete bool) []string {
+	var out []string
+	for name, value := range attributes {
+		attribute, ok := declared[name]
+		if !ok {
+			out = append(out, fmt.Sprintf("%s: undeclared attribute %q", where, name))
+			continue
+		}
+		if !schemaType(attribute.Type, value) {
+			out = append(out, fmt.Sprintf("%s: %q is %T, not a %s", where, name, value, attribute.Type))
+		}
+		if len(attribute.Values) > 0 {
+			if text, _ := value.(string); !slices.Contains(attribute.Values, text) {
+				out = append(out, fmt.Sprintf("%s: %q is %v, not one of %v", where, name, value, attribute.Values))
+			}
+		}
+	}
+	if complete {
+		for name, attribute := range declared {
+			if _, ok := attributes[name]; attribute.Required && !ok {
+				out = append(out, fmt.Sprintf("%s: required attribute %q is missing", where, name))
+			}
+		}
+	}
+	return out
+}
+
+func schemaType(kind string, value any) bool {
+	switch kind {
+	case "string":
+		_, ok := value.(string)
+		return ok
+	case "boolean":
+		_, ok := value.(bool)
+		return ok
+	case "number":
+		switch reflect.ValueOf(value).Kind() {
+		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64, reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Float32, reflect.Float64:
+			return true
+		}
+	}
+	return false
+}
+
+// conforms fails the test on emissions outside the schema.
+func (r *recordingTelemetry) conforms(t *testing.T) {
+	t.Helper()
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, violation := range r.violations {
+		t.Errorf("telemetry outside the schema: %s", violation)
+	}
+}
+
 func TestTelemetrySpansForSubmissionsAndPhases(t *testing.T) {
 	telemetry := &recordingTelemetry{}
+	defer telemetry.conforms(t)
 	h := taskTestHarness(t, HarnessOptions{Model: echoModel{}, Telemetry: telemetry})
 	root := testRoot(t, h)
 	waitSettled(t, h, submit(t, root, SubmissionRequest{Content: "hi"}))
@@ -179,6 +272,7 @@ func TestTelemetryAdapterPanicsAreHostErrors(t *testing.T) {
 
 func TestTelemetryReportEventsOnThePhaseSpan(t *testing.T) {
 	telemetry := &recordingTelemetry{}
+	defer telemetry.conforms(t)
 	definition := TaskDefinition{Kind: "app.reporting", Version: 1, Run: func(ctx context.Context, r *TaskRuntime, _ TaskRecord) error {
 		r.Report(errors.New("noted"))
 		return r.Commit(ctx, func(*Tx) (TaskTransition, error) {
@@ -205,6 +299,7 @@ func TestTelemetryReportEventsOnThePhaseSpan(t *testing.T) {
 
 func TestTelemetryCountsReports(t *testing.T) {
 	telemetry := &recordingTelemetry{}
+	defer telemetry.conforms(t)
 	definition := TaskDefinition{Kind: "app.counted", Version: 1, Run: func(ctx context.Context, r *TaskRuntime, _ TaskRecord) error {
 		r.Report(errors.New("noted"))
 		return r.Commit(ctx, func(*Tx) (TaskTransition, error) {
@@ -272,6 +367,7 @@ func (s endSpan) End(err error)                 { s.ended <- err }
 
 func TestTelemetryToolPhasesNameTheirCall(t *testing.T) {
 	telemetry := &recordingTelemetry{}
+	defer telemetry.conforms(t)
 	gate := newGatedTool()
 	registry := NewRegistry()
 	if err := registry.Install(gate.extension()); err != nil {
