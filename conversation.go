@@ -295,6 +295,34 @@ func (tx *Tx) Fork(parentID ConversationID, at EntryID, opts ConversationOptions
 				}
 			}
 		}
+		// Documents alive at the fork entry and retired since: their history
+		// has them, and an asOf fork copies them as they were (upstream
+		// forks the incarnations alive at the point).
+		current := map[string]bool{}
+		for _, doc := range docs {
+			current[keyOfRecord(doc)] = true
+		}
+		prefix := documentScopePrefix("conversation", uint64(parentID))
+		history, err := revisionsIn(tx.state, prefix, found.Sequence)
+		if err != nil {
+			return err
+		}
+		keys := make([]string, 0, len(history))
+		for key := range history {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		for _, key := range keys {
+			rev := history[key]
+			if current[key] || rev.Retired || rev.Fork != "asOf" {
+				continue
+			}
+			kind, member, _ := strings.Cut(key[len(prefix):], "/")
+			def := DocumentDefinition{Kind: kind, Version: rev.Version, Scope: "conversation", History: "rewindable", Fork: "asOf", Family: member != ""}
+			if err := tx.putDocument(def, uint64(id), member, rev.Value); err != nil {
+				return err
+			}
+		}
 		if creationHook != nil {
 			if err := creationHook(tx, id); err != nil {
 				return err

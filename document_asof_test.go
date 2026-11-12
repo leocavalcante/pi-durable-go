@@ -148,3 +148,39 @@ func TestVersionThreeRevisionsMoveOut(t *testing.T) {
 		t.Fatalf("revisions=%d in record=%d", len(state.Revisions), len(state.Documents["conversation:1:test.old"].Revisions))
 	}
 }
+
+func TestAsOfForksCopyDocumentsRetiredSince(t *testing.T) {
+	ctx := context.Background()
+	h := testHarness(t)
+	notes := DocumentDefinition{Kind: "test.fork-notes", Version: 1, Scope: "conversation", History: "rewindable", Fork: "asOf"}
+	root, err := h.Root(ctx, ConversationOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cid := uint64(root.ID())
+	var at EntryID
+	if err := h.Commit(ctx, func(tx *Tx) error {
+		if err := tx.PutDocument(notes, cid, json.RawMessage(`{"n":1}`)); err != nil {
+			return err
+		}
+		var err error
+		at, err = tx.Append(root.ID(), Entry{Kind: "app.mark"})
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.Commit(ctx, func(tx *Tx) error { return tx.RetireDocument(notes, cid) }); err != nil {
+		t.Fatal(err)
+	}
+	child, err := root.Fork(ctx, at, ConversationOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	type doc struct{ N int }
+	if got, err := ReadDocument[doc](ctx, h, notes, uint64(child.ID())); err != nil || got.N != 1 {
+		t.Fatalf("a document retired after the fork point=%+v error=%v", got, err)
+	}
+	if _, err := ReadDocument[doc](ctx, h, notes, cid); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("the parent's document came back: %v", err)
+	}
+}

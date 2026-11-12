@@ -227,4 +227,13 @@ func (m *MemoryStorage) DocumentRevision(ctx context.Context, docKey string, atO
 	return r.DocumentRevision(docKey, atOrBefore), nil
 }
 
+func (m *MemoryStorage) DocumentRevisions(ctx context.Context, prefix string, atOrBefore uint64) (map[string]*DocumentRevision, error) {
+	r, unlock, err := m.records(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer unlock()
+	return r.DocumentRevisions(prefix, atOrBefore), nil
+}
+
 var _ RecordStorage = (*MemoryStorage)(nil)

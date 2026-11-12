@@ -111,6 +111,9 @@ func (s *crashRecordStorage) ScanDocuments(ctx context.Context, query DocumentQu
 func (s *crashRecordStorage) DocumentRevision(ctx context.Context, docKey string, atOrBefore uint64) (*DocumentRevision, error) {
 	return s.records.DocumentRevision(ctx, docKey, atOrBefore)
 }
+func (s *crashRecordStorage) DocumentRevisions(ctx context.Context, prefix string, atOrBefore uint64) (map[string]*DocumentRevision, error) {
+	return s.records.DocumentRevisions(ctx, prefix, atOrBefore)
+}
 
 // crashHosts opens successive Harnesses over one backend, each of which can crash.
 type crashHosts struct {

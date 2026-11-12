@@ -246,7 +246,7 @@ func (tx *Tx) retired(key string, doc *DocumentRecord) {
 	if tx.state.Revisions == nil {
 		tx.state.Revisions = map[string]*DocumentRevision{}
 	}
-	tx.state.Revisions[revisionKey(key, sequence)] = &DocumentRevision{Version: doc.Version, Sequence: sequence, Retired: true}
+	tx.state.Revisions[revisionKey(key, sequence)] = &DocumentRevision{Version: doc.Version, Sequence: sequence, Retired: true, Fork: doc.Fork}
 }
 
 func (tx *Tx) putDocument(def DocumentDefinition, id uint64, member string, value json.RawMessage) error {
@@ -302,7 +302,7 @@ func (tx *Tx) putDocument(def DocumentDefinition, id uint64, member string, valu
 		if tx.state.Revisions == nil {
 			tx.state.Revisions = map[string]*DocumentRevision{}
 		}
-		tx.state.Revisions[revisionKey(key, sequence)] = &DocumentRevision{Version: def.Version, Sequence: sequence, Value: append(json.RawMessage(nil), value...)}
+		tx.state.Revisions[revisionKey(key, sequence)] = &DocumentRevision{Version: def.Version, Sequence: sequence, Value: append(json.RawMessage(nil), value...), Fork: doc.Fork}
 	}
 	return nil
 }

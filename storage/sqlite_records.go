@@ -536,4 +536,40 @@ func (s *sqliteStorage) DocumentRevision(ctx context.Context, docKey string, atO
 	return out, err
 }
 
+// DocumentRevisions reads the revisions under a key prefix in key order,
+// keeping each document's newest at or before the sequence.
+func (s *sqliteStorage) DocumentRevisions(ctx context.Context, prefix string, atOrBefore uint64) (map[string]*durable.DocumentRevision, error) {
+	out := map[string]*durable.DocumentRevision{}
+	err := s.read(ctx, func(q querier) error {
+		rows, err := q.QueryContext(ctx, "SELECT key, value FROM durable_records WHERE kind='revision' AND key >= ? AND key < ? ORDER BY key", prefix, prefix+"\xff")
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var key string
+			var value []byte
+			if err := rows.Scan(&key, &value); err != nil {
+				return err
+			}
+			at := strings.LastIndex(key, "@")
+			if at < 0 {
+				continue
+			}
+			revision, err := decodeRecord[durable.DocumentRevision](value)
+			if err != nil {
+				return err
+			}
+			if revision.Sequence > atOrBefore {
+				continue
+			}
+			if best := out[key[:at]]; best == nil || revision.Sequence > best.Sequence {
+				out[key[:at]] = revision
+			}
+		}
+		return rows.Err()
+	}, func(r durable.StateRecords) error { out = r.DocumentRevisions(prefix, atOrBefore); return nil })
+	return out, err
+}
+
 var _ durable.RecordStorage = (*sqliteStorage)(nil)

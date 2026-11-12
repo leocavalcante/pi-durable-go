@@ -62,3 +62,54 @@ func (r StateRecords) DocumentRevision(docKey string, sequence uint64) *Document
 	}
 	return nil
 }
+
+// latestRevisions finds, in a revision table, the newest revision at or
+// before a sequence of every document whose key starts with prefix.
+func latestRevisions(revisions map[string]*DocumentRevision, prefix string, sequence uint64) map[string]*DocumentRevision {
+	out := map[string]*DocumentRevision{}
+	for key, revision := range revisions {
+		at := strings.LastIndex(key, "@")
+		if at < 0 || !strings.HasPrefix(key, prefix) || revision.Sequence > sequence {
+			continue
+		}
+		doc := key[:at]
+		if best := out[doc]; best == nil || revision.Sequence > best.Sequence {
+			out[doc] = revision
+		}
+	}
+	return out
+}
+
+// DocumentRevisions are the newest revisions at or before a sequence of the
+// documents under a key prefix, detached.
+func (r StateRecords) DocumentRevisions(prefix string, sequence uint64) map[string]*DocumentRevision {
+	if r.State == nil {
+		return map[string]*DocumentRevision{}
+	}
+	out := latestRevisions(r.State.Revisions, prefix, sequence)
+	for key, revision := range out {
+		out[key] = cloneRecord(revision)
+	}
+	return out
+}
+
+// revisionsIn are the newest revisions at or before a sequence of the
+// documents under a key prefix: the State's own over storage's.
+func revisionsIn(st *State, prefix string, sequence uint64) (map[string]*DocumentRevision, error) {
+	out := map[string]*DocumentRevision{}
+	if st.cold != nil {
+		stored, err := st.cold.storage.DocumentRevisions(context.Background(), prefix, sequence)
+		if err != nil {
+			err = fmt.Errorf("durable: reading revisions under %s: %w", prefix, err)
+			st.cold.fail(err)
+			return nil, err
+		}
+		out = stored
+	}
+	for key, revision := range latestRevisions(st.Revisions, prefix, sequence) {
+		if best := out[key]; best == nil || revision.Sequence > best.Sequence {
+			out[key] = revision
+		}
+	}
+	return out, nil
+}

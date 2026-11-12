@@ -139,4 +139,13 @@ func (s *jsonlStorage) DocumentRevision(ctx context.Context, docKey string, atOr
 	return r.DocumentRevision(docKey, atOrBefore), nil
 }
 
+func (s *jsonlStorage) DocumentRevisions(ctx context.Context, prefix string, atOrBefore uint64) (map[string]*durable.DocumentRevision, error) {
+	r, unlock, err := s.records(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer unlock()
+	return r.DocumentRevisions(prefix, atOrBefore), nil
+}
+
 var _ durable.RecordStorage = (*jsonlStorage)(nil)

@@ -55,6 +55,14 @@ func recordState() *durable.State {
 			"conversation:13:app.c":    doc("conversation", 13, "app.c", ""),
 			"task:40:app.t":            doc("task", 40, "app.t", ""),
 		},
+		Revisions: map[string]*durable.DocumentRevision{
+			durable.RevisionKey("conversation:1:app.c", 2):     {Version: 1, Sequence: 2, Value: json.RawMessage(`{"r":2}`), Fork: "asOf"},
+			durable.RevisionKey("conversation:1:app.c", 7):     {Version: 1, Sequence: 7, Value: json.RawMessage(`{"r":7}`), Fork: "asOf"},
+			durable.RevisionKey("conversation:1:app.gone", 3):  {Version: 1, Sequence: 3, Value: json.RawMessage(`{"r":3}`), Fork: "asOf"},
+			durable.RevisionKey("conversation:1:app.gone", 5):  {Version: 1, Sequence: 5, Retired: true, Fork: "asOf"},
+			durable.RevisionKey("conversation:13:app.c", 4):    {Version: 1, Sequence: 4, Value: json.RawMessage(`{"r":4}`)},
+			durable.RevisionKey("conversation:1:app.fam/x", 6): {Version: 1, Sequence: 6, Value: json.RawMessage(`{"x":6}`)},
+		},
 	}
 }
 
@@ -216,6 +224,20 @@ func TestRecordStoragesReadAlike(t *testing.T) {
 			for _, key := range []string{"session:0:app.s", "conversation:1:app.fam/x", "task:40:app.t", "conversation:2:none"} {
 				if got, err := records.Document(ctx, key); err != nil || asJSON(t, got) != asJSON(t, reference.Document(key)) {
 					t.Fatalf("document %s=%s error=%v", key, asJSON(t, got), err)
+				}
+			}
+			for _, at := range []uint64{1, 3, 5, 9} {
+				for _, key := range []string{"conversation:1:app.c", "conversation:1:app.gone", "conversation:13:app.c", "conversation:1:app.fam/x"} {
+					got, err := records.DocumentRevision(ctx, key, at)
+					if err != nil || asJSON(t, got) != asJSON(t, reference.DocumentRevision(key, at)) {
+						t.Fatalf("revision of %s at %d=%s error=%v", key, at, asJSON(t, got), err)
+					}
+				}
+				for _, prefix := range []string{"conversation:1:", "conversation:13:", "task:40:"} {
+					got, err := records.DocumentRevisions(ctx, prefix, at)
+					if err != nil || asJSON(t, got) != asJSON(t, reference.DocumentRevisions(prefix, at)) {
+						t.Fatalf("revisions under %s at %d=%s error=%v", prefix, at, asJSON(t, got), err)
+					}
 				}
 			}
 			for _, query := range []durable.DocumentQuery{{Scope: "session"}, {Scope: "conversation", ScopeID: 1}, {Scope: "conversation", ScopeID: 1, Kind: "app.fam"}, {Scope: "conversation", ScopeID: 13}, {Scope: "task", ScopeID: 40}, {Scope: "task", ScopeID: 42}} {

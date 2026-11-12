@@ -388,6 +388,9 @@ type DocumentRevision struct {
 	Sequence uint64          `json:"sequence"`
 	Value    json.RawMessage `json:"value"`
 	Retired  bool            `json:"retired,omitempty"`
+	// Fork is the document's fork policy, so a fork as of an earlier entry
+	// can copy a document retired since.
+	Fork string `json:"fork,omitempty"`
 }
 type DocumentRecord struct {
 	Kind    string          `json:"kind"`

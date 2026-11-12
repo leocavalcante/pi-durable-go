@@ -31,6 +31,9 @@ type RecordStorage interface {
 	// DocumentRevision is a rewindable document's newest revision at or
 	// before a sequence (State.Revisions), nil when it had none then.
 	DocumentRevision(ctx context.Context, docKey string, atOrBefore uint64) (*DocumentRevision, error)
+	// DocumentRevisions are the newest revisions at or before a sequence of
+	// every document whose key starts with prefix, by document key.
+	DocumentRevisions(ctx context.Context, prefix string, atOrBefore uint64) (map[string]*DocumentRevision, error)
 }
 
 // SubmissionQuery filters a scan of submissions (upstream SubmissionQuery);
