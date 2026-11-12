@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"reflect"
 	"strings"
 	"sync"
@@ -271,5 +272,19 @@ func TestAThrowingToolKeepsItsOutput(t *testing.T) {
 		if task.Kind == "pi.tool" && (task.Outcome == nil || task.Outcome.Status != OutcomeFailed || task.Outcome.Error != "Tool flaky threw") {
 			t.Fatalf("tool task outcome=%+v", task.Outcome)
 		}
+	}
+}
+
+func TestToolValidatorsAreBounded(t *testing.T) {
+	for i := 0; i < maxToolValidators+10; i++ {
+		schema := json.RawMessage(fmt.Sprintf(`{"type":"object","description":"tool %d"}`, i))
+		if _, err := validateToolArguments(ToolSpec{Name: "t", Parameters: schema}, json.RawMessage(`{}`)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	toolValidators.Lock()
+	defer toolValidators.Unlock()
+	if len(toolValidators.byKey) > maxToolValidators || len(toolValidators.order) != len(toolValidators.byKey) {
+		t.Fatalf("%d validators cached, %d in order", len(toolValidators.byKey), len(toolValidators.order))
 	}
 }

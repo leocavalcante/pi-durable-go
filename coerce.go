@@ -44,15 +44,25 @@ type toolValidator struct {
 const toolSchemaLocation = "urn:pi-durable-go:tool"
 
 // toolValidators caches validators by schema, as pi-ai caches compiled
-// validators per schema object.
-var toolValidators sync.Map
+// validators per schema object (a WeakMap that lets them go with their
+// tools): at most maxToolValidators, the oldest leaving first.
+var toolValidators = struct {
+	sync.Mutex
+	byKey map[string]*toolValidator
+	order []string
+}{byKey: map[string]*toolValidator{}}
+
+const maxToolValidators = 1024
 
 func toolValidatorFor(schema json.RawMessage) (*toolValidator, error) {
 	if len(schema) == 0 {
 		schema = json.RawMessage(`{"type":"object"}`)
 	}
-	if cached, ok := toolValidators.Load(string(schema)); ok {
-		return cached.(*toolValidator), nil
+	toolValidators.Lock()
+	cached := toolValidators.byKey[string(schema)]
+	toolValidators.Unlock()
+	if cached != nil {
+		return cached, nil
 	}
 	document, err := jsonschema.UnmarshalJSON(bytes.NewReader(schema))
 	if err != nil {
@@ -72,8 +82,18 @@ func toolValidatorFor(schema json.RawMessage) (*toolValidator, error) {
 		return nil, fmt.Errorf("invalid tool schema: %w", err)
 	}
 	v := &toolValidator{root: document, schema: compiled, compiler: compiler, checks: map[string]*jsonschema.Schema{"": compiled}}
-	actual, _ := toolValidators.LoadOrStore(string(schema), v)
-	return actual.(*toolValidator), nil
+	toolValidators.Lock()
+	defer toolValidators.Unlock()
+	if existing := toolValidators.byKey[string(schema)]; existing != nil {
+		return existing, nil
+	}
+	if len(toolValidators.order) >= maxToolValidators {
+		delete(toolValidators.byKey, toolValidators.order[0])
+		toolValidators.order = toolValidators.order[1:]
+	}
+	toolValidators.byKey[string(schema)] = v
+	toolValidators.order = append(toolValidators.order, string(schema))
+	return v, nil
 }
 
 // rejectUnresolvedRefs replaces each $ref that is not a JSON pointer into
