@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 // Expectations below are what pi-schema 1.5.2's parse() and pi-ai's
@@ -179,4 +180,50 @@ func lastToolResult(t *testing.T, h *Harness, cid ConversationID) Message {
 		t.Fatal("no tool result")
 	}
 	return *newest.Message
+}
+
+func TestModelCallsWithBrokenStructuredOutputStand(t *testing.T) {
+	reports := make(chan Report, 8)
+	for _, c := range []struct {
+		schema json.RawMessage
+		output json.RawMessage
+		want   string
+	}{
+		{json.RawMessage(`{"type":"object","properties":{"n":{"type":"number"}},"required":["n"]}`), json.RawMessage(`{"n":"seven"}`), "Tool typed returned structuredOutput that does not match its schema: n: expected number, got string"},
+		{json.RawMessage(`{"type":"object"}`), nil, "Tool typed returned no structuredOutput"},
+		{nil, json.RawMessage(`{"n":1}`), "Tool typed returned structuredOutput but declares no structuredOutputSchema"},
+	} {
+		tool := ToolDefinition{ToolSpec: ToolSpec{Name: "typed", Parameters: json.RawMessage(`{"type":"object"}`)}, StructuredOutputSchema: c.schema,
+			Execute: func(context.Context, json.RawMessage, *ToolRuntime) (ToolResult, error) {
+				return ToolResult{Content: "typed", StructuredOutput: c.output}, nil
+			}}
+		model := taskModelFunc(func(ctx context.Context, request ModelRequest, _ func(string) error) (ModelResponse, error) {
+			if !hasToolResult(request) {
+				return ModelResponse{ToolCalls: []ToolCall{{ID: "call-1", Name: "typed", Arguments: json.RawMessage(`{}`)}}}, nil
+			}
+			return ModelResponse{Content: "done"}, nil
+		})
+		registry := NewRegistry()
+		if err := registry.Install(Extension{Name: "typed-tools", Tools: []ToolDefinition{tool}}); err != nil {
+			t.Fatal(err)
+		}
+		h := taskTestHarness(t, HarnessOptions{Model: model, Registry: registry, OnReport: func(report Report) { reports <- report }})
+		root := testRoot(t, h)
+		if err := root.Configure(context.Background(), Agent{Model: ModelRef{Provider: "fake", ID: "m"}}); err != nil {
+			t.Fatal(err)
+		}
+		waitSettled(t, h, submit(t, root, SubmissionRequest{Content: "go"}))
+		// The model never sees structured output: its call stands.
+		if result := lastToolResult(t, h, root.ID()); result.IsError || result.Content != "typed" {
+			t.Fatalf("%s: result=%+v", c.want, result)
+		}
+		select {
+		case report := <-reports:
+			if report.Kind != ReportExtensionError || report.Extension != "typed-tools" || report.Err == nil || report.Err.Error() != c.want {
+				t.Fatalf("report=%+v error=%v, want %q", report, report.Err, c.want)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatalf("%s: no report", c.want)
+		}
+	}
 }

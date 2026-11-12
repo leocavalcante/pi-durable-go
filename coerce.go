@@ -1492,3 +1492,26 @@ func prepareArguments(def *ToolDefinition, args json.RawMessage) (json.RawMessag
 	}
 	return prepared, nil
 }
+
+// firstSchemaFailure checks a value against a schema without coercion and
+// words its first failure as pi-schema does; ok when it passes.
+func firstSchemaFailure(schema, raw json.RawMessage) (path, message string, ok bool) {
+	v, err := toolValidatorFor(schema)
+	if err != nil {
+		return "root", err.Error(), false
+	}
+	value, err := jsonschema.UnmarshalJSON(bytes.NewReader(raw))
+	if err != nil {
+		return "root", "invalid", false
+	}
+	failure := v.schema.Validate(value)
+	if failure == nil {
+		return "", "", true
+	}
+	if validation, isValidation := failure.(*jsonschema.ValidationError); isValidation {
+		if issues := v.explain(validation, value); len(issues) > 0 {
+			return validationPath(issues[0].pointer), issues[0].message, false
+		}
+	}
+	return "root", "invalid", false
+}

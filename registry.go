@@ -515,6 +515,23 @@ func callableBy(tool ToolDefinition, caller string) bool {
 	return false
 }
 
+// toolExtension is the selected extension that provides a tool to agent:
+// the last one installing it, as later definitions replace earlier ones.
+func (s *RegistrySnapshot) toolExtension(agent Agent, name string) string {
+	if s == nil {
+		return ""
+	}
+	provider := ""
+	for _, ext := range selectedExtensions(s.extensions, s.selection(agent)) {
+		for _, tool := range ext.Tools {
+			if tool.Name == name {
+				provider = ext.Name
+			}
+		}
+	}
+	return provider
+}
+
 // toolByName finds an installed tool by name in any extension the snapshot
 // holds, for reading its contract after it ran.
 func (s *RegistrySnapshot) toolByName(_ TaskRecord, name string) (*ToolDefinition, bool) {

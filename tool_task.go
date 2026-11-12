@@ -3,6 +3,7 @@ package durable
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -341,42 +342,61 @@ func runTool(ctx context.Context, r *TaskRuntime, task TaskRecord) error {
 	}
 	// Diagnostics the tool reported while it ran come before its result's own.
 	result.Diagnostics = append(runtime.takeDiagnostics(), result.Diagnostics...)
-	result = call.checkStructuredOutput(result)
 	result.DurationMs = &durationMs
 	result = call.afterTool(ctx, result)
+	// The contract holds for what the afterTool chain leaves (upstream).
+	result = call.checkStructuredOutput(ctx, result)
 	result.DurationMs = &durationMs
 	return finishTool(ctx, r, task, result, status)
 }
 
-// checkStructuredOutput keeps a tool's structured output only where its
-// schema allows it: required on a success of a tool with a schema, which it
-// must satisfy, and not allowed without one. A broken contract is an error
-// result and is reported as the extension's error.
-func (call *toolCall) checkStructuredOutput(result ToolResult) ToolResult {
+// checkStructuredOutput holds a result to its tool's structured output
+// contract (upstream): a nested call that breaks it is an error result with an
+// invalid_structured_output diagnostic; a model call stands without its
+// structured output, which the model never sees, and the tool's extension is
+// reported.
+func (call *toolCall) checkStructuredOutput(ctx context.Context, result ToolResult) ToolResult {
 	if call.def == nil {
 		return result
 	}
-	schema := call.def.StructuredOutputSchema
-	if len(schema) == 0 {
-		result.StructuredOutput = nil
+	broken := structuredOutputError(call.def, result)
+	if broken == "" {
 		return result
 	}
-	if result.IsError && len(result.StructuredOutput) == 0 {
+	result.StructuredOutput = nil
+	if call.runtime.nested {
+		result.IsError = true
+		result.Diagnostics = append(result.Diagnostics, ToolDiagnostic{Severity: "error", Code: "invalid_structured_output", Message: broken})
 		return result
 	}
-	var problem error
-	if len(result.StructuredOutput) == 0 {
-		problem = fmt.Errorf("tool %s returned no structured output", call.def.Name)
-	} else if err := validateAgainst(schema, result.StructuredOutput); err != nil {
-		problem = fmt.Errorf("tool %s structured output is invalid: %w", call.def.Name, err)
+	extension := ""
+	if agent, err := call.runtime.Agent(ctx); err == nil {
+		extension = call.runtime.Registry().toolExtension(agent.Agent, call.def.Name)
 	}
-	if problem == nil {
-		return result
-	}
-	call.runtime.reportExtension(problem, "")
-	result.IsError, result.StructuredOutput = true, nil
-	result.Diagnostics = append(result.Diagnostics, ToolDiagnostic{Severity: "error", Code: "invalid_structured_output", Message: problem.Error()})
+	call.runtime.reportExtension(errors.New(broken), extension)
 	return result
+}
+
+// structuredOutputError is why a result's structured output breaks its
+// tool's contract, or "" when it keeps it (upstream structuredOutputError).
+func structuredOutputError(def *ToolDefinition, result ToolResult) string {
+	if len(def.StructuredOutputSchema) == 0 {
+		if len(result.StructuredOutput) == 0 {
+			return ""
+		}
+		return fmt.Sprintf("Tool %s returned structuredOutput but declares no structuredOutputSchema", def.Name)
+	}
+	if len(result.StructuredOutput) == 0 {
+		if result.IsError {
+			return ""
+		}
+		return fmt.Sprintf("Tool %s returned no structuredOutput", def.Name)
+	}
+	path, message, ok := firstSchemaFailure(def.StructuredOutputSchema, result.StructuredOutput)
+	if ok {
+		return ""
+	}
+	return fmt.Sprintf("Tool %s returned structuredOutput that does not match its schema: %s: %s", def.Name, path, message)
 }
 
 func finishTool(ctx context.Context, r *TaskRuntime, task TaskRecord, result ToolResult, status string) error {
