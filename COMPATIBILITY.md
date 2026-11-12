@@ -98,7 +98,7 @@ Tool arguments are repaired, coerced, and checked as upstream's are. `ToolDefini
 - Coercion follows only local `#/...` references.
 - Format checks come from the Go JSON Schema library.
 
-The coding tools' parameter schemas are upstream's, checked against 1.5.2. So `read` takes numbers for `offset` and `limit`, unknown fields are ignored, and an empty `bash` command runs. `bash` and `powershell` keep their output's tail, as their output limits say. `read` truncates fractional numbers as `Array.prototype.slice` does; a negative `limit` selects nothing, where upstream's slice counts it from the end.
+The coding tools' parameter schemas are upstream's, checked against 1.5.2. So `read` takes numbers for `offset` and `limit`, unknown fields are ignored, and an empty `bash` command runs. `bash` and `powershell` keep their output's tail, as their output limits say. `read` selects lines from fractional numbers as `Array.prototype.slice` does, but its continuation note counts whole lines where upstream prints the fractions. A `limit` ending before the start selects nothing, where upstream's slice counts a negative end from the file's end.
 
 A tool that throws keeps the output it streamed as its result's content. Its error becomes a `tool_error` diagnostic, and the tool task fails with "Tool X threw". A result without content shows the call's retained output, including to the `afterTool` chain, with upstream's truncation note while the chain keeps that output. Nested call keys follow upstream's rule: not `__proto__`, and never a positive integer, which default keys use. Nested calls the scheduler faulted or orphaned answer with upstream's messages.
 

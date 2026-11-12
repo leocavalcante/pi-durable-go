@@ -191,25 +191,27 @@ func readTool(ctx context.Context, raw json.RawMessage, rt *durable.ToolRuntime,
 }
 
 // readRange is the selection upstream's read takes from its numbers: a
-// falsy offset starts at the first line, another at max(0, offset - 1); the
-// lines are taken like Array.prototype.slice, which truncates fractions. A
-// limit of 0 or less selects nothing (a negative one, which slice counts
-// from the end, too).
+// falsy offset starts at the first line, another at max(0, offset - 1), and
+// the end is that start plus the limit; the lines are taken like
+// Array.prototype.slice, which truncates both. A limit that ends at or before
+// the start selects nothing (a negative end, which slice counts from the
+// end, too).
 func readRange(a readArgs) (int, string, *int) {
 	const most = math.MaxInt32
-	startLine, offset := 0, "undefined"
+	start, offset := 0.0, "undefined"
 	if a.Offset != nil {
 		offset = strconv.FormatFloat(*a.Offset, 'f', -1, 64)
-		if *a.Offset > 1 {
-			startLine = int(math.Min(math.Trunc(*a.Offset-1), most))
+		if *a.Offset != 0 {
+			start = math.Max(0, *a.Offset-1)
 		}
 	}
+	startLine := int(math.Min(math.Trunc(start), most))
 	if a.Limit == nil {
 		return startLine, offset, nil
 	}
-	n := 0
-	if *a.Limit > 0 {
-		n = int(math.Min(math.Trunc(*a.Limit), most))
+	n := int(math.Min(math.Trunc(start+*a.Limit), most)) - startLine
+	if n < 0 {
+		n = 0
 	}
 	return startLine, offset, &n
 }
