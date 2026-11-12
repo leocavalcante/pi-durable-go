@@ -1,7 +1,8 @@
 # pi-durable-go
 
-Experimental Go port of Pi Durable v1.1.0, pinned upstream commit
-`abe508e1b89912adde45528136c3221eb69acdd7`.
+Experimental Go port of Pi Durable. The port was based on v1.1.0 (upstream
+commit `abe508e1b89912adde45528136c3221eb69acdd7`); its compatibility target is
+v1.5.2 (commit `b4afdddf44e059c67ccf5097e5317d913521b470`).
 
 - Use Go 1.24+ and idiomatic context.Context cancellation.
 - Preserve MIT licensing and upstream copyright notices.
