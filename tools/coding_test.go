@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -403,5 +404,20 @@ func TestReadTakesNumbersAsUpstreamDoes(t *testing.T) {
 		if start != c.start || offset != c.offset || (limit != nil) != c.limited || limit != nil && *limit != c.limit {
 			t.Fatalf("%s: start=%d offset=%s limit=%v", c.args, start, offset, limit)
 		}
+	}
+}
+
+// Diagnostics come in upstream's order: what the call reported while it ran
+// (the spill), the result's own (the exit code), then the truncation note.
+func TestShellDiagnosticsKeepUpstreamOrder(t *testing.T) {
+	if _, err := exec.LookPath("bash"); err != nil {
+		t.Skip("no bash")
+	}
+	result, _ := runCoding(t, t.TempDir(), "bash", `{"command":"seq 1 3000; exit 3"}`)
+	full := strings.Index(result.Content, "Full output: ")
+	exit := strings.Index(result.Content, "Command exited with code 3")
+	truncated := strings.Index(result.Content, "Output truncated to its end")
+	if !result.IsError || full < 0 || exit < full || truncated < exit {
+		t.Fatalf("result=%q", result.Content[max(0, len(result.Content)-600):])
 	}
 }

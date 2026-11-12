@@ -351,9 +351,10 @@ func shellTool(ctx context.Context, raw json.RawMessage, rt *durable.ToolRuntime
 		spill.write(text)
 		return rt.Output(ctx, text)
 	})
-	var diagnostics []durable.ToolDiagnostic
+	// Reported as the call runs, so a timeout's error result keeps it too
+	// (upstream api.diagnostic).
 	if spill.path != "" {
-		diagnostics = append(diagnostics, durable.ToolDiagnostic{Severity: "info", Code: "full_output", Message: "Full output: " + spill.path})
+		rt.Diagnostic(durable.ToolDiagnostic{Severity: "info", Code: "full_output", Message: "Full output: " + spill.path})
 	}
 	if err != nil {
 		switch {
@@ -365,6 +366,12 @@ func shellTool(ctx context.Context, raw json.RawMessage, rt *durable.ToolRuntime
 		return durable.ToolResult{}, err
 	}
 	content, droppedLines, droppedBytes := truncateTail(res.Output, spill.lines, spill.bytes)
+	// The exit code comes before the truncation note, which upstream's
+	// Harness adds after the result's own diagnostics.
+	var diagnostics []durable.ToolDiagnostic
+	if res.ExitCode != 0 {
+		diagnostics = append(diagnostics, durable.ToolDiagnostic{Severity: "error", Code: "exit_code", Message: fmt.Sprintf("Command exited with code %d", res.ExitCode)})
+	}
 	if droppedBytes > 0 {
 		diagnostics = append(diagnostics, durable.ToolDiagnostic{Severity: "warn", Code: "truncated",
 			Message: fmt.Sprintf("Output truncated to its end: %d lines, %d bytes dropped", droppedLines, droppedBytes)})
@@ -379,7 +386,6 @@ func shellTool(ctx context.Context, raw json.RawMessage, rt *durable.ToolRuntime
 		return durable.ToolResult{}, err
 	}
 	if res.ExitCode != 0 {
-		diagnostics = append(diagnostics, durable.ToolDiagnostic{Severity: "error", Code: "exit_code", Message: fmt.Sprintf("Command exited with code %d", res.ExitCode)})
 		return durable.ToolResult{Content: content, StructuredOutput: structured, IsError: true, Diagnostics: diagnostics}, nil
 	}
 	return durable.ToolResult{Content: content, StructuredOutput: structured, Diagnostics: diagnostics}, nil
