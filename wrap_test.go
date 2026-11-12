@@ -5,6 +5,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 func TestSectionWrapsApplyInExtensionOrder(t *testing.T) {
@@ -53,12 +54,21 @@ func TestSectionWrapsApplyInExtensionOrder(t *testing.T) {
 	if prompt != "<rules>\nBE KIND\n</rules>" {
 		t.Fatalf("prompt=%q", prompt)
 	}
-	select {
-	case report := <-reports:
-		if report.Kind != ReportExtensionError || report.Extension != "outer" {
-			t.Fatalf("report=%+v", report)
+	// Both are reported as the wrapping extension's errors (upstream).
+	var messages []string
+	for len(messages) < 2 {
+		select {
+		case report := <-reports:
+			if report.Kind != ReportExtensionError || report.Extension != "outer" {
+				t.Fatalf("report=%+v", report)
+			}
+			messages = append(messages, report.Err.Error())
+		case <-time.After(5 * time.Second):
+			t.Fatalf("reports=%q", messages)
 		}
-	default:
-		t.Fatal("the panicking wrap was not reported")
+	}
+	joined := strings.Join(messages, "\n")
+	if !strings.Contains(joined, "Wrapper renamed dropped to renamed") || !strings.Contains(joined, "wrap panicked: wrap failed") {
+		t.Fatalf("reports=%q", messages)
 	}
 }

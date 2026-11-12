@@ -687,8 +687,11 @@ func validateSubmission(request SubmissionRequest) error {
 	}
 	if request.Type == "input" && request.Entry != nil {
 		entry := request.Entry
-		if entry.Kind == "" || strings.HasPrefix(entry.Kind, "pi.") || entry.Message != nil || entry.ID != 0 || entry.Conversation != 0 || entry.Parent != 0 || entry.Sequence != 0 || !entry.CreatedAt.IsZero() {
-			return fmt.Errorf("%w: input entry must contain only a non-reserved kind and data", ErrInvalid)
+		if entry.Kind == "" || strings.HasPrefix(entry.Kind, "pi.") {
+			return fmt.Errorf("%w: An input entry's kind must be a non-empty string not starting with \"pi.\", got %s", ErrInvalid, entry.Kind)
+		}
+		if entry.Message != nil || entry.ID != 0 || entry.Conversation != 0 || entry.Parent != 0 || entry.Sequence != 0 || !entry.CreatedAt.IsZero() {
+			return fmt.Errorf("%w: input entry must contain only a kind and data", ErrInvalid)
 		}
 		if len(entry.Data) > 0 && !json.Valid(entry.Data) {
 			return fmt.Errorf("%w: input entry data must be JSON", ErrInvalid)

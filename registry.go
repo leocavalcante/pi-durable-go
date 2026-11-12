@@ -274,6 +274,9 @@ func (s *RegistrySnapshot) tools(agent Agent, report func(error, string)) []Tool
 				continue
 			}
 			wrapped, err := applyWrap(ext.WrapTools[name], tools[i])
+			if err == nil && wrapped.Name != name {
+				err = fmt.Errorf("Wrapper renamed %s to %s", name, wrapped.Name)
+			}
 			if err != nil && report != nil {
 				report(err, ext.Name)
 			}
@@ -367,6 +370,9 @@ func (s *RegistrySnapshot) sections(agent Agent, report func(error, string)) []n
 				continue
 			}
 			wrapped, err := applyWrap(ext.WrapSections[name], out[i].Section)
+			if err == nil && wrapped.Name != name {
+				err = fmt.Errorf("Wrapper renamed %s to %s", name, wrapped.Name)
+			}
 			if err != nil && report != nil {
 				report(err, ext.Name)
 			}

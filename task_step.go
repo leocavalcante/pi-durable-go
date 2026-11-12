@@ -91,7 +91,7 @@ func (s *Scheduler) runInvocation(id TaskID, inv *taskInvocation, resolved resol
 					if !outdated[next.Identity] {
 						outdated[next.Identity] = true
 						reason := outdatedReason(t, next)
-						reports = append(reports, r.taskReport(ReportTaskOutdated, fmt.Errorf("task definition outdated: %s", reason), reason))
+						reports = append(reports, r.taskReport(ReportTaskOutdated, fmt.Errorf("Task %d keeps running under its old %s definition", t.ID, t.Kind), reason))
 					}
 				}
 			}

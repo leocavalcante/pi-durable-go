@@ -279,7 +279,7 @@ func (h *Harness) admitSubmission(tx *Tx, cid ConversationID, request Submission
 		}
 		if existing != nil {
 			if existing.Request.Type != request.Type {
-				return 0, fmt.Errorf("%w: requestId reused for another type", ErrInvalid)
+				return 0, fmt.Errorf("%w: Request %s already identifies a submission of type %s", ErrInvalid, request.RequestID, existing.Request.Type)
 			}
 			return existing.ID, nil
 		}
