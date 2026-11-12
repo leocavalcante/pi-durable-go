@@ -241,3 +241,37 @@ func TestRuntimeAgentTaskEntryDiagnosticAndRetainedOutput(t *testing.T) {
 		t.Fatalf("result=%q", got)
 	}
 }
+
+func TestSubmissionAbortSaysWhatItFound(t *testing.T) {
+	gate := newGatedTool()
+	h, root := runHarness(t, toolThenEcho(), Settings{}, gate.extension())
+	first := submit(t, root, SubmissionRequest{Content: "tool"})
+	<-gate.started
+	queued := submit(t, root, SubmissionRequest{Content: "later"})
+	abort := func(id SubmissionID) string {
+		sub, err := h.Submission(context.Background(), id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		result, err := sub.Abort(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		return result
+	}
+	if got := abort(queued); got != SubmissionAborted {
+		t.Fatalf("queued abort=%q", got)
+	}
+	if got := abort(first); got != SubmissionAlreadyPlaced {
+		t.Fatalf("placed abort=%q", got)
+	}
+	if got := abort(queued); got != SubmissionSettled {
+		t.Fatalf("settled abort=%q", got)
+	}
+	gate.release <- struct{}{}
+	waitSettled(t, h, first)
+	view, err := root.ContextView(context.Background(), 0)
+	if err != nil || len(view.Messages) == 0 || len(view.Entries) != len(view.Contributions) {
+		t.Fatalf("view=%+v error=%v", view, err)
+	}
+}

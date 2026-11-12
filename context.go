@@ -1,6 +1,7 @@
 package durable
 
 import (
+	"context"
 	"fmt"
 )
 
@@ -227,4 +228,55 @@ func leadWithSystem(messages []Message, baseline bool) []Message {
 	out = append(out, messages[index])
 	out = append(out, messages[:index]...)
 	return append(out, messages[index+1:]...)
+}
+
+// ContextView is a conversation's committed model context (upstream
+// ContextView): the newest head marker (a reset or a compaction summary),
+// the entries it keeps and the ones after it, the messages each contributes
+// after edits, and the derived messages.
+type ContextView struct {
+	Head          *Entry
+	Entries       []Entry
+	Contributions [][]Message
+	Messages      []Message
+}
+
+func (v contextView) public() ContextView {
+	out := ContextView{Entries: v.entries, Contributions: v.contributions, Messages: v.messages}
+	if v.head != nil {
+		head := v.head.detached()
+		out.Head = &head
+	}
+	return out
+}
+
+// ContextView reads the conversation's model context; with at, as of that
+// entry of its history, as a fork at it would start with.
+func (c *Conversation) ContextView(ctx context.Context, at EntryID) (ContextView, error) {
+	state, err := c.h.read(ctx)
+	if err != nil {
+		return ContextView{}, err
+	}
+	view, err := deriveContextView(state, c.id, at)
+	if err != nil {
+		return ContextView{}, err
+	}
+	return view.public(), nil
+}
+
+// Context reads a conversation's model context (upstream runtime.context);
+// with at, as of that entry.
+func (r *TaskRuntime) Context(ctx context.Context, cid ConversationID, at EntryID) (ContextView, error) {
+	if err := r.check(); err != nil {
+		return ContextView{}, err
+	}
+	state, err := r.h.read(ctx)
+	if err != nil {
+		return ContextView{}, err
+	}
+	view, err := deriveContextView(state, cid, at)
+	if err != nil {
+		return ContextView{}, err
+	}
+	return view.public(), nil
 }

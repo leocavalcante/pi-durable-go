@@ -3,6 +3,7 @@ package durable
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -401,19 +402,45 @@ func (s *Submission) Wait(ctx context.Context) (SubmissionRecord, error) {
 		}
 	}
 }
-func (s *Submission) Abort(ctx context.Context) error {
-	return s.h.Commit(ctx, func(tx *Tx) error {
-		rec, err := tx.Submission(s.id)
-		if err != nil {
-			return err
+
+// Results of Submission.Abort.
+const (
+	// SubmissionAborted: the queued submission was withdrawn, unanswered
+	// with reason aborted.
+	SubmissionAborted = "aborted"
+	// SubmissionAlreadyPlaced: it is already placed; abort its run instead.
+	SubmissionAlreadyPlaced = "already_placed"
+	// SubmissionSettled: it had already settled.
+	SubmissionSettled = "settled"
+)
+
+// Abort withdraws a queued submission (upstream Submission.abort), and says
+// what it found: SubmissionAborted, SubmissionAlreadyPlaced, or
+// SubmissionSettled.
+func (s *Submission) Abort(ctx context.Context) (string, error) {
+	result := ""
+	err := s.h.Commit(ctx, func(tx *Tx) error {
+		rec := tx.state.Submissions[s.id]
+		if rec == nil {
+			return ErrNotFound
 		}
-		if rec.Status != "queued" {
-			return fmt.Errorf("%w: only queued submissions can be withdrawn", ErrInvalid)
+		switch rec.Status {
+		case "queued":
+			rec = tx.state.mutSubmission(s.id)
+			rec.Status, rec.Reason = "unanswered", "aborted"
+			result = SubmissionAborted
+			return nil
+		case "placed":
+			result = SubmissionAlreadyPlaced
+		default:
+			result = SubmissionSettled
 		}
-		rec.Status = "unanswered"
-		rec.Reason = "aborted"
-		return nil
+		return errNoChange
 	})
+	if errors.Is(err, errNoChange) {
+		err = nil
+	}
+	return result, err
 }
 func (c *Conversation) Reset(ctx context.Context, note string) (*Submission, error) {
 	var msg *Message

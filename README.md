@@ -112,6 +112,7 @@ A generation retries a failed model attempt only when the error is transient and
 
 ### Upgrading
 
+- `Submission.Abort` now returns what it found (`SubmissionAborted`, `SubmissionAlreadyPlaced`, or `SubmissionSettled`) instead of an error for a submission that was not queued.
 - `Settings.RetryMax` and `RetryDelay` are removed, and retries are now on by default. Replace `RetryMax: n, RetryDelay: d` with `Retry: durable.RetrySettings{MaxRetries: ptr(float64(n)), BaseDelayMs: ptr(float64(d.Milliseconds()))}` using a local `func ptr[T any](v T) *T { return &v }`; delays now double up to `MaxAgentDelayMs`. Set `Enabled: ptr(false)` to disable retries, for example for test fakes whose error text looks transient (such as "timeout" or "503").
 - `pi.generation` and `pi.compaction` are version 3, and `pi.tool` is version 2; each migrates older records at reservation. Older builds leave newer records blocked as `task_too_old`, so do not downgrade with runs live.
 - State version 3 stores the run model: opening an older store upgrades it in memory (`running` submissions become `placed`, a busy run moves to `pi.live.run`) and the next commit persists it. Older binaries cannot reopen a version-3 store. `Settings.MaxTurns` is removed; bound tool rounds with `Agent.MaxTurns`.
