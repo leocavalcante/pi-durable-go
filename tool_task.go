@@ -82,6 +82,12 @@ func resolveToolCall(ctx context.Context, r *TaskRuntime, task TaskRecord) (*too
 	if err := json.Unmarshal(task.Input, &call.input); err != nil {
 		return nil, err
 	}
+	// The phase span says which call it runs (upstream readCall).
+	callID := call.input.Call.ID
+	if callID == "" {
+		callID = call.input.CallID
+	}
+	spanOf(ctx).set(map[string]any{"tool.name": call.input.Call.Name, "tool.call_id": callID})
 	if err := json.Unmarshal(task.Checkpoint, &call.cp); err != nil {
 		return nil, err
 	}

@@ -269,3 +269,37 @@ type endSpan struct{ ended chan error }
 func (endSpan) SetAttributes(map[string]any)    {}
 func (endSpan) AddEvent(string, map[string]any) {}
 func (s endSpan) End(err error)                 { s.ended <- err }
+
+func TestTelemetryToolPhasesNameTheirCall(t *testing.T) {
+	telemetry := &recordingTelemetry{}
+	gate := newGatedTool()
+	registry := NewRegistry()
+	if err := registry.Install(gate.extension()); err != nil {
+		t.Fatal(err)
+	}
+	h := taskTestHarness(t, HarnessOptions{Model: toolThenEcho(), Registry: registry, Telemetry: telemetry})
+	root := testRoot(t, h)
+	sub := submit(t, root, SubmissionRequest{Content: "tool please"})
+	<-gate.started
+	close(gate.release)
+	waitSettled(t, h, sub)
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		telemetry.mu.Lock()
+		for _, span := range telemetry.spans {
+			if span.name == "pi.durable.phase" && span.attributes["task.name"] == "pi.tool" && span.attributes["tool.name"] != nil {
+				name, id := span.attributes["tool.name"], span.attributes["tool.call_id"]
+				telemetry.mu.Unlock()
+				if name == "" || id == "" {
+					t.Fatalf("tool phase attributes=%v", span.attributes)
+				}
+				return
+			}
+		}
+		telemetry.mu.Unlock()
+		if time.Now().After(deadline) {
+			t.Fatal("no tool phase span named its call")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
