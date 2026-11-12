@@ -115,7 +115,7 @@ func newSession(ctx context.Context, storage Storage, now func() time.Time, boun
 		}
 	}
 	if st == nil {
-		st = &State{Version: stateVersion, NextID: 1, Conversations: map[ConversationID]*ConversationRecord{}, Entries: map[EntryID]*Entry{}, Tasks: map[TaskID]*TaskRecord{}, Submissions: map[SubmissionID]*SubmissionRecord{}, Documents: map[string]*DocumentRecord{}}
+		st = &State{Version: stateVersion, NextID: uint64(RootConversationID) + 1, Conversations: map[ConversationID]*ConversationRecord{}, Entries: map[EntryID]*Entry{}, Tasks: map[TaskID]*TaskRecord{}, Submissions: map[SubmissionID]*SubmissionRecord{}, Documents: map[string]*DocumentRecord{}}
 	}
 	if st.Version < 1 || st.Version > stateVersion || st.NextID == 0 {
 		return nil, fmt.Errorf("%w: unsupported storage version or invalid ID allocator", ErrInvalid)

@@ -33,6 +33,14 @@ type TaskGraphNode struct {
 	Conversations []ConversationID `json:"conversations"`
 }
 
+// Why no registered definition can take a task (TaskGraphNode.Blocked and
+// inspection; upstream's BlockedReason).
+const (
+	BlockedMissingTask     = "missing_task"
+	BlockedTaskTooOld      = "task_too_old"
+	BlockedMigrationFailed = "migration_failed"
+)
+
 // TaskGraph is every live task of the Session, keyed by ID.
 type TaskGraph struct {
 	Tasks map[TaskID]TaskGraphNode `json:"tasks"`

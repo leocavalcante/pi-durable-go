@@ -24,8 +24,18 @@ func (h *Harness) Root(ctx context.Context, opts ConversationOptions) (*Conversa
 		if id != 0 {
 			return nil
 		}
-		var err error
-		id, err = tx.CreateConversation(opts)
+		// The root takes the reserved ID, as upstream's always does; a store
+		// from before the reservation may have used it, so the root then
+		// takes a new one.
+		reserved, err := tx.rootIDFree()
+		if err != nil {
+			return err
+		}
+		if !reserved {
+			id, err = tx.CreateConversation(opts)
+		} else {
+			id, err = tx.createConversation(opts, RootConversationID)
+		}
 		if err != nil {
 			return err
 		}

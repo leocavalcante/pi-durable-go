@@ -107,6 +107,12 @@ func (tx *Tx) Submission(id SubmissionID) (*SubmissionRecord, error) {
 	return s, nil
 }
 func (tx *Tx) CreateConversation(opts ConversationOptions) (ConversationID, error) {
+	return tx.createConversation(opts, 0)
+}
+
+// createConversation creates a conversation with the reserved ID, or a new
+// one when reserved is 0.
+func (tx *Tx) createConversation(opts ConversationOptions, reserved ConversationID) (ConversationID, error) {
 	if err := tx.check(); err != nil {
 		return 0, err
 	}
@@ -132,7 +138,10 @@ func (tx *Tx) CreateConversation(opts ConversationOptions) (ConversationID, erro
 	if err != nil {
 		return 0, err
 	}
-	id := ConversationID(tx.id())
+	id := reserved
+	if id == 0 {
+		id = ConversationID(tx.id())
+	}
 	tx.state.Conversations[id] = &ConversationRecord{ID: id, Owner: opts.Owner, Agent: agent, ProviderSessionID: sessionID, CreatedAt: tx.clock()}
 	data, err := json.Marshal(agent)
 	if err != nil {
@@ -274,3 +283,31 @@ func (tx *Tx) ConversationsByOwner(owner TaskID) ([]ConversationRecord, error) {
 
 // Entries returns the active transcript, including inherited entries. It detects
 // corrupt parent cycles rather than hanging on malformed persisted state.
+
+// RootConversationID is the root conversation's reserved ID
+// (ROOT_CONVERSATION_ID): new stores mint IDs from 2.
+const RootConversationID ConversationID = 1
+
+// rootIDFree reports whether no record uses the reserved root ID. IDs share
+// one space, and stores from before the reservation minted from 1.
+func (tx *Tx) rootIDFree() (bool, error) {
+	if tx.state.NextID <= uint64(RootConversationID) {
+		// Nothing minted yet: take it, as a store from before would have.
+		tx.state.NextID = uint64(RootConversationID) + 1
+		return true, nil
+	}
+	id := uint64(RootConversationID)
+	if c, err := tx.state.conversation(ConversationID(id)); err != nil || c != nil {
+		return false, err
+	}
+	if e, err := tx.state.entry(EntryID(id)); err != nil || e != nil {
+		return false, err
+	}
+	if t, err := tx.state.task(TaskID(id)); err != nil || t != nil {
+		return false, err
+	}
+	if s, err := tx.state.submission(SubmissionID(id)); err != nil || s != nil {
+		return false, err
+	}
+	return true, nil
+}

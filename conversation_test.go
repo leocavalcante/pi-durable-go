@@ -340,3 +340,46 @@ func TestCompactionPreservesTranscript(t *testing.T) {
 		t.Fatalf("summary context %+v", messages)
 	}
 }
+
+func TestTheRootTakesTheReservedID(t *testing.T) {
+	ctx := context.Background()
+	h, err := Open(ctx, NewMemoryStorage(), HarnessOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer h.Close(ctx)
+	other, err := h.CreateConversation(ctx, ConversationOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, err := h.Root(ctx, ConversationOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if root.ID() != RootConversationID || other.ID() == RootConversationID {
+		t.Fatalf("root=%d other=%d", root.ID(), other.ID())
+	}
+
+	// A store from before the reservation minted 1 for another record.
+	store := NewMemoryStorage()
+	legacy := &State{Version: stateVersion, Sequence: 1, NextID: 1, Conversations: map[ConversationID]*ConversationRecord{}, Entries: map[EntryID]*Entry{}, Tasks: map[TaskID]*TaskRecord{}, Submissions: map[SubmissionID]*SubmissionRecord{}, Documents: map[string]*DocumentRecord{}}
+	if err := store.Commit(ctx, 0, legacy); err != nil {
+		t.Fatal(err)
+	}
+	old, err := Open(ctx, store, HarnessOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer old.Close(ctx)
+	first, err := old.CreateConversation(ctx, ConversationOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldRoot, err := old.Root(ctx, ConversationOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.ID() != RootConversationID || oldRoot.ID() == RootConversationID {
+		t.Fatalf("legacy first=%d root=%d", first.ID(), oldRoot.ID())
+	}
+}
