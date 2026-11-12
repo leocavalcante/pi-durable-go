@@ -255,9 +255,18 @@ func runTool(ctx context.Context, r *TaskRuntime, task TaskRecord) error {
 		if input.Unoffered || def == nil || def.Execute == nil {
 			return reject(harnessError("tool_unavailable", fmt.Sprintf("Tool %s is not available", name)))
 		}
-		if err := validateToolArguments(def.ToolSpec, runtime.Call.Arguments); err != nil {
+		// Repaired, then coerced and checked (pi-ai validateToolArguments):
+		// hooks and the tool see the coerced arguments; the transcript keeps
+		// the model's.
+		prepared, err := prepareArguments(def, runtime.Call.Arguments)
+		if err != nil {
 			return reject(harnessError("invalid_arguments", err.Error()))
 		}
+		checked, err := validateToolArguments(def.ToolSpec, prepared)
+		if err != nil {
+			return reject(harnessError("invalid_arguments", err.Error()))
+		}
+		runtime.Call.Arguments = checked
 		for _, hook := range call.hooks {
 			if hook.BeforeTool == nil {
 				continue
@@ -273,9 +282,10 @@ func runTool(ctx context.Context, r *TaskRuntime, task TaskRecord) error {
 		if runtime.Call.Name != input.Call.Name || runtime.Call.ID != input.Call.ID {
 			return reject(harnessError("blocked", "Tool call blocked: hooks cannot change the call's identity"))
 		}
-		if err := validateToolArguments(def.ToolSpec, runtime.Call.Arguments); err != nil {
+		if checked, err = validateToolArguments(def.ToolSpec, runtime.Call.Arguments); err != nil {
 			return reject(harnessError("invalid_arguments", err.Error()))
 		}
+		runtime.Call.Arguments = checked
 		cp = toolCheckpoint{Phase: "execute", Arguments: runtime.Call.Arguments, ReplaySafe: def.ReplaySafe}
 		// The slot's status and arguments are presentation, stored like
 		// progress; the intent is durable before the tool runs (upstream).

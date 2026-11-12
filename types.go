@@ -442,7 +442,14 @@ type ToolDefinition struct {
 	// StructuredOutput programs get from a successful result; nested callers
 	// otherwise get the result's content as a JSON string.
 	StructuredOutputSchema json.RawMessage
-	Execute                func(context.Context, json.RawMessage, *ToolRuntime) (ToolResult, error)
+	// PrepareArguments repairs arguments models commonly get wrong before
+	// they are validated, such as a JSON string where an array belongs
+	// (upstream prepareArguments). It must be pure and must not change its
+	// input: it runs again when a call is retried before its intent is
+	// recorded. Its result is still validated; an error or panic makes the
+	// call's arguments invalid.
+	PrepareArguments func(json.RawMessage) (json.RawMessage, error)
+	Execute          func(context.Context, json.RawMessage, *ToolRuntime) (ToolResult, error)
 }
 
 // OutputLimits bound a tool result's content: MaxBytes and MaxLines (zero
