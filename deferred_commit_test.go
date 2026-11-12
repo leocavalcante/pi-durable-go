@@ -312,3 +312,42 @@ func TestTheAttemptShownIsStoredLikeProgress(t *testing.T) {
 		t.Fatalf("stored the attempt marker: %+v", live.Generation)
 	}
 }
+
+func TestHeldDeadlinesUseTheHostTimer(t *testing.T) {
+	timers := &fakeTimers{}
+	store := NewMemoryStorage()
+	h, err := Open(context.Background(), store, HarnessOptions{SetTimer: timers.SetTimer})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer h.Close(context.Background())
+	var cid ConversationID
+	if err := h.Commit(context.Background(), func(tx *Tx) error {
+		created, err := tx.CreateConversation(ConversationOptions{})
+		cid = created
+		if err != nil {
+			return err
+		}
+		return tx.PutDocument(progressDocument, uint64(cid), json.RawMessage(`{"n":0}`))
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.CommitWith(context.Background(), deferredWithin(1500), setProgress(cid, 1)); err != nil {
+		t.Fatal(err)
+	}
+	// The deadline is a host timer: nothing is stored until it fires.
+	deadline := timers.waitArmed(t, func(timer *fakeTimer) bool {
+		return timer.delay > 1400*time.Millisecond && timer.delay <= 1500*time.Millisecond
+	})
+	if got := storedProgress(t, store, cid); got != `{"n":0}` {
+		t.Fatalf("stored before the deadline=%s", got)
+	}
+	timers.fire(deadline)
+	end := time.Now().Add(5 * time.Second)
+	for storedProgress(t, store, cid) != `{"n":1}` {
+		if time.Now().After(end) {
+			t.Fatalf("stored after the deadline=%s", storedProgress(t, store, cid))
+		}
+		time.Sleep(time.Millisecond)
+	}
+}

@@ -61,6 +61,9 @@ func Open(ctx context.Context, storage Storage, options HarnessOptions) (*Harnes
 	if session.cold != nil {
 		session.cold.contextRetention = h.contextRetention
 	}
+	// Held documents' deadlines and context expiry run on the host's timer
+	// and clock, as upstream's setTimer and now.
+	session.setTimer = h.setTimer
 	if options.ReadOnly {
 		session.readOnly = true
 		return h, nil // recovers nothing, schedules nothing

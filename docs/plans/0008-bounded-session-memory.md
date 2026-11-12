@@ -55,5 +55,4 @@ Each milestone keeps `make check` green and is pushed on its own.
 - Upstream evicts each document after its own idle time; Go keeps a conversation's documents while its context range is loaded.
 - Upstream bounds conversation records by an LRU count alone; Go keeps the ones in use and caches the others.
 - Rewindable document revisions live in their document record, so a record grows with its history and each write stores it whole; upstream stores revisions as separate history.
-- Timers (deferred-commit deadlines, context expiry) use the wall clock, not `HarnessOptions.SetTimer`.
 - While the writer publishes a group commit one commit at a time, storage already holds the whole group; a storage read made then (loading a conversation, a document an observer follows) can return a value a later commit of the same group wrote, one publication early. Values never go backward and the group's last publication matches storage; upstream instead makes such reads wait for the writing commit's publication.

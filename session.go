@@ -58,7 +58,11 @@ type Session struct {
 	// held are documents deferred commits changed and no store has carried
 	// yet, with the time each must be stored by; heldTimer stores them then.
 	held      map[string]time.Time
-	heldTimer *time.Timer
+	heldTimer func()
+	// setTimer arms the Session's timers (deadlines of held documents,
+	// context expiry): HarnessOptions.SetTimer under a Harness, as upstream
+	// uses setTimer; time.AfterFunc otherwise. It returns how to stop it.
+	setTimer func(callback func(), delay time.Duration) (stop func())
 	// stateObservers are synchronous observers (Observer) of every State
 	// memory adopts.
 	stateObservers map[*stateObserver]struct{}
@@ -135,6 +139,7 @@ func newSession(ctx context.Context, storage Storage, now func() time.Time, boun
 	if bounded && !upgraded {
 		s.cold = newColdRecords(records, func(err error) { go s.fail(err) })
 		s.cold.sweep = s.sweepContexts
+		s.cold.timer = func(callback func(), delay time.Duration) func() { return s.timer(callback, delay) }
 		st.cold = s.cold
 		s.cold.evict(st)
 		// Context ranges and conversation documents load as conversations
@@ -355,7 +360,7 @@ func (s *Session) holdLocked(candidate *State, delta *StateDelta, publish bool, 
 	}
 	deadline := time.Time{} // zero: no deadline (math.Inf(1))
 	if !math.IsInf(within, 1) {
-		deadline = time.Now().Add(time.Duration(within * float64(time.Millisecond)))
+		deadline = s.now().Add(time.Duration(within * float64(time.Millisecond)))
 	}
 	for key := range delta.Documents {
 		if current, ok := s.held[key]; !ok || !deadline.IsZero() && (current.IsZero() || deadline.Before(current)) {
@@ -410,7 +415,7 @@ func (s *Session) foldHeldLocked(candidate *State, delta *StateDelta) {
 	}
 	s.held = nil
 	if s.heldTimer != nil {
-		s.heldTimer.Stop()
+		s.heldTimer()
 		s.heldTimer = nil
 	}
 }
@@ -418,7 +423,7 @@ func (s *Session) foldHeldLocked(candidate *State, delta *StateDelta) {
 // armHeldLocked arms the store of held documents at the earliest deadline.
 func (s *Session) armHeldLocked() {
 	if s.heldTimer != nil {
-		s.heldTimer.Stop()
+		s.heldTimer()
 		s.heldTimer = nil
 	}
 	var earliest time.Time
@@ -430,7 +435,7 @@ func (s *Session) armHeldLocked() {
 	if earliest.IsZero() {
 		return
 	}
-	s.heldTimer = time.AfterFunc(time.Until(earliest), func() { s.storeHeld(false) })
+	s.heldTimer = s.timer(func() { s.storeHeld(false) }, earliest.Sub(s.now()))
 }
 
 // storeHeld stores the held documents as a commit of their own: at a
@@ -533,7 +538,7 @@ func (s *Session) writeLoop() {
 				// entry is safe meanwhile.
 				s.cold.forgetDocuments(item.delta)
 				s.cold.forgetConversations(item.delta)
-				_ = s.cold.keepEntries(item.state, s.laterStates(batch, item), item.delta, time.Now(), retention, s.held)
+				_ = s.cold.keepEntries(item.state, s.laterStates(batch, item), item.delta, s.now(), retention, s.held)
 				s.cold.evictConversations(item.state)
 			}
 			s.state = item.state
@@ -632,12 +637,24 @@ func (s *Session) sweepContexts() {
 	next.base = nil
 	before := len(next.Entries)
 	documents, conversations := len(next.Documents), len(next.Conversations)
-	_ = s.cold.keepEntries(next, nil, nil, time.Now(), retention, s.held)
+	_ = s.cold.keepEntries(next, nil, nil, s.now(), retention, s.held)
 	s.cold.evictConversations(next)
 	if len(next.Entries) != before || len(next.Documents) != documents || len(next.Conversations) != conversations {
 		s.state, s.head = next, next
 		s.recordCommitted(false)
 	}
+}
+
+// timer arms a Session timer through setTimer, or time.AfterFunc.
+func (s *Session) timer(callback func(), delay time.Duration) func() {
+	if s.setTimer != nil {
+		if stop := s.setTimer(callback, delay); stop != nil {
+			return stop
+		}
+		return func() {}
+	}
+	t := time.AfterFunc(delay, callback)
+	return func() { t.Stop() }
 }
 
 // drainWriter waits until the writer stored and published every admitted

@@ -338,11 +338,11 @@ func (c *coldRecords) scheduleExpiry(st *State, now time.Time, retention time.Du
 		}
 	}
 	if c.expiry != nil {
-		c.expiry.Stop()
+		c.expiry()
 		c.expiry = nil
 	}
-	if !next.IsZero() && c.sweep != nil && retention < maxRetention {
-		c.expiry = time.AfterFunc(next.Sub(now), c.sweep)
+	if !next.IsZero() && c.sweep != nil && c.timer != nil && retention < maxRetention {
+		c.expiry = c.timer(c.sweep, next.Sub(now))
 	}
 }
 

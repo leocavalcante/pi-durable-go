@@ -51,7 +51,8 @@ type coldRecords struct {
 	// sweep unloads expired ones while nothing is published, at expiry.
 	contextRetention func() time.Duration
 	sweep            func()
-	expiry           *time.Timer
+	expiry           func()
+	timer            func(callback func(), delay time.Duration) (stop func())
 	// fail fails the Session on a storage read error, which upstream treats
 	// as fatal like any storage error.
 	fail func(error)
