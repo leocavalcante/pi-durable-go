@@ -7,7 +7,8 @@ v1.5.2 (commit `b4afdddf44e059c67ccf5097e5317d913521b470`).
 - Use Go 1.24+ and idiomatic context.Context cancellation.
 - Preserve MIT licensing and upstream copyright notices.
 - No paid model calls or real external effects in tests. Use fake models and httptest.
-- Visible state must be committed before publication. Uncertain storage errors poison the Session.
+- Port semantics follow upstream Pi Durable (the pinned release). This file sets process rules only; where it seems to
+  disagree with upstream behavior, follow upstream.
 - External effects require idempotency or reconciliation; never promise exactly-once effects.
 - One owning Session per storage. Do not claim multi-writer or upstream file-format compatibility.
 - Run gofmt, go vet ./..., go test ./..., and go test -race ./... before publication.
