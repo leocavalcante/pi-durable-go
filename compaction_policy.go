@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
-	"sort"
 	"strings"
 	"unicode/utf16"
 )
@@ -156,7 +155,7 @@ func estimateMessageTokens(m Message) int {
 	if m.Role == "assistant" {
 		chars += utf16Len(m.Thinking)
 		for _, call := range m.ToolCalls {
-			chars += utf16Len(call.Name) + utf16Len(string(compactJSON(call.Arguments)))
+			chars += utf16Len(call.Name) + utf16Len(jsStringifyRaw(call.Arguments))
 		}
 	}
 	return int(math.Ceil(float64(chars) / 3.5))
@@ -362,8 +361,8 @@ func serializeConversation(messages []Message) string {
 	for _, m := range messages {
 		switch m.Role {
 		case "user":
-			if m.Content != "" {
-				parts = append(parts, "[User]: "+m.Content)
+			if text := contentText(m); text != "" {
+				parts = append(parts, "[User]: "+text)
 			}
 		case "assistant":
 			if m.Content != "" {
@@ -371,16 +370,14 @@ func serializeConversation(messages []Message) string {
 			}
 			var calls []string
 			for _, call := range m.ToolCalls {
-				var args map[string]json.RawMessage
-				_ = json.Unmarshal(call.Arguments, &args)
-				keys := make([]string, 0, len(args))
-				for key := range args {
-					keys = append(keys, key)
-				}
-				sort.Strings(keys)
+				// Object.entries and JSON.stringify of the parsed arguments.
 				var rendered []string
-				for _, key := range keys {
-					rendered = append(rendered, key+"="+compactRaw(args[key]))
+				if parsed, err := parseJS(call.Arguments); err == nil {
+					if object, ok := parsed.(*jsObject); ok {
+						for _, key := range object.keys {
+							rendered = append(rendered, key+"="+jsStringify(object.values[key]))
+						}
+					}
 				}
 				calls = append(calls, call.Name+"("+strings.Join(rendered, ", ")+")")
 			}
@@ -388,8 +385,7 @@ func serializeConversation(messages []Message) string {
 				parts = append(parts, "[Assistant tool calls]: "+strings.Join(calls, "; "))
 			}
 		case "tool":
-			if m.Content != "" {
-				text := m.Content
+			if text := contentText(m); text != "" {
 				// JavaScript lengths and slicing: UTF-16 code units.
 				if units := utf16.Encode([]rune(text)); len(units) > toolResultMaxChars {
 					text = fmt.Sprintf("%s\n\n[... %d more characters truncated]", string(utf16.Decode(units[:toolResultMaxChars])), len(units)-toolResultMaxChars)
@@ -401,19 +397,25 @@ func serializeConversation(messages []Message) string {
 	return strings.Join(parts, "\n\n")
 }
 
-func compactRaw(raw json.RawMessage) string {
-	var v any
-	if json.Unmarshal(raw, &v) != nil {
-		return string(raw)
-	}
-	data, _ := json.Marshal(v)
-	return string(data)
-}
-
 func summaryPrompt(messages []Message, instructions string) string {
 	focus := ""
 	if instructions != "" {
 		focus = "\n\nAdditional focus: " + instructions
 	}
 	return "<conversation>\n" + serializeConversation(messages) + "\n</conversation>\n\n" + summarizationPrompt + focus
+}
+
+// contentText is a message's text blocks joined by newlines, as upstream
+// joins the text around its images.
+func contentText(m Message) string {
+	if len(m.Images) == 0 || len(m.ImageOffsets) != len(m.Images) {
+		return m.Content
+	}
+	var texts []string
+	for _, part := range OrderedContent(m.Content, m.Images, m.ImageOffsets) {
+		if part.Image == nil {
+			texts = append(texts, part.Text)
+		}
+	}
+	return strings.Join(texts, "\n")
 }
