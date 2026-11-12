@@ -109,7 +109,7 @@ func TestJSONLCompactsToItsLatestSnapshot(t *testing.T) {
 		t.Fatal(err)
 	}
 	big := strings.Repeat("x", 64*1024)
-	state := &durable.State{Version: 3, NextID: 1}
+	state := &durable.State{Version: 4, NextID: 1}
 	for i := 0; i < 40; i++ {
 		next := *state
 		next.Sequence = state.Sequence + 1

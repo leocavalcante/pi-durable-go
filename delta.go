@@ -20,6 +20,7 @@ type StateDelta struct {
 	Tasks         map[TaskID]*TaskRecord                 `json:"tasks,omitempty"`
 	Submissions   map[SubmissionID]*SubmissionRecord     `json:"submissions,omitempty"`
 	Documents     map[string]*DocumentRecord             `json:"documents,omitempty"`
+	Revisions     map[string]*DocumentRevision           `json:"revisions,omitempty"`
 	Removed       RemovedKeys                            `json:"removed,omitempty"`
 }
 
@@ -80,6 +81,9 @@ func (d *StateDelta) ApplyTo(st *State) error {
 	for key, v := range d.Documents {
 		st.Documents[key] = v
 	}
+	for key, v := range d.Revisions {
+		st.Revisions[key] = v
+	}
 	for _, id := range d.Removed.Conversations {
 		delete(st.Conversations, id)
 	}
@@ -114,6 +118,9 @@ func ensureTables(st *State) {
 	}
 	if st.Documents == nil {
 		st.Documents = map[string]*DocumentRecord{}
+	}
+	if st.Revisions == nil {
+		st.Revisions = map[string]*DocumentRevision{}
 	}
 }
 

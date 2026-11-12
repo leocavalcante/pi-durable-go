@@ -82,7 +82,7 @@ func TestRestartCounterRoundTripAndLegacyOpen(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if got.Version != 3 || got.Tasks[1].Status != "pending" || got.Tasks[1].Restarts != 1 {
+			if got.Version != 4 || got.Tasks[1].Status != "pending" || got.Tasks[1].Restarts != 1 {
 				t.Fatalf("legacy open version=%d task=%+v", got.Version, got.Tasks[1])
 			}
 		})

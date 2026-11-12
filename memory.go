@@ -218,4 +218,13 @@ func (m *MemoryStorage) ScanDocuments(ctx context.Context, query DocumentQuery, 
 	return r.ScanDocuments(query, limit, cursor)
 }
 
+func (m *MemoryStorage) DocumentRevision(ctx context.Context, docKey string, atOrBefore uint64) (*DocumentRevision, error) {
+	r, unlock, err := m.records(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer unlock()
+	return r.DocumentRevision(docKey, atOrBefore), nil
+}
+
 var _ RecordStorage = (*MemoryStorage)(nil)

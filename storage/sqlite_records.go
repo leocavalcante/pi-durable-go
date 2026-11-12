@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 
 	durable "github.com/leocavalcante/pi-durable-go"
 )
@@ -503,6 +504,35 @@ func (s *sqliteStorage) ScanDocuments(ctx context.Context, query durable.Documen
 		}
 		return rows.Err()
 	}, func(r durable.StateRecords) (err error) { out, err = r.ScanDocuments(query, limit, cursor); return err })
+	return out, err
+}
+
+// DocumentRevision reads the newest revision at or before a sequence with
+// one key-range query: revision keys sort by sequence within a document.
+func (s *sqliteStorage) DocumentRevision(ctx context.Context, docKey string, atOrBefore uint64) (*durable.DocumentRevision, error) {
+	var out *durable.DocumentRevision
+	err := s.read(ctx, func(q querier) error {
+		rows, err := q.QueryContext(ctx, "SELECT key, value FROM durable_records WHERE kind='revision' AND key >= ? AND key <= ? ORDER BY key DESC",
+			docKey+"@", durable.RevisionKey(docKey, atOrBefore))
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var key string
+			var value []byte
+			if err := rows.Scan(&key, &value); err != nil {
+				return err
+			}
+			// A member key may hold "@": only this document's own keys.
+			if strings.Contains(key[len(docKey)+1:], "@") {
+				continue
+			}
+			out, err = decodeRecord[durable.DocumentRevision](value)
+			return err
+		}
+		return rows.Err()
+	}, func(r durable.StateRecords) error { out = r.DocumentRevision(docKey, atOrBefore); return nil })
 	return out, err
 }
 

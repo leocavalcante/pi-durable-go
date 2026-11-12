@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Status | Done (M1–M5); rewindable revisions still live in their document record |
+| Status | Done (M1–M5, and revisions apart from their documents) |
 | Compatibility target | Pi Durable **v1.5.2** (commit `b4afdddf44e059c67ccf5097e5317d913521b470`) |
 | Upstream | `src/session/cached-storage.ts`, `src/session/conversation-tails.ts`, `src/session/session.ts` (document cache), `src/harness/context.ts` (context ranges), the `Storage` interface in `src/types.ts` |
 | Supersedes | Plan 0005 §2 "Bounded memory" |
@@ -54,5 +54,5 @@ Each milestone keeps `make check` green and is pushed on its own.
 
 - Upstream evicts each document after its own idle time; Go keeps a conversation's documents while its context range is loaded.
 - Upstream bounds conversation records by an LRU count alone; Go keeps the ones in use and caches the others.
-- Rewindable document revisions live in their document record, so a record grows with its history and each write stores it whole; upstream stores revisions as separate history.
 - While the writer publishes a group commit one commit at a time, storage already holds the whole group; a storage read made then (loading a conversation, a document an observer follows) can return a value a later commit of the same group wrote, one publication early. Values never go backward and the group's last publication matches storage; upstream instead makes such reads wait for the writing commit's publication.
+- **Revisions apart** (State version 4): a rewindable document's revisions are records of their own (`State.Revisions`, keyed `docKey@<20-digit sequence>`), so a write stores one revision, not the whole history, and a retirement writes a `Retired` revision: as-of reads (`ReadDocumentAsOf`, asOf forks) find a retired document as it was before, as upstream's `snapshotAsOf` finds an incarnation alive at a point. `revisionAt` reads the State's own revisions and `RecordStorage.DocumentRevision` (SQLite: one key-range query); a bounded Session never keeps revisions in memory. Opening a version-3 store moves the revisions out of their documents.

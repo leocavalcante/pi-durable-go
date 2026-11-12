@@ -45,6 +45,8 @@ type State struct {
 	Tasks         map[TaskID]*TaskRecord                 `json:"tasks"`
 	Submissions   map[SubmissionID]*SubmissionRecord     `json:"submissions"`
 	Documents     map[string]*DocumentRecord             `json:"documents"`
+	// Revisions are the values rewindable documents had, by revisionKey.
+	Revisions map[string]*DocumentRevision `json:"revisions,omitempty"`
 	// base is the committed State a transaction candidate shares records
 	// with; nil outside a transaction (see cow.go).
 	base *State
@@ -372,19 +374,27 @@ type DocumentDefinition struct {
 	Family      bool
 	InitialSeed func(seed json.RawMessage) any
 }
+
+// DocumentRevision is one value of a rewindable document, written by the
+// commit at Sequence; State.Revisions keeps them apart from the document
+// (revisionKey), so the document's history survives its retirement, which
+// writes a Retired revision.
 type DocumentRevision struct {
 	Version  int             `json:"version"`
 	Sequence uint64          `json:"sequence"`
 	Value    json.RawMessage `json:"value"`
+	Retired  bool            `json:"retired,omitempty"`
 }
 type DocumentRecord struct {
-	Kind      string             `json:"kind"`
-	Version   int                `json:"version"`
-	Scope     string             `json:"scope"`
-	ScopeID   uint64             `json:"scopeId"`
-	History   string             `json:"history"`
-	Fork      string             `json:"fork"`
-	Value     json.RawMessage    `json:"value"`
+	Kind    string          `json:"kind"`
+	Version int             `json:"version"`
+	Scope   string          `json:"scope"`
+	ScopeID uint64          `json:"scopeId"`
+	History string          `json:"history"`
+	Fork    string          `json:"fork"`
+	Value   json.RawMessage `json:"value"`
+	// Revisions held a rewindable document's history before State version
+	// 4, which moves it to State.Revisions.
 	Revisions []DocumentRevision `json:"revisions,omitempty"`
 	// Member is a family member's key; empty for a singleton.
 	Member string `json:"member,omitempty"`

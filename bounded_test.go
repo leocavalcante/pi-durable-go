@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -370,8 +371,14 @@ func TestIdleConversationsDropTheirDocuments(t *testing.T) {
 		t.Fatal(err)
 	}
 	record := state.Documents[documentKey(notes, uint64(root.ID()))]
-	if record == nil || len(record.Revisions) != 2 || string(record.Value) != `{"n":2}` {
-		t.Fatalf("notes after an update=%+v", record)
+	revisions := 0
+	for key := range state.Revisions {
+		if strings.HasPrefix(key, documentKey(notes, uint64(root.ID()))+"@") {
+			revisions++
+		}
+	}
+	if record == nil || revisions != 2 || string(record.Value) != `{"n":2}` {
+		t.Fatalf("notes after an update=%+v with %d revisions", record, revisions)
 	}
 	if state.Documents[documentKey(gone, uint64(root.ID()))] != nil {
 		t.Fatal("a retired document survived")

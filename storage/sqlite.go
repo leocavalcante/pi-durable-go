@@ -120,6 +120,7 @@ const (
 	kindTask         = "task"
 	kindSubmission   = "submission"
 	kindDocument     = "document"
+	kindRevision     = "revision"
 )
 
 type querier interface {
@@ -218,6 +219,15 @@ func loadRecord(st *durable.State, kind, key string, value []byte) error {
 			return err
 		}
 		st.Documents[key] = &v
+	case kindRevision:
+		var v durable.DocumentRevision
+		if err := json.Unmarshal(value, &v); err != nil {
+			return err
+		}
+		if st.Revisions == nil {
+			st.Revisions = map[string]*durable.DocumentRevision{}
+		}
+		st.Revisions[key] = &v
 	default:
 		return fmt.Errorf("unknown record kind")
 	}
@@ -319,6 +329,11 @@ func writeAll(ctx context.Context, tx *sql.Tx, st *durable.State) error {
 	}
 	for id, v := range st.Submissions {
 		if err := putRecord(ctx, tx, kindSubmission, uintKey(id), v); err != nil {
+			return err
+		}
+	}
+	for key, v := range st.Revisions {
+		if err := putRecord(ctx, tx, kindRevision, key, v); err != nil {
 			return err
 		}
 	}
@@ -432,6 +447,11 @@ func applyDelta(ctx context.Context, tx *sql.Tx, delta *durable.StateDelta) erro
 	}
 	for key, v := range delta.Documents {
 		if err := putRecord(ctx, tx, kindDocument, key, v); err != nil {
+			return err
+		}
+	}
+	for key, v := range delta.Revisions {
+		if err := putRecord(ctx, tx, kindRevision, key, v); err != nil {
 			return err
 		}
 	}

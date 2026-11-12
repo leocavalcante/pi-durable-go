@@ -130,4 +130,13 @@ func (s *jsonlStorage) ScanDocuments(ctx context.Context, query durable.Document
 	return r.ScanDocuments(query, limit, cursor)
 }
 
+func (s *jsonlStorage) DocumentRevision(ctx context.Context, docKey string, atOrBefore uint64) (*durable.DocumentRevision, error) {
+	r, unlock, err := s.records(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer unlock()
+	return r.DocumentRevision(docKey, atOrBefore), nil
+}
+
 var _ durable.RecordStorage = (*jsonlStorage)(nil)

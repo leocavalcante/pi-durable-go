@@ -151,6 +151,10 @@ func (c *coldRecords) evict(st *State) {
 			c.submissions.put(id, s)
 		}
 	}
+	// Revisions are read from storage only (as-of reads and forks).
+	for key := range st.Revisions {
+		delete(st.Revisions, key)
+	}
 }
 
 // task is a task record: the State's own, or an ended one read through the

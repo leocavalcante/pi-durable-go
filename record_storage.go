@@ -28,6 +28,9 @@ type RecordStorage interface {
 	ScanSubmissions(ctx context.Context, query SubmissionQuery, limit int, cursor *ScanCursor) (ScanPage[SubmissionRecord], error)
 	Document(ctx context.Context, key string) (*DocumentRecord, error)
 	ScanDocuments(ctx context.Context, query DocumentQuery, limit int, cursor *ScanCursor) (ScanPage[DocumentRecord], error)
+	// DocumentRevision is a rewindable document's newest revision at or
+	// before a sequence (State.Revisions), nil when it had none then.
+	DocumentRevision(ctx context.Context, docKey string, atOrBefore uint64) (*DocumentRevision, error)
 }
 
 // SubmissionQuery filters a scan of submissions (upstream SubmissionQuery);

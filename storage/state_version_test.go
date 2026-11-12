@@ -53,7 +53,7 @@ func TestStateVersionTwoOutcomeFieldsRoundTrip(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if got.Version != 3 || !reflect.DeepEqual(got.Tasks, state.Tasks) || !reflect.DeepEqual(got.Submissions, state.Submissions) {
+			if got.Version != 4 || !reflect.DeepEqual(got.Tasks, state.Tasks) || !reflect.DeepEqual(got.Submissions, state.Submissions) {
 				t.Fatalf("round trip lost fields: %+v", got)
 			}
 		})

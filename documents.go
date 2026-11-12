@@ -215,7 +215,10 @@ func (tx *Tx) retireDocument(def DocumentDefinition, id uint64, member string) e
 	if err != nil {
 		return err
 	}
-	if _, kept := tx.state.Documents[key]; kept || tx.state.cold == nil {
+	if doc, kept := tx.state.Documents[key]; kept || tx.state.cold == nil {
+		if kept {
+			tx.retired(key, doc)
+		}
 		delete(tx.state.Documents, key)
 		return nil
 	}
@@ -224,11 +227,25 @@ func (tx *Tx) retireDocument(def DocumentDefinition, id uint64, member string) e
 	if err != nil || stored == nil {
 		return err
 	}
+	tx.retired(key, stored)
 	if tx.state.removedDocuments == nil {
 		tx.state.removedDocuments = map[string]bool{}
 	}
 	tx.state.removedDocuments[key] = true
 	return nil
+}
+
+// retired records a rewindable document's retirement in its history: reads
+// as of a later entry find it absent, earlier ones its value then.
+func (tx *Tx) retired(key string, doc *DocumentRecord) {
+	if doc.History != "rewindable" {
+		return
+	}
+	sequence := tx.state.Sequence + 1
+	if tx.state.Revisions == nil {
+		tx.state.Revisions = map[string]*DocumentRevision{}
+	}
+	tx.state.Revisions[revisionKey(key, sequence)] = &DocumentRevision{Version: doc.Version, Sequence: sequence, Retired: true}
 }
 
 func (tx *Tx) putDocument(def DocumentDefinition, id uint64, member string, value json.RawMessage) error {
@@ -279,12 +296,12 @@ func (tx *Tx) putDocument(def DocumentDefinition, id uint64, member string, valu
 	doc.Value = append(json.RawMessage(nil), value...)
 	doc.Version = def.Version
 	if doc.History == "rewindable" {
-		rev := DocumentRevision{Version: def.Version, Sequence: tx.state.Sequence + 1, Value: append(json.RawMessage(nil), value...)}
-		if n := len(doc.Revisions); n > 0 && doc.Revisions[n-1].Sequence == rev.Sequence {
-			doc.Revisions[n-1] = rev
-		} else {
-			doc.Revisions = append(doc.Revisions, rev)
+		// A revision of its own: the document's history lives apart from it.
+		sequence := tx.state.Sequence + 1
+		if tx.state.Revisions == nil {
+			tx.state.Revisions = map[string]*DocumentRevision{}
 		}
+		tx.state.Revisions[revisionKey(key, sequence)] = &DocumentRevision{Version: def.Version, Sequence: sequence, Value: append(json.RawMessage(nil), value...)}
 	}
 	return nil
 }
@@ -465,26 +482,21 @@ func readDocumentAsOf[T any](ctx context.Context, h *Harness, def DocumentDefini
 	if err != nil {
 		return value, err
 	}
-	doc, err := s.document(key)
+	// The document's history: a retired document reads as it was before.
+	revision, err := revisionAt(s, key, entry.Sequence)
 	if err != nil {
 		return value, err
 	}
-	if doc == nil {
+	if revision == nil || revision.Retired {
 		return value, ErrNotFound
 	}
-	var revision *DocumentRevision
-	for i := range doc.Revisions {
-		if doc.Revisions[i].Sequence <= entry.Sequence {
-			revision = &doc.Revisions[i]
-		}
-	}
-	if revision == nil {
-		return value, ErrNotFound
-	}
-	then := *doc
-	then.Value, then.Version = revision.Value, doc.Version
-	if revision.Version > 0 {
-		then.Version = revision.Version
+	then := DocumentRecord{Kind: def.Kind, Version: revision.Version, Scope: def.Scope, ScopeID: uint64(entry.Conversation),
+		History: normalizeHistory(def.History), Fork: normalizeFork(def.Scope, def.Fork), Member: member, Value: revision.Value}
+	if current, err := s.document(key); err != nil {
+		return value, err
+	} else if current != nil {
+		// A changed policy is refused, as for the current value.
+		then.History, then.Fork = current.History, current.Fork
 	}
 	data, err := migratedDocument(def, &then)
 	if err != nil {

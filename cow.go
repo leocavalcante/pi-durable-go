@@ -24,6 +24,7 @@ func shallowState(base *State) *State {
 	out.Tasks = cloneMap(base.Tasks)
 	out.Submissions = cloneMap(base.Submissions)
 	out.Documents = cloneMap(base.Documents)
+	out.Revisions = cloneMap(base.Revisions)
 	out.base = base
 	return &out
 }
@@ -172,6 +173,10 @@ func detachChanges(base, candidate *State, compare bool) (bool, *StateDelta, err
 	}
 	changed = changed || c
 	if delta.Documents, c, err = detachTable(base.Documents, candidate.Documents, compare); err != nil {
+		return false, nil, err
+	}
+	changed = changed || c
+	if delta.Revisions, c, err = detachTable(base.Revisions, candidate.Revisions, compare); err != nil {
 		return false, nil, err
 	}
 	changed = changed || c

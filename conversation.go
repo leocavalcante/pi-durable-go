@@ -276,12 +276,14 @@ func (tx *Tx) Fork(parentID ConversationID, at EntryID, opts ConversationOptions
 			case "current":
 				value = doc.Value
 			case "asOf":
-				for _, rev := range doc.Revisions {
-					if rev.Sequence <= found.Sequence {
-						value = rev.Value
-						if rev.Version > 0 {
-							def.Version = rev.Version
-						}
+				rev, err := revisionAt(tx.state, keyOfRecord(doc), found.Sequence)
+				if err != nil {
+					return err
+				}
+				if rev != nil && !rev.Retired {
+					value = rev.Value
+					if rev.Version > 0 {
+						def.Version = rev.Version
 					}
 				}
 			default:

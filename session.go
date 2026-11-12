@@ -736,6 +736,11 @@ func (s *Session) wholeStateLocked() (*State, bool, error) {
 			out.Conversations[id] = conversation
 		}
 	}
+	for key, revision := range stored.Revisions {
+		if out.Revisions[key] == nil {
+			out.Revisions[key] = revision
+		}
+	}
 	return out, false, nil
 }
 
@@ -823,6 +828,11 @@ func (s *Session) residentJSON(storedJSON []byte) []byte {
 	for id := range stored.Conversations {
 		if s.state.Conversations[id] == nil {
 			delete(stored.Conversations, id)
+		}
+	}
+	for key := range stored.Revisions {
+		if s.state.Revisions[key] == nil {
+			delete(stored.Revisions, key)
 		}
 	}
 	data, err := json.Marshal(stored)
@@ -1032,13 +1042,17 @@ func cloneState(s *State) (*State, error) {
 	if out.Documents == nil {
 		out.Documents = map[string]*DocumentRecord{}
 	}
+	if out.Revisions == nil {
+		out.Revisions = map[string]*DocumentRevision{}
+	}
 	return &out, nil
 }
 
 // stateVersion is Go's storage format version. Version 2 added outcome and
 // submission diagnostics; version 3 is upstream's run model: placed
-// submissions with their entry, and run control in pi.live.
-const stateVersion = 3
+// submissions with their entry, and run control in pi.live; version 4 keeps
+// rewindable documents' revisions apart (State.Revisions).
+const stateVersion = 4
 
 // upgradeState upgrades a detached State to stateVersion in memory.
 func upgradeState(st *State) error {
@@ -1094,6 +1108,20 @@ func upgradeState(st *State) error {
 			doc.Value = value
 		}
 		st.Version = 3
+	}
+	if st.Version == 3 {
+		// Version 4 keeps rewindable revisions apart from their documents.
+		for key, doc := range st.Documents {
+			for i := range doc.Revisions {
+				revision := doc.Revisions[i]
+				if st.Revisions == nil {
+					st.Revisions = map[string]*DocumentRevision{}
+				}
+				st.Revisions[revisionKey(key, revision.Sequence)] = &revision
+			}
+			doc.Revisions = nil
+		}
+		st.Version = 4
 	}
 	return nil
 }

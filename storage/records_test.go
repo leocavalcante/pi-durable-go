@@ -22,7 +22,7 @@ func recordState() *durable.State {
 	doc := func(scope string, id uint64, kind, member string) *durable.DocumentRecord {
 		return &durable.DocumentRecord{Kind: kind, Version: 1, Scope: scope, ScopeID: id, History: "latest", Fork: "initial", Member: member, Value: json.RawMessage(`{}`)}
 	}
-	return &durable.State{Version: 3, Sequence: 1, NextID: 60, Root: 1,
+	return &durable.State{Version: 4, Sequence: 1, NextID: 60, Root: 1,
 		Conversations: map[durable.ConversationID]*durable.ConversationRecord{
 			1:  {ID: 1, Head: 12, CreatedAt: at},
 			2:  {ID: 2, Parent: 1, ForkAt: 11, Head: 21, CreatedAt: at},
@@ -269,5 +269,40 @@ func TestSQLiteRecordReadsOfALegacySnapshot(t *testing.T) {
 			t.Fatalf("%s: entries=%+v error=%v", name, entries, err)
 		}
 		store.Close()
+	}
+}
+
+func TestRevisionReadsIgnoreMembersThatLookLikeRevisions(t *testing.T) {
+	ctx := context.Background()
+	sqlite, err := OpenSQLite(ctx, filepath.Join(t.TempDir(), "revisions.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sqlite.Close()
+	st := recordState()
+	key := "conversation:1:app.fam/a"
+	tricky := "conversation:1:app.fam/a@00000000000000000001"
+	st.Revisions = map[string]*durable.DocumentRevision{
+		durable.RevisionKey(key, 3):    {Version: 1, Sequence: 3, Value: json.RawMessage(`{"own":3}`)},
+		durable.RevisionKey(tricky, 9): {Version: 1, Sequence: 9, Value: json.RawMessage(`{"other":9}`)},
+	}
+	if err := sqlite.Commit(ctx, 0, st); err != nil {
+		t.Fatal(err)
+	}
+	for name, store := range map[string]durable.RecordStorage{"sqlite": sqlite.(durable.RecordStorage), "memory": nil} {
+		var got *durable.DocumentRevision
+		if store == nil {
+			got = durable.StateRecords{State: st}.DocumentRevision(key, 50)
+		} else if got, err = store.DocumentRevision(ctx, key, 50); err != nil {
+			t.Fatal(err)
+		}
+		if got == nil || string(got.Value) != `{"own":3}` {
+			t.Fatalf("%s: revision=%+v", name, got)
+		}
+		if store != nil {
+			if none, err := store.DocumentRevision(ctx, key, 2); err != nil || none != nil {
+				t.Fatalf("%s: before the first revision=%+v error=%v", name, none, err)
+			}
+		}
 	}
 }
