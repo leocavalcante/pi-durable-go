@@ -24,13 +24,15 @@
 | Tool output throttling and dropped counters; upstream read (streaming), edit (fuzzy matching, diff details), and bash (timeout, spill, exit codes) results; the PowerShell tool | `tool_runtime.go`, `tools/read_text.go`, `tools/edit_diff.go`, `tools/diff.go`, `tools/coding.go` |
 
 | Positional system messages and context edits (spec §7.4) | `prompt.go`, `context.go` |
+| `settings.stream` and `settings.extensions`, `ModelFunc`, runtime helpers (`Agent`, `Task`, `WaitTask`, `Context`, `Diagnostic`, `RetainedOutput`), submission abort results, document families, nested calls as a family, read-only SQLite, trace roots and status categories | `harness.go`, `runtime_api.go`, `documents.go`, `nested.go`, `storage/sqlite.go`, `telemetry.go` |
 | Incremental commits and shared reads ([plan 0006](0006-incremental-commits-and-record-storage.md)); commit observers; read-only JSONL; images end to end with a processor and catalog limits; identity and tool model access; structured tool output; `Tx.Configure` | `cow.go`, `delta.go`, `storage/`, `tools/images.go`, `harness.go` |
 
 ## 2. Remaining work, in proposed order
 
-1. **Group commit.** Deferred in [plan 0006](0006-incremental-commits-and-record-storage.md): it would replace per-commit storage cancellation semantics that the Session's failure rules and tests encode, for throughput only.
-2. **Image order.** Images interleaved with text in one message.
+1. **Group commit.** Deferred in [plan 0006](0006-incremental-commits-and-record-storage.md). Upstream stores commits that arrive during a storage call together, and every storage error is fatal there; the Go Session lets a caller's cancellation and a certified rejection fail one commit without failing the Session, which grouping would give up, for throughput only.
+2. **Image order.** Images interleaved with text in one message; Go puts a message's images after its text.
 3. **Environment parity.** The `env` package's bounded binary and directory readers and file watching. Hosts can use the Go standard library directly; tools need none of them today.
+4. **Strict tool schemas in `model.OpenAI`.** pi-ai turns `constrainedSampling` into OpenAI strict-mode schemas; the Go adapter does no provider-specific schema conversion. The Pi bridge passes the declaration to pi-ai, which does.
 
 ## 3. Not planned
 
