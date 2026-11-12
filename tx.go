@@ -92,7 +92,7 @@ func (tx *Tx) CreateConversation(opts ConversationOptions) (ConversationID, erro
 		if err != nil {
 			return 0, err
 		}
-		if agent.Model.ID == "" && agent.Model.Provider == "" && agent.Extensions == nil && agent.Tools == nil && agent.Instructions == "" && agent.Cwd == "" && agent.ThinkingLevel == "" {
+		if agent.Model.ID == "" && agent.Model.Provider == "" && agent.Extensions == nil && agent.Tools == nil && agent.Instructions == nil && agent.Cwd == "" && agent.ThinkingLevel == "" {
 			agent = parent.Agent
 		}
 	}

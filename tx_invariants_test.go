@@ -15,12 +15,12 @@ func TestEscapedTransactionCannotAlterPublishedState(t *testing.T) {
 	if err := h.Commit(context.Background(), func(tx *Tx) error { txSaved = tx; var err error; escaped, err = tx.Conversation(c.id); return err }); err != nil {
 		t.Fatal(err)
 	}
-	escaped.Agent.Instructions = "outside mutation"
+	escaped.Agent.Instructions = str("outside mutation")
 	state, err := h.Snapshot(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if state.Conversations[c.id].Agent.Instructions != "" {
+	if state.Conversations[c.id].Agent.Instructions != nil {
 		t.Fatal("escaped pointer mutated committed state")
 	}
 	if _, err := txSaved.Conversation(c.id); !errors.Is(err, ErrClosed) {

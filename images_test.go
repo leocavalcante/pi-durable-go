@@ -131,7 +131,7 @@ func TestTxConfigureChangesTheAgentInTheCallersCommit(t *testing.T) {
 			return err
 		}
 		agent := rec.Agent
-		agent.Instructions = "be brief"
+		agent.Instructions = str("be brief")
 		if err := tx.Configure(root.ID(), agent); err != nil {
 			return err
 		}
@@ -141,7 +141,7 @@ func TestTxConfigureChangesTheAgentInTheCallersCommit(t *testing.T) {
 		t.Fatal(err)
 	}
 	agent, err := root.Agent(context.Background())
-	if err != nil || agent.Instructions != "be brief" {
+	if err != nil || agent.Instructions == nil || *agent.Instructions != "be brief" {
 		t.Fatalf("agent=%+v error=%v", agent, err)
 	}
 	if err := h.Commit(context.Background(), func(tx *Tx) error { return tx.Configure(root.ID(), Agent{MaxTurns: -1}) }); err == nil {

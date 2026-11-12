@@ -70,7 +70,7 @@ type Agent struct {
 	ThinkingLevel string   `json:"thinkingLevel,omitempty"`
 	Extensions    []string `json:"extensions"`
 	Tools         []string `json:"tools"`
-	Instructions  string   `json:"instructions,omitempty"`
+	Instructions  *string  `json:"instructions,omitempty"`
 	Cwd           string   `json:"cwd,omitempty"`
 	// MaxTurns bounds a run's tool rounds; a run that reaches it ends
 	// unanswered with turn_limit, and a continue resumes it. Zero: no bound.
@@ -503,10 +503,21 @@ type Model interface {
 	Generate(context.Context, ModelRequest, func(string) error) (ModelResponse, error)
 }
 
+// Section is a part of the agent's system prompt, rendered for every request:
+// wrapped as <Name>\n...\n</Name>, or as is when Untagged (upstream
+// tag: false). Render returns ErrOmitSection to leave the section out (upstream
+// undefined); any text, "" included, is the section. A Render that fails is
+// reported as extension_error and keeps the text the model was shown.
 type Section struct {
-	Name   string
-	Render func(context.Context, ConversationRecord, *Harness) (string, error)
+	Name     string
+	Untagged bool
+	Render   func(context.Context, ConversationRecord, *Harness) (string, error)
 }
+
+// ErrOmitSection, returned by a Section's Render, leaves the section out of the
+// prompt.
+var ErrOmitSection = errors.New("durable: section omitted")
+
 type Hooks struct {
 	BeforeRequest func(context.Context, *ModelRequest, *TaskRuntime) error
 	AfterResponse func(context.Context, *ModelResponse, *TaskRuntime) error

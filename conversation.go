@@ -213,7 +213,7 @@ func (c *Conversation) Fork(ctx context.Context, at EntryID, opts ConversationOp
 			return fmt.Errorf("%w: fork entry not visible", ErrInvalid)
 		}
 		// A zero agent means inherit the parent's choices at this entry.
-		if opts.Agent.Model.ID != "" || opts.Agent.Model.Provider != "" || opts.Agent.Tools != nil || opts.Agent.Extensions != nil || opts.Agent.Instructions != "" || opts.Agent.Cwd != "" || opts.Agent.ThinkingLevel != "" {
+		if opts.Agent.Model.ID != "" || opts.Agent.Model.Provider != "" || opts.Agent.Tools != nil || opts.Agent.Extensions != nil || opts.Agent.Instructions != nil || opts.Agent.Cwd != "" || opts.Agent.ThinkingLevel != "" {
 			agent = opts.Agent
 		}
 		create := ConversationOptions{Owner: opts.Owner, Agent: agent}

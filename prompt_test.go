@@ -193,3 +193,37 @@ func TestToolEstimatesCountJSONStringifyLength(t *testing.T) {
 		t.Fatalf("estimate=%d, want %d", got, want)
 	}
 }
+
+func TestSectionsRenderAsUpstream(t *testing.T) {
+	var mu sync.Mutex
+	var requests []ModelRequest
+	model := taskModelFunc(func(_ context.Context, req ModelRequest, _ func(string) error) (ModelResponse, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		requests = append(requests, req)
+		return ModelResponse{Content: "ok"}, nil
+	})
+	render := func(text string, err error) func(context.Context, ConversationRecord, *Harness) (string, error) {
+		return func(context.Context, ConversationRecord, *Harness) (string, error) { return text, err }
+	}
+	registry := NewRegistry()
+	if err := registry.Install(Extension{Name: "prompt", Sections: []Section{
+		{Name: "empty", Render: render("", nil)},
+		{Name: "omitted", Render: render("ignored", ErrOmitSection)},
+		{Name: "raw", Untagged: true, Render: render("plain text", nil)},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	h := taskTestHarness(t, HarnessOptions{Model: model, Registry: registry})
+	// Empty instructions are an empty section; nil ones none.
+	root, err := h.Root(context.Background(), ConversationOptions{Agent: Agent{Model: ModelRef{Provider: "fake", ID: "m"}, Extensions: []string{"prompt"}, Instructions: str("")}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitSettled(t, h, submit(t, root, SubmissionRequest{Content: "one"}))
+	mu.Lock()
+	defer mu.Unlock()
+	if got, want := promptText(requests[0].Messages), "<empty>\n\n</empty>\n\nplain text\n\n<instructions>\n\n</instructions>"; got != want {
+		t.Fatalf("prompt=%q\nwant %q", got, want)
+	}
+}

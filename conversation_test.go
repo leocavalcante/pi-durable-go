@@ -53,7 +53,7 @@ func testRoot(t *testing.T, h *Harness) *Conversation {
 func TestRootOptionsApplyOnlyOnCreation(t *testing.T) {
 	h := testHarness(t)
 	c := testRoot(t, h)
-	again, err := h.Root(context.Background(), ConversationOptions{Agent: Agent{Instructions: "changed"}})
+	again, err := h.Root(context.Background(), ConversationOptions{Agent: Agent{Instructions: str("changed")}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,7 +64,7 @@ func TestRootOptionsApplyOnlyOnCreation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if agent.Instructions != "" {
+	if agent.Instructions != nil {
 		t.Fatal("existing root reconfigured")
 	}
 }
@@ -196,7 +196,7 @@ func TestDocumentForkUsesWholeEntryCommitAndHistoricalAgent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := c.Configure(ctx, Agent{Model: ModelRef{Provider: "fake", ID: "other"}, Instructions: "later"}); err != nil {
+	if err := c.Configure(ctx, Agent{Model: ModelRef{Provider: "fake", ID: "other"}, Instructions: str("later")}); err != nil {
 		t.Fatal(err)
 	}
 	child, err := c.Fork(ctx, at, ConversationOptions{})
@@ -216,7 +216,7 @@ func TestDocumentForkUsesWholeEntryCommitAndHistoricalAgent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if agent.Model.ID != "echo" || agent.Instructions != "" {
+	if agent.Model.ID != "echo" || agent.Instructions != nil {
 		t.Fatalf("fork agent %+v", agent)
 	}
 	state, err := h.Snapshot(ctx)

@@ -3,6 +3,7 @@ package durable
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -748,6 +749,9 @@ func buildRequest(ctx context.Context, r *TaskRuntime, state *State, c Conversat
 			continue
 		}
 		text, err := section.Render(ctx, c, r.h)
+		if errors.Is(err, ErrOmitSection) {
+			continue
+		}
 		if err != nil {
 			r.reportExtension(err, section.extension)
 			if kept, ok := shown.text[section.Name]; ok {
@@ -755,12 +759,16 @@ func buildRequest(ctx context.Context, r *TaskRuntime, state *State, c Conversat
 			}
 			continue
 		}
-		if text != "" {
+		if section.Untagged {
+			desired.set(section.Name, text)
+		} else {
 			desired.set(section.Name, fmt.Sprintf("<%s>\n%s\n</%s>", section.Name, text, section.Name))
 		}
 	}
-	if c.Agent.Instructions != "" {
-		desired.set("instructions", "<instructions>\n"+c.Agent.Instructions+"\n</instructions>")
+	// The agent's instructions, when set (even empty), come after every
+	// extension section.
+	if c.Agent.Instructions != nil {
+		desired.set("instructions", "<instructions>\n"+*c.Agent.Instructions+"\n</instructions>")
 	}
 	var tools []ToolSpec
 	for _, tool := range offeredTools(registry.Tools(c.Agent), c.Agent.ModelTools) {
