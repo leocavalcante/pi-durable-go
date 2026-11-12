@@ -194,3 +194,40 @@ func (r *TaskRuntime) Model() Model {
 	}
 	return harnessModel{h: r.h}
 }
+
+// EachTaskHook calls invoke with each handler of type H that the extensions
+// of the task's conversation register for the task's kind
+// (Extension.TaskHooks), in extension order (upstream runtime.hooks.each).
+// An error or panic from invoke is reported as extension_error and the next
+// handler runs; once the invocation is cancelled, its error is returned.
+// Handlers of another type are skipped.
+func EachTaskHook[H any](ctx context.Context, r *TaskRuntime, invoke func(H) error) error {
+	if err := r.check(); err != nil {
+		return err
+	}
+	state, err := r.h.read(ctx)
+	if err != nil {
+		return err
+	}
+	task := state.Tasks[r.ID]
+	if task == nil {
+		return ErrNotFound
+	}
+	conv := state.Conversations[task.Conversation]
+	if conv == nil {
+		return ErrNotFound
+	}
+	for _, hook := range r.Registry().taskHooks(conv.Agent, task.Kind) {
+		handlers, ok := hook.handlers.(H)
+		if !ok {
+			continue
+		}
+		if err := containPanic(func() error { return invoke(handlers) }); err != nil {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			r.reportExtension(err, hook.extension)
+		}
+	}
+	return nil
+}

@@ -420,6 +420,26 @@ func (s *RegistrySnapshot) hooks(agent Agent) []namedHooks {
 	return out
 }
 
+// taskHooks are the selected extensions' handlers for a task kind, in
+// extension order.
+func (s *RegistrySnapshot) taskHooks(agent Agent, kind string) []namedTaskHooks {
+	var out []namedTaskHooks
+	if s == nil {
+		return out
+	}
+	for _, ext := range selectedExtensions(s.extensions, s.selection(agent)) {
+		if handlers, ok := ext.TaskHooks[kind]; ok && handlers != nil {
+			out = append(out, namedTaskHooks{handlers: handlers, extension: ext.Name})
+		}
+	}
+	return out
+}
+
+type namedTaskHooks struct {
+	handlers  any
+	extension string
+}
+
 func (s *RegistrySnapshot) Hooks(agent Agent, kind string) []Hooks {
 	var out []Hooks
 	if s == nil {
@@ -445,6 +465,13 @@ func cloneExtension(ext Extension) Extension {
 			wraps[key] = fn
 		}
 		ext.WrapTools = wraps
+	}
+	if ext.TaskHooks != nil {
+		hooks := make(map[string]any, len(ext.TaskHooks))
+		for kind, handlers := range ext.TaskHooks {
+			hooks[kind] = handlers
+		}
+		ext.TaskHooks = hooks
 	}
 	if ext.WrapSections != nil {
 		wraps := make(map[string]func(Section) Section, len(ext.WrapSections))

@@ -697,6 +697,10 @@ type Extension struct {
 	Tasks        []TaskDefinition
 	WrapTools    map[string]func(ToolDefinition) ToolDefinition
 	WrapSections map[string]func(Section) Section
+	// TaskHooks are handlers for tasks by kind (upstream hook(task,
+	// handlers)): a task runs the ones its conversation's extensions select
+	// with EachTaskHook. Their type is the task's own contract.
+	TaskHooks map[string]any
 }
 type Settings struct {
 	// Retry is Pi Durable's settings.retry policy for generation and
