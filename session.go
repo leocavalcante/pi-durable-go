@@ -97,7 +97,7 @@ func (s *Session) Commit(ctx context.Context, fn func(*Tx) error) error {
 }
 
 // Internal bookkeeping errors seal admission on the line, before another
-// caller can publish a write. Public caller rejections retain rollback semantics.
+// caller can publish a write. Storage errors fail the Session either way.
 func (s *Session) commit(ctx context.Context, fn func(*Tx) error, internal bool) (err error) {
 	if err := s.Err(); err != nil {
 		return err
@@ -143,9 +143,8 @@ func (s *Session) commitLocked(ctx context.Context, fn func(*Tx) error, internal
 		if !internal || err == nil || callbackNoChange || s.failure.Load() != nil {
 			return
 		}
-		// Uncertain storage errors are failed below even when they wrap a
-		// cancellation. Remaining cancellation errors are pre-storage or a
-		// certified-unapplied write for this cancelled call.
+		// Storage errors were failed below. A cancellation the callback
+		// returned for its own cancelled context does not fail the Session.
 		if ctx.Err() != nil && (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)) {
 			return
 		}

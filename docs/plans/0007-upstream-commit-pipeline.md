@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Status | In progress |
+| Status | In progress: M1 done |
 | Compatibility target | Pi Durable **v1.5.2** (tag `v1.5.2`, commit `b4afdddf44e059c67ccf5097e5317d913521b470`) |
 | Supersedes | The deferrals in [plan 0006](0006-incremental-commits-and-record-storage.md) §5 (group commit) and plan 0005 §3 (deferred commits) |
 | Main code areas | `session.go`, `lifecycle.go`, `delta.go`, `storage/`, `generation.go`, `tool_runtime.go`, `prompt.go` |
@@ -27,3 +27,7 @@ The port follows upstream semantics. Earlier Go choices that differ from upstrea
 | M4 | Section omission and instructions as upstream renders them |
 
 Each milestone passes `make check` before it is pushed. Tests that encoded the earlier Go semantics are rewritten to upstream's.
+
+## 3. Implementation record
+
+- **M1** (`18486ed`): `commitLocked` fails the Session on any storage commit error and stores an admitted commit with a context that its caller's cancellation does not reach (`context.WithoutCancel`). Tests that encoded the certified-rejection and caller-cancellation exemptions now assert upstream's: a rejected write fails the Session, a storage error wrapping a cancellation is final, and a callback that cancels its own context still has its commit stored.

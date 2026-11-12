@@ -26,10 +26,10 @@ var (
 	ErrReadOnly = errors.New("durable: read-only Harness")
 )
 
-// RejectedError certifies a storage write was not applied. Other write errors
-// are uncertain and poison the Session; implementations must not misclassify them.
-// Scheduler bookkeeping fails the Session even on certified rejection, except
-// for a caller-cancelled, certified-unapplied write.
+// RejectedError certifies a storage write was not applied. Like any storage
+// error, it fails the Session (upstream: storage failures are final); a
+// storage returns it when it knows nothing was written, which reopening can
+// rely on.
 type RejectedError struct{ Err error }
 
 func (e *RejectedError) Error() string { return e.Err.Error() }
