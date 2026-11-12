@@ -529,7 +529,9 @@ func (s *Session) writeLoop() {
 				// A read error already failed the Session; keeping every
 				// entry is safe meanwhile.
 				s.cold.forgetDocuments(item.delta)
+				s.cold.forgetConversations(item.delta)
 				_ = s.cold.keepEntries(item.state, s.head, item.delta, time.Now(), retention, s.held)
+				s.cold.evictConversations(item.state)
 			}
 			s.state = item.state
 			s.fullWrite = false
@@ -608,9 +610,10 @@ func (s *Session) sweepContexts() {
 	next := shallowState(s.state)
 	next.base = nil
 	before := len(next.Entries)
-	documents := len(next.Documents)
+	documents, conversations := len(next.Documents), len(next.Conversations)
 	_ = s.cold.keepEntries(next, nil, nil, time.Now(), retention, s.held)
-	if len(next.Entries) != before || len(next.Documents) != documents {
+	s.cold.evictConversations(next)
+	if len(next.Entries) != before || len(next.Documents) != documents || len(next.Conversations) != conversations {
 		s.state, s.head = next, next
 		s.recordCommitted(false)
 	}
@@ -676,6 +679,11 @@ func (s *Session) wholeStateLocked() (*State, error) {
 	for key, doc := range stored.Documents {
 		if out.Documents[key] == nil {
 			out.Documents[key] = doc
+		}
+	}
+	for id, conversation := range stored.Conversations {
+		if out.Conversations[id] == nil && published(uint64(id)) {
+			out.Conversations[id] = conversation
 		}
 	}
 	return out, nil
@@ -760,6 +768,11 @@ func (s *Session) residentJSON(storedJSON []byte) []byte {
 	for key := range stored.Documents {
 		if s.state.Documents[key] == nil {
 			delete(stored.Documents, key)
+		}
+	}
+	for id := range stored.Conversations {
+		if s.state.Conversations[id] == nil {
+			delete(stored.Conversations, id)
 		}
 	}
 	data, err := json.Marshal(stored)

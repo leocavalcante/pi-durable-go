@@ -109,7 +109,10 @@ func (w ConversationWindow) resolved() (ConversationWindow, error) {
 
 // advanceView computes the window's next value from a snapshot.
 func (c *Conversation) advanceView(state *State, previous *ConversationView, window ConversationWindow) (*ConversationView, error) {
-	record := state.Conversations[c.id]
+	record, err := state.conversation(c.id)
+	if err != nil {
+		return nil, err
+	}
 	if record == nil {
 		return nil, ErrNotFound
 	}

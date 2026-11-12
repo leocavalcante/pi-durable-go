@@ -47,7 +47,13 @@ func (tx *Tx) ScanConversations(query ConversationQuery, limit int, cursor *Scan
 	if err := tx.check(); err != nil {
 		return ScanPage[ConversationRecord]{}, err
 	}
-	return scanRecords(tx.state.Conversations, query.Order, limit, cursor, conversationFilter(tx.state, query))
+	if tx.state.cold == nil {
+		return scanRecords(tx.state.Conversations, query.Order, limit, cursor, conversationFilter(tx.state, query))
+	}
+	// A bounded Session keeps conversations in use only: merge storage's.
+	return scanMerged(tx.state.Conversations, query.Order, limit, cursor, conversationFilter(tx.state, query), func(c *ScanCursor, n int) (ScanPage[ConversationRecord], error) {
+		return tx.state.cold.storage.ScanConversations(context.Background(), query, n, c)
+	}, func(c *ConversationRecord) uint64 { return uint64(c.ID) })
 }
 
 // ScanTasks pages through task records matching every filter, by ID, inside
@@ -92,7 +98,10 @@ func (tx *Tx) LatestEntryID(cid ConversationID) (EntryID, error) {
 	if err := tx.check(); err != nil {
 		return 0, err
 	}
-	c := tx.state.Conversations[cid]
+	c, err := tx.state.conversation(cid)
+	if err != nil {
+		return 0, err
+	}
 	if c == nil {
 		return 0, ErrNotFound
 	}

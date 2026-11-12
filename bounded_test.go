@@ -417,3 +417,56 @@ func TestHeldDocumentsStayUntilStored(t *testing.T) {
 		t.Fatalf("stored at close=%s", value)
 	}
 }
+
+func TestIdleConversationRecordsLeaveMemory(t *testing.T) {
+	ctx := context.Background()
+	h, root := runHarness(t, echoModel{}, Settings{ContextRetentionMs: ptr(0.0)})
+	var created []ConversationID
+	for i := 0; i < 5; i++ {
+		if err := h.Commit(ctx, func(tx *Tx) error {
+			id, err := tx.CreateConversation(ConversationOptions{Agent: Agent{Model: ModelRef{Provider: "fake", ID: "m"}, Cwd: fmt.Sprintf("/w%d", i)}})
+			created = append(created, id)
+			return err
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	resident := func() int {
+		h.session.mu.Lock()
+		defer h.session.mu.Unlock()
+		return len(h.session.state.Conversations)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for resident() > 1 {
+		if time.Now().After(deadline) {
+			t.Fatalf("%d conversation records kept", resident())
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	// Every read still finds an evicted conversation; using it loads it.
+	c, err := h.Conversation(ctx, created[2])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if agent, err := c.Agent(ctx); err != nil || agent.Cwd != "/w2" {
+		t.Fatalf("agent=%+v error=%v", agent, err)
+	}
+	if record := waitSettled(t, h, submit(t, c, SubmissionRequest{Content: "hi"})); record.Status != "done" {
+		t.Fatalf("run on an evicted conversation=%+v", record)
+	}
+	found := 0
+	if err := h.Commit(ctx, func(tx *Tx) error {
+		page, err := tx.ScanConversations(ConversationQuery{}, 100, nil)
+		found = len(page.Items)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if found != 6 {
+		t.Fatalf("scanned %d conversations, want 6", found)
+	}
+	if _, err := h.Usage(ctx); err != nil {
+		t.Fatal(err)
+	}
+	_ = root
+}

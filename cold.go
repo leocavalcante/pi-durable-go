@@ -17,9 +17,10 @@ import (
 // CachedStorage does.
 
 const (
-	coldTaskCapacity       = 256
-	coldSubmissionCapacity = 256
-	coldDocumentCapacity   = 256
+	coldTaskCapacity         = 256
+	coldSubmissionCapacity   = 256
+	coldDocumentCapacity     = 256
+	coldConversationCapacity = 4096
 	// defaultContextRetention is upstream's settings.contextRetentionMs.
 	defaultContextRetention = 10 * time.Minute
 )
@@ -34,6 +35,9 @@ type coldRecords struct {
 	submissions *lru[SubmissionID, *SubmissionRecord]
 	entries     *lru[EntryID, *Entry]
 	documents   *lru[string, *DocumentRecord]
+	// conversations holds conversation records a bounded Session evicted or
+	// read; dropped when a commit changes one (forgetConversations).
+	conversations *lru[ConversationID, *ConversationRecord]
 	// starts are where each loaded conversation's context range starts, and
 	// loaded when a published commit last touched it (entries.go).
 	starts map[ConversationID]EntryID
@@ -57,6 +61,7 @@ func newColdRecords(storage RecordStorage, fail func(error)) *coldRecords {
 		submissions:      newLRU[SubmissionID, *SubmissionRecord](coldSubmissionCapacity),
 		entries:          newLRU[EntryID, *Entry](coldEntryCapacity),
 		documents:        newLRU[string, *DocumentRecord](coldDocumentCapacity),
+		conversations:    newLRU[ConversationID, *ConversationRecord](coldConversationCapacity),
 		starts:           map[ConversationID]EntryID{},
 		loaded:           map[ConversationID]time.Time{},
 		contextRetention: func() time.Duration { return defaultContextRetention },
@@ -327,4 +332,78 @@ func (l *lru[K, V]) remove(key K) {
 		l.order.Remove(element)
 		delete(l.items, key)
 	}
+}
+
+// conversation reads a conversation record a bounded Session does not keep.
+func (c *coldRecords) conversation(id ConversationID) (*ConversationRecord, error) {
+	c.mu.Lock()
+	if conversation, ok := c.conversations.get(id); ok {
+		c.mu.Unlock()
+		return conversation, nil
+	}
+	c.mu.Unlock()
+	conversation, err := c.storage.Conversation(context.Background(), id)
+	if err != nil {
+		err = fmt.Errorf("durable: reading conversation %d: %w", id, err)
+		c.fail(err)
+		return nil, err
+	}
+	if conversation != nil {
+		c.mu.Lock()
+		c.conversations.put(id, conversation)
+		c.mu.Unlock()
+	}
+	return conversation, nil
+}
+
+// forgetConversations drops cached conversation records a published commit
+// changed.
+func (c *coldRecords) forgetConversations(delta *StateDelta) {
+	if len(delta.Conversations) == 0 {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for id := range delta.Conversations {
+		c.conversations.remove(id)
+	}
+}
+
+// evictConversations removes from a State about to be published the
+// conversation records a bounded Session does not keep: it keeps the root,
+// loaded conversations, busy ones, those of live tasks and open submissions,
+// and those live tasks own. The others go to the cache.
+func (c *coldRecords) evictConversations(st *State) {
+	keep := map[ConversationID]bool{st.Root: true}
+	for id := range c.loaded {
+		keep[id] = true
+	}
+	live := map[TaskID]bool{}
+	for id, task := range st.Tasks {
+		if task.Status != "terminal" {
+			live[id] = true
+			keep[task.Conversation] = true
+		}
+	}
+	for _, sub := range st.Submissions {
+		keep[sub.Conversation] = true
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for id, conversation := range st.Conversations {
+		if keep[id] || conversation.Busy != 0 || live[conversation.Owner.Task] {
+			continue
+		}
+		delete(st.Conversations, id)
+		c.conversations.put(id, conversation)
+	}
+}
+
+// conversation is a conversation record: the State's own, or one a bounded
+// Session does not keep. Never mutate the result. Nil when none exists.
+func (s *State) conversation(id ConversationID) (*ConversationRecord, error) {
+	if c := s.Conversations[id]; c != nil || s.cold == nil || id == 0 {
+		return c, nil
+	}
+	return s.cold.conversation(id)
 }

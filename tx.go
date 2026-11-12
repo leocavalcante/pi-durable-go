@@ -1,6 +1,7 @@
 package durable
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -38,7 +39,10 @@ func (tx *Tx) Conversation(id ConversationID) (*ConversationRecord, error) {
 	if err := tx.check(); err != nil {
 		return nil, err
 	}
-	c := tx.state.mutConversation(id)
+	c, err := tx.state.mutStoredConversation(id)
+	if err != nil {
+		return nil, err
+	}
 	if c == nil {
 		return nil, ErrNotFound
 	}
@@ -246,7 +250,26 @@ func (tx *Tx) ConversationsByOwner(owner TaskID) ([]ConversationRecord, error) {
 			result = append(result, *cloneRecord(c))
 		}
 	}
-	return result, nil
+	if tx.state.cold == nil {
+		return result, nil
+	}
+	// A bounded Session may not keep them all: add storage's.
+	var cursor *ScanCursor
+	for {
+		page, err := tx.state.cold.storage.ScanConversations(context.Background(), ConversationQuery{OwnerTask: owner}, 256, cursor)
+		if err != nil {
+			return nil, err
+		}
+		for _, c := range page.Items {
+			if tx.state.Conversations[c.ID] == nil {
+				result = append(result, c)
+			}
+		}
+		if page.Next == nil {
+			return result, nil
+		}
+		cursor = page.Next
+	}
 }
 
 // Entries returns the active transcript, including inherited entries. It detects

@@ -50,8 +50,11 @@ func (h *Harness) Conversation(ctx context.Context, id ConversationID) (*Convers
 	if err != nil {
 		return nil, err
 	}
-	if s.Conversations[id] == nil {
-		return nil, ErrNotFound
+	if record, err := s.conversation(id); err != nil || record == nil {
+		if err == nil {
+			err = ErrNotFound
+		}
+		return nil, err
 	}
 	return &Conversation{h: h, id: id}, nil
 }
@@ -87,7 +90,10 @@ func (c *Conversation) Agent(ctx context.Context) (Agent, error) {
 	if err != nil {
 		return Agent{}, err
 	}
-	rec := s.Conversations[c.id]
+	rec, err := s.conversation(c.id)
+	if err != nil {
+		return Agent{}, err
+	}
 	if rec == nil {
 		return Agent{}, ErrNotFound
 	}
@@ -519,7 +525,10 @@ func (c *Conversation) Abort(ctx context.Context, includeBackground bool) error 
 	return c.WaitForIdle(ctx)
 }
 func viewFromState(state *State, id ConversationID) (View, error) {
-	rec := state.Conversations[id]
+	rec, err := state.conversation(id)
+	if err != nil {
+		return View{}, err
+	}
 	if rec == nil {
 		return View{}, ErrNotFound
 	}

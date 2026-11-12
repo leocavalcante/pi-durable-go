@@ -50,7 +50,10 @@ func (c *coldRecords) entry(id EntryID) (*Entry, error) {
 // first, until visit returns false. Entries the State no longer keeps come
 // from storage a page at a time. Never mutate a visited entry.
 func walkBack(st *State, cid ConversationID, visit func(*Entry) (bool, error)) error {
-	c := st.Conversations[cid]
+	c, err := st.conversation(cid)
+	if err != nil {
+		return err
+	}
 	if c == nil {
 		return ErrNotFound
 	}
@@ -291,7 +294,7 @@ func (c *coldRecords) evictEntries(st *State, held map[string]time.Time) {
 			if current, ok := keep[at]; !ok || start < current {
 				keep[at] = start
 			}
-			conversation := st.Conversations[at]
+			conversation, _ := st.conversation(at)
 			if conversation == nil {
 				break
 			}
@@ -329,10 +332,10 @@ func (c *coldRecords) scheduleExpiry(st *State, now time.Time, retention time.Du
 const maxRetention = time.Duration(1<<63 - 1)
 
 // loadResidentState loads what a bounded Session keeps at open (plan 0008):
-// the header, live tasks, and open submissions (LoadResident), every
-// conversation, and the documents of the session and of each live task (an
-// ended task's documents are retired with it). Context ranges and
-// conversation documents load as conversations are used. ok is false for a store an older version
+// the header, live tasks, and open submissions (LoadResident), the
+// conversations in use, and the documents of the session and of each live
+// task (an ended task's documents are retired with it). Other conversations,
+// context ranges, and conversation documents load as they are used. ok is false for a store an older version
 // wrote, which must be loaded whole to be upgraded; nil for an empty store.
 func loadResidentState(ctx context.Context, records RecordStorage) (st *State, ok bool, err error) {
 	st, err = records.LoadResident(ctx)
@@ -346,20 +349,44 @@ func loadResidentState(ctx context.Context, records RecordStorage) (st *State, o
 	// Open's own checks see a cancellation.
 	ctx = context.WithoutCancel(ctx)
 	ensureTables(st)
-	var cursor *ScanCursor
-	for {
-		page, err := records.ScanConversations(ctx, ConversationQuery{}, 512, cursor)
+	// The conversations in use: the root, those of live tasks and open
+	// submissions, and those live tasks own. Others load as they are used.
+	want := map[ConversationID]bool{}
+	if st.Root != 0 {
+		want[st.Root] = true
+	}
+	for id, task := range st.Tasks {
+		want[task.Conversation] = true
+		var cursor *ScanCursor
+		for {
+			page, err := records.ScanConversations(ctx, ConversationQuery{OwnerTask: id}, 256, cursor)
+			if err != nil {
+				return nil, false, err
+			}
+			for i := range page.Items {
+				conversation := page.Items[i]
+				st.Conversations[conversation.ID] = &conversation
+			}
+			if page.Next == nil {
+				break
+			}
+			cursor = page.Next
+		}
+	}
+	for _, sub := range st.Submissions {
+		want[sub.Conversation] = true
+	}
+	for id := range want {
+		if st.Conversations[id] != nil {
+			continue
+		}
+		conversation, err := records.Conversation(ctx, id)
 		if err != nil {
 			return nil, false, err
 		}
-		for i := range page.Items {
-			conversation := page.Items[i]
-			st.Conversations[conversation.ID] = &conversation
+		if conversation != nil {
+			st.Conversations[id] = conversation
 		}
-		if page.Next == nil {
-			break
-		}
-		cursor = page.Next
 	}
 	// Conversation documents load with their conversations.
 	scopes := []DocumentQuery{{Scope: "session"}}

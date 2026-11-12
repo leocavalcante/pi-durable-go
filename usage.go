@@ -37,7 +37,28 @@ func (h *Harness) Usage(ctx context.Context) (UsageState, error) {
 		return UsageState{}, err
 	}
 	total := UsageState{Models: map[string]Usage{}, Tools: map[string]Usage{}}
+	conversations := map[ConversationID]bool{}
 	for cid := range state.Conversations {
+		conversations[cid] = true
+	}
+	if state.cold != nil {
+		// A bounded Session keeps conversations in use only.
+		var cursor *ScanCursor
+		for {
+			page, err := state.cold.storage.ScanConversations(ctx, ConversationQuery{}, 512, cursor)
+			if err != nil {
+				return UsageState{}, err
+			}
+			for _, c := range page.Items {
+				conversations[c.ID] = true
+			}
+			if page.Next == nil {
+				break
+			}
+			cursor = page.Next
+		}
+	}
+	for cid := range conversations {
 		doc, err := state.document(documentKey(usageDocument, uint64(cid)))
 		if err != nil {
 			return UsageState{}, err

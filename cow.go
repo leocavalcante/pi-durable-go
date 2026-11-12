@@ -84,6 +84,22 @@ func (s *State) mutConversation(id ConversationID) *ConversationRecord {
 	return mutable(s.Conversations, s.base.Conversations, id)
 }
 
+// mutStoredConversation is mutConversation that first loads into the
+// candidate a conversation record a bounded Session does not keep.
+func (s *State) mutStoredConversation(id ConversationID) (*ConversationRecord, error) {
+	if s.Conversations[id] == nil && s.cold != nil && s.base != nil && id != 0 {
+		stored, err := s.cold.conversation(id)
+		if err != nil {
+			return nil, err
+		}
+		if stored != nil {
+			s.Conversations[id] = cloneRecord(stored)
+			return s.Conversations[id], nil
+		}
+	}
+	return s.mutConversation(id), nil
+}
+
 func (s *State) mutEntry(id EntryID) *Entry {
 	if s.base == nil {
 		return s.Entries[id]
