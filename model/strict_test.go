@@ -65,7 +65,14 @@ func TestOpenAISendsStrictTools(t *testing.T) {
 		{Name: "strict", Parameters: json.RawMessage(`{"type":"object","properties":{"a":{"type":"string"}}}`), ConstrainedSampling: json.RawMessage(`{"type":"json_schema","strict":"prefer"}`)},
 		{Name: "plain", Parameters: json.RawMessage(`{"type":"object"}`)},
 	}}
+	// pi-ai sends no strict field unless the endpoint supports strict mode.
 	if _, err := (OpenAI{BaseURL: server.URL}).Generate(context.Background(), req, nil); err != nil {
+		t.Fatal(err)
+	}
+	if len(body.Tools) != 2 || body.Tools[0].Function.Strict != nil || body.Tools[1].Function.Strict != nil {
+		t.Fatalf("default tools=%+v", body.Tools)
+	}
+	if _, err := (OpenAI{BaseURL: server.URL, StrictMode: true}).Generate(context.Background(), req, nil); err != nil {
 		t.Fatal(err)
 	}
 	if len(body.Tools) != 2 || body.Tools[0].Function.Strict == nil || !*body.Tools[0].Function.Strict ||

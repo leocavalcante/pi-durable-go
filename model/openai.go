@@ -10,8 +10,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/url"
+	"os"
 	"runtime"
 	"strings"
 	"time"
@@ -35,10 +37,16 @@ type OpenAI struct {
 	// NoImages marks a model that takes no images: they are sent as
 	// pi-ai's placeholders instead.
 	NoImages bool
-	// NoStrictMode marks an endpoint without strict tool schemas (pi-ai
-	// compat.supportsStrictMode false): no strict field is sent, and a tool
-	// that requires constrained sampling fails the request.
-	NoStrictMode bool
+	// StrictMode marks an endpoint with strict tool schemas (pi-ai
+	// compat.supportsStrictMode, off unless a model says so): tools are sent
+	// with a strict field, and constrained ones in the strict subset.
+	// Without it no strict field is sent, and a tool that requires
+	// constrained sampling fails the request.
+	StrictMode bool
+	// MaxTokens is the model's maximum output (pi-ai model.maxTokens): sent
+	// as max_completion_tokens (or max_tokens where pi-ai sends that),
+	// clamped to fit Window with pi-ai's safety margins; zero sends none.
+	MaxTokens int
 }
 
 var (
@@ -79,6 +87,7 @@ func (o OpenAI) GenerateEvents(ctx context.Context, req durable.ModelRequest, on
 		return durable.ModelResponse{}, err
 	}
 	payload := openAIRequest{Model: req.Model.ID, Messages: make([]openAIMessage, 0, len(req.Messages)), Stream: true, StreamOptions: &streamOptions{IncludeUsage: true}}
+	o.compatFields(&payload, req)
 	// Images a run of tool results returned, sent after it in a user
 	// message: Chat Completions tool messages take only text (pi-ai).
 	var toolImages []openAIContentPart
@@ -193,7 +202,7 @@ func (o OpenAI) GenerateEvents(ctx context.Context, req durable.ModelRequest, on
 			definition := openAIFunctionDefinition{Name: tool.Name, Description: tool.Description, Parameters: json.RawMessage(compactParameters(tool.Parameters))}
 			// pi-ai sends constrained JSON-schema tools in strict mode, with
 			// their schema in the strict subset, and strict false otherwise.
-			if !o.NoStrictMode {
+			if o.StrictMode {
 				strict, err := strictSampling(tool, true)
 				if err != nil {
 					return durable.ModelResponse{}, sanitizedError(err.Error(), false)
@@ -284,11 +293,16 @@ func (o OpenAI) GenerateEvents(ctx context.Context, req durable.ModelRequest, on
 }
 
 type openAIRequest struct {
-	Model         string          `json:"model"`
-	Messages      []openAIMessage `json:"messages"`
-	Tools         []openAITool    `json:"tools,omitempty"`
-	Stream        bool            `json:"stream"`
-	StreamOptions *streamOptions  `json:"stream_options,omitempty"`
+	Model                string          `json:"model"`
+	Messages             []openAIMessage `json:"messages"`
+	Stream               bool            `json:"stream"`
+	PromptCacheKey       string          `json:"prompt_cache_key,omitempty"`
+	PromptCacheRetention string          `json:"prompt_cache_retention,omitempty"`
+	StreamOptions        *streamOptions  `json:"stream_options,omitempty"`
+	Store                *bool           `json:"store,omitempty"`
+	MaxCompletionTokens  int             `json:"max_completion_tokens,omitempty"`
+	MaxTokens            int             `json:"max_tokens,omitempty"`
+	Tools                []openAITool    `json:"tools,omitempty"`
 }
 type streamOptions struct {
 	IncludeUsage bool `json:"include_usage"`
@@ -605,4 +619,77 @@ func userAgent(identity *durable.ClientIdentity) string {
 		name += "/" + identity.Version
 	}
 	return fmt.Sprintf("%s (%s; go/%s; %s)", name, runtime.GOOS, strings.TrimPrefix(runtime.Version(), "go"), runtime.GOARCH)
+}
+
+// compatFields are the request fields pi-ai's openai-completions adapter
+// sends by the endpoint it detects from the base URL (detectCompat): store
+// false on standard endpoints, the prompt cache key on OpenAI's (or with
+// long retention where supported), and the output limit.
+func (o OpenAI) compatFields(payload *openAIRequest, req durable.ModelRequest) {
+	base := o.BaseURL
+	has := func(parts ...string) bool {
+		for _, part := range parts {
+			if strings.Contains(base, part) {
+				return true
+			}
+		}
+		return false
+	}
+	deepSeek := strings.Contains(strings.ToLower(base), "deepseek.com")
+	together := has("api.together.ai", "api.together.xyz")
+	nvidia, antLing := has("integrate.api.nvidia.com"), has("api.ant-ling.com")
+	cloudflareWorkers, cloudflareGateway := has("api.cloudflare.com"), has("gateway.ai.cloudflare.com")
+	zai, moonshot := has("api.z.ai", "open.bigmodel.cn"), has("api.moonshot.")
+	nonStandard := nvidia || has("cerebras.ai", "api.x.ai", "chutes.ai", "opencode.ai") || together || deepSeek || zai || moonshot || cloudflareWorkers || cloudflareGateway || antLing
+	if !nonStandard {
+		off := false
+		payload.Store = &off
+	}
+	retention := ""
+	if req.Stream != nil {
+		retention = req.Stream.CacheRetention
+	}
+	if retention == "" {
+		retention = "short"
+		if os.Getenv("PI_CACHE_RETENTION") == "long" {
+			retention = "long"
+		}
+	}
+	longSupported := !(together || cloudflareWorkers || cloudflareGateway || nvidia || antLing)
+	if retention != "none" && (strings.Contains(base, "api.openai.com") || retention == "long" && longSupported) && req.SessionID != "" {
+		key := []rune(req.SessionID)
+		if len(key) > 64 {
+			key = key[:64]
+		}
+		payload.PromptCacheKey = string(key)
+	}
+	if retention == "long" && longSupported {
+		payload.PromptCacheRetention = "24h"
+	}
+	if n := o.outputLimit(req.Messages); n > 0 {
+		if deepSeek || has("chutes.ai") || moonshot || cloudflareGateway || together || nvidia || antLing || zai {
+			payload.MaxTokens = n
+		} else {
+			payload.MaxCompletionTokens = n
+		}
+	}
+}
+
+// outputLimit is MaxTokens fit into Window, leaving room for the input being
+// counted higher than estimated (pi-ai clampMaxTokensToContext).
+func (o OpenAI) outputLimit(messages []durable.Message) int {
+	if o.MaxTokens <= 0 {
+		return 0
+	}
+	if o.Window <= 0 {
+		return max(1, o.MaxTokens)
+	}
+	const safetyTokens, safetyRatio, minWithRatio = 4096, 0.15, 32768
+	input := durable.EstimateContextTokens(messages)
+	margin := max(safetyTokens, int(math.Ceil(float64(input)*safetyRatio)))
+	room := o.Window - input - margin
+	if room < minWithRatio {
+		room = min(minWithRatio, o.Window-input-safetyTokens)
+	}
+	return min(o.MaxTokens, max(1, room))
 }

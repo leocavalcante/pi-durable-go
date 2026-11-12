@@ -419,3 +419,24 @@ func contentText(m Message) string {
 	}
 	return strings.Join(texts, "\n")
 }
+
+// EstimateContextTokens is pi-ai's estimateContextTokens for a request's
+// messages: the usage of the newest assistant that reported it (and did not
+// fail or abort) plus estimates of the messages after it; without one,
+// estimates of every message, at 3.5 characters a token.
+func EstimateContextTokens(messages []Message) int {
+	last := -1
+	for i, m := range messages {
+		if m.Role == "assistant" && m.StopReason != "aborted" && m.StopReason != "error" && !m.Aborted && usageTokens(m.Usage) > 0 {
+			last = i
+		}
+	}
+	tokens := 0
+	if last >= 0 {
+		tokens = usageTokens(messages[last].Usage)
+	}
+	for _, m := range messages[last+1:] {
+		tokens += estimateMessageTokens(m)
+	}
+	return tokens
+}
