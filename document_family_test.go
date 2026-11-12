@@ -3,6 +3,7 @@ package durable
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 )
 
@@ -60,6 +61,42 @@ func TestNestedCallsReadMembersAndTheEarlierSingleDocument(t *testing.T) {
 	for key, want := range map[string]TaskID{"old": 7, "new": 9, "missing": 0} {
 		if call, err := readNestedCall(state, 3, key); err != nil || call.TaskID != want {
 			t.Fatalf("%s=%+v error=%v", key, call, err)
+		}
+	}
+}
+
+func TestConversationsByOwnerAreDetached(t *testing.T) {
+	h := testHarness(t)
+	root := testRoot(t, h)
+	def := TaskDefinition{Kind: "app.owner", Version: 1, Run: func(context.Context, *TaskRuntime, TaskRecord) error { return nil }}
+	var owner TaskID
+	if err := h.Commit(context.Background(), func(tx *Tx) error {
+		var err error
+		if owner, err = tx.CreateTask(root.ID(), def, nil, TaskOptions{}); err != nil {
+			return err
+		}
+		_, err = tx.CreateConversation(ConversationOptions{Owner: Owner{Task: owner}, Agent: Agent{Tools: []string{"read"}}})
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// Changing a returned record must not reach the committed one, even in a
+	// commit that rolls back (the committed-state check would panic).
+	_ = h.Commit(context.Background(), func(tx *Tx) error {
+		children, err := tx.ConversationsByOwner(owner)
+		if err != nil || len(children) != 1 {
+			t.Fatalf("children=%+v error=%v", children, err)
+		}
+		children[0].Agent.Tools[0] = "changed"
+		return errors.New("roll back")
+	})
+	state, err := h.Snapshot(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range state.Conversations {
+		if c.Owner.Task == owner && c.Agent.Tools[0] != "read" {
+			t.Fatalf("the committed agent changed: %+v", c.Agent)
 		}
 	}
 }

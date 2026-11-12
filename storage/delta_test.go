@@ -367,3 +367,31 @@ func TestSQLiteReadOnlyOpenWritesNothing(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestSQLiteReadOnlyOpenReadsALegacySnapshot(t *testing.T) {
+	ctx := context.Background()
+	file := filepath.Join(t.TempDir(), "legacy.sqlite")
+	db, err := sql.Open("sqlite", file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy := testState(4)
+	legacy.Version, legacy.NextID = 3, 5
+	data, _ := json.Marshal(legacy)
+	if _, err := db.Exec("CREATE TABLE durable_state (singleton INTEGER PRIMARY KEY CHECK(singleton=1), sequence INTEGER NOT NULL, snapshot BLOB NOT NULL)"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec("INSERT INTO durable_state(singleton, sequence, snapshot) VALUES(1, ?, ?)", legacy.Sequence, data); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+	viewer, err := OpenSQLiteReadOnly(ctx, file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer viewer.Close()
+	got, err := viewer.Load(ctx)
+	if err != nil || got == nil || got.Sequence != 4 {
+		t.Fatalf("legacy load=%+v error=%v", got, err)
+	}
+}

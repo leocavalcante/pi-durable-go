@@ -214,7 +214,8 @@ func (tx *Tx) ConversationsByOwner(owner TaskID) ([]ConversationRecord, error) {
 	var result []ConversationRecord
 	for _, c := range tx.state.Conversations {
 		if c.Owner.Task == owner {
-			result = append(result, *c)
+			// Detached: the record may be the committed one.
+			result = append(result, *cloneRecord(c))
 		}
 	}
 	return result, nil

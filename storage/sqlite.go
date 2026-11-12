@@ -133,6 +133,14 @@ func (s *sqliteStorage) Load(ctx context.Context) (*durable.State, error) {
 // load reads the State from the record tables, or from a legacy single-row
 // snapshot when no header was written yet; nil for an empty store.
 func load(ctx context.Context, q querier) (*durable.State, error) {
+	// A read-only open of an earlier database has no record tables.
+	var tables int
+	if err := q.QueryRowContext(ctx, "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='durable_header'").Scan(&tables); err != nil {
+		return nil, err
+	}
+	if tables == 0 {
+		return loadLegacy(ctx, q)
+	}
 	var data []byte
 	err := q.QueryRowContext(ctx, "SELECT header FROM durable_header WHERE singleton=1").Scan(&data)
 	if errors.Is(err, sql.ErrNoRows) {

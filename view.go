@@ -68,15 +68,18 @@ func (c *Conversation) WatchWindow(ctx context.Context, window ConversationWindo
 			data, _ := json.Marshal(next)
 			if string(data) != string(last) {
 				last = data
+				// The watcher keeps its own view for the next window; each
+				// value sent is a detached copy.
+				sent := next.detached()
 				select {
-				case out <- *next:
+				case out <- sent:
 				default:
 					select {
 					case <-out:
 					default:
 					}
 					select {
-					case out <- *next:
+					case out <- sent:
 					case <-ctx.Done():
 						return
 					}
@@ -159,4 +162,17 @@ func (c *Conversation) advanceView(state *State, previous *ConversationView, win
 		}
 	}
 	return view, nil
+}
+
+// detached copies a view, so its receiver cannot change the watcher's.
+func (v *ConversationView) detached() ConversationView {
+	out := ConversationView{Conversation: *cloneRecord(&v.Conversation), Before: v.Before, Docs: make(map[string]json.RawMessage, len(v.Docs))}
+	out.Entries = make([]Entry, len(v.Entries))
+	for i, e := range v.Entries {
+		out.Entries[i] = e.detached()
+	}
+	for kind, value := range v.Docs {
+		out.Docs[kind] = cloneRaw(value)
+	}
+	return out
 }
