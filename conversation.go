@@ -248,7 +248,7 @@ func (c *Conversation) Fork(ctx context.Context, at EntryID, opts ConversationOp
 			if doc.Kind == "pi.live" || doc.Kind == "pi.inbox" || doc.Kind == "pi.usage" || doc.Kind == "pi.provider" || doc.Kind == "pi.agent" {
 				continue
 			}
-			def := DocumentDefinition{Kind: doc.Kind, Version: doc.Version, Scope: "conversation", History: doc.History, Fork: doc.Fork}
+			def := DocumentDefinition{Kind: doc.Kind, Version: doc.Version, Scope: "conversation", History: doc.History, Fork: doc.Fork, Family: doc.Member != ""}
 			var value json.RawMessage
 			switch doc.Fork {
 			case "current":
@@ -266,7 +266,7 @@ func (c *Conversation) Fork(ctx context.Context, at EntryID, opts ConversationOp
 				continue
 			}
 			if value != nil {
-				if err := tx.PutDocument(def, uint64(id), value); err != nil {
+				if err := tx.putDocument(def, uint64(id), doc.Member, value); err != nil {
 					return err
 				}
 			}
@@ -512,7 +512,11 @@ func viewFromState(state *State, id ConversationID) (View, error) {
 	}
 	for _, d := range state.Documents {
 		if d.Scope == "conversation" && d.ScopeID == uint64(id) {
-			view.Documents[d.Kind] = cloneRaw(d.Value)
+			name := d.Kind
+			if d.Member != "" {
+				name += "/" + d.Member
+			}
+			view.Documents[name] = cloneRaw(d.Value)
 		}
 	}
 	sort.Slice(view.Tasks, func(i, j int) bool { return view.Tasks[i].ID < view.Tasks[j].ID })

@@ -12,6 +12,24 @@ func documentKey(def DocumentDefinition, id uint64) string {
 	}
 	return fmt.Sprintf("%s:%d:%s", def.Scope, id, def.Kind)
 }
+
+// memberKey is the storage key of a family member.
+func memberKey(def DocumentDefinition, id uint64, member string) string {
+	return documentKey(def, id) + "/" + member
+}
+
+// keyOf is a document's storage key: a singleton's, or a member's.
+func keyOf(def DocumentDefinition, id uint64, member string) (string, error) {
+	switch {
+	case def.Family && member == "":
+		return "", fmt.Errorf("%w: a family document needs a member key", ErrInvalid)
+	case !def.Family && member != "":
+		return "", fmt.Errorf("%w: %s is not a document family", ErrInvalid, def.Kind)
+	case def.Family:
+		return memberKey(def, id, member), nil
+	}
+	return documentKey(def, id), nil
+}
 func validateDocument(def DocumentDefinition) error {
 	if def.Kind == "" || def.Version < 1 {
 		return fmt.Errorf("%w: document kind/version", ErrInvalid)
@@ -65,6 +83,9 @@ func (tx *Tx) Document(def DocumentDefinition, id uint64) (json.RawMessage, erro
 	if err := validateDocument(def); err != nil {
 		return nil, err
 	}
+	if _, err := keyOf(def, id, ""); err != nil {
+		return nil, err
+	}
 	key := documentKey(def, id)
 	doc := tx.state.Documents[key]
 	if doc == nil {
@@ -111,6 +132,88 @@ func normalizeFork(scope, s string) string {
 	return s
 }
 func (tx *Tx) PutDocument(def DocumentDefinition, id uint64, value json.RawMessage) error {
+	return tx.putDocument(def, id, "", value)
+}
+
+// PutFamilyDocument writes a member of a document family.
+func (tx *Tx) PutFamilyDocument(def DocumentDefinition, id uint64, member string, value json.RawMessage) error {
+	return tx.putDocument(def, id, member, value)
+}
+
+// FamilyDocument reads a member of a document family, creating it from seed
+// with InitialSeed when it is absent (upstream tx.doc(family, scope, key,
+// seed)).
+func (tx *Tx) FamilyDocument(def DocumentDefinition, id uint64, member string, seed json.RawMessage) (json.RawMessage, error) {
+	if err := tx.check(); err != nil {
+		return nil, err
+	}
+	if err := validateDocument(def); err != nil {
+		return nil, err
+	}
+	key, err := keyOf(def, id, member)
+	if err != nil {
+		return nil, err
+	}
+	if def.Scope == "session" {
+		id = 0
+	}
+	doc := tx.state.Documents[key]
+	if doc == nil {
+		var value any = map[string]any{}
+		switch {
+		case def.InitialSeed != nil:
+			value = def.InitialSeed(seed)
+		case def.Initial != nil:
+			value = def.Initial()
+		}
+		data, err := json.Marshal(value)
+		if err != nil {
+			return nil, err
+		}
+		if err := tx.putDocument(def, id, member, data); err != nil {
+			return nil, err
+		}
+		return append(json.RawMessage(nil), data...), nil
+	}
+	value, err := migratedDocument(def, doc)
+	if err != nil {
+		return nil, err
+	}
+	if doc.Version != def.Version {
+		if err := tx.putDocument(def, id, member, value); err != nil {
+			return nil, err
+		}
+	}
+	return value, nil
+}
+
+// RetireDocument removes a singleton document (upstream retireDoc); later
+// reads find it absent.
+func (tx *Tx) RetireDocument(def DocumentDefinition, id uint64) error {
+	return tx.retireDocument(def, id, "")
+}
+
+// RetireFamilyDocument removes a member of a document family.
+func (tx *Tx) RetireFamilyDocument(def DocumentDefinition, id uint64, member string) error {
+	return tx.retireDocument(def, id, member)
+}
+
+func (tx *Tx) retireDocument(def DocumentDefinition, id uint64, member string) error {
+	if err := tx.check(); err != nil {
+		return err
+	}
+	if err := validateDocument(def); err != nil {
+		return err
+	}
+	key, err := keyOf(def, id, member)
+	if err != nil {
+		return err
+	}
+	delete(tx.state.Documents, key)
+	return nil
+}
+
+func (tx *Tx) putDocument(def DocumentDefinition, id uint64, member string, value json.RawMessage) error {
 	if err := tx.check(); err != nil {
 		return err
 	}
@@ -136,10 +239,13 @@ func (tx *Tx) PutDocument(def DocumentDefinition, id uint64, value json.RawMessa
 			return fmt.Errorf("%w: terminal task document", ErrInvalid)
 		}
 	}
-	key := documentKey(def, id)
+	key, err := keyOf(def, id, member)
+	if err != nil {
+		return err
+	}
 	doc := tx.state.mutDocument(key)
 	if doc == nil {
-		doc = &DocumentRecord{Kind: def.Kind, Version: def.Version, Scope: def.Scope, ScopeID: id, History: normalizeHistory(def.History), Fork: normalizeFork(def.Scope, def.Fork)}
+		doc = &DocumentRecord{Kind: def.Kind, Version: def.Version, Scope: def.Scope, ScopeID: id, History: normalizeHistory(def.History), Fork: normalizeFork(def.Scope, def.Fork), Member: member}
 		tx.state.Documents[key] = doc
 	}
 	if doc.Scope != def.Scope || doc.History != normalizeHistory(def.History) || doc.Fork != normalizeFork(def.Scope, def.Fork) {
@@ -186,6 +292,9 @@ func UpdateDocument[T any](tx *Tx, def DocumentDefinition, id uint64, update fun
 func ReadDocument[T any](ctx context.Context, h *Harness, def DocumentDefinition, id uint64) (T, error) {
 	var value T
 	if err := validateDocument(def); err != nil {
+		return value, err
+	}
+	if _, err := keyOf(def, id, ""); err != nil {
 		return value, err
 	}
 	s, err := h.read(ctx)
@@ -248,4 +357,31 @@ func WatchDocument(ctx context.Context, h *Harness, def DocumentDefinition, id u
 		}
 	}()
 	return out, func() { cancel(); stop() }, nil
+}
+
+// ReadFamilyDocument reads a member of a document family from the committed
+// state; ErrNotFound when it is absent.
+func ReadFamilyDocument[T any](ctx context.Context, h *Harness, def DocumentDefinition, id uint64, member string) (T, error) {
+	var value T
+	if err := validateDocument(def); err != nil {
+		return value, err
+	}
+	key, err := keyOf(def, id, member)
+	if err != nil {
+		return value, err
+	}
+	s, err := h.read(ctx)
+	if err != nil {
+		return value, err
+	}
+	doc := s.Documents[key]
+	if doc == nil {
+		return value, ErrNotFound
+	}
+	data, err := migratedDocument(def, doc)
+	if err != nil {
+		return value, err
+	}
+	err = json.Unmarshal(data, &value)
+	return value, err
 }

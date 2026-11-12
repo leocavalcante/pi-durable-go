@@ -337,6 +337,11 @@ type DocumentDefinition struct {
 	Fork    string // initial, current, asOf
 	Initial func() any
 	Migrate func(int, json.RawMessage) (json.RawMessage, error)
+	// Family makes the kind a family of documents keyed by a member name
+	// within each scope (upstream defineDocFamily); InitialSeed creates an
+	// absent member from the seed it is first read with.
+	Family      bool
+	InitialSeed func(seed json.RawMessage) any
 }
 type DocumentRevision struct {
 	Version  int             `json:"version"`
@@ -352,6 +357,8 @@ type DocumentRecord struct {
 	Fork      string             `json:"fork"`
 	Value     json.RawMessage    `json:"value"`
 	Revisions []DocumentRevision `json:"revisions,omitempty"`
+	// Member is a family member's key; empty for a singleton.
+	Member string `json:"member,omitempty"`
 }
 
 type ToolSpec struct {
