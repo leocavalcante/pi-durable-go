@@ -307,10 +307,19 @@ func requestGeneration(ctx context.Context, r *TaskRuntime, task TaskRecord, cp 
 		policy := r.h.settings().Retry.resolve()
 		attempt := cp.attempt()
 		text := diagnostic(err.Error())
+		// AfterResponse hooks see every response, a failed one too (upstream
+		// classify); retries and overflows follow the model's error.
+		seen := ModelResponse{Content: partial, Usage: response.Usage, StopReason: "error", ErrorMessage: text}
+		if e := afterResponse(ctx, r, task, &seen); e != nil {
+			return e
+		}
+		if seen.ErrorMessage != "" {
+			text = diagnostic(seen.ErrorMessage)
+		}
 		// The failed attempt is kept as an error entry, which context
 		// derivation excludes, with what it streamed.
-		failed := Message{Role: "assistant", Content: partial, Aborted: true, StopReason: "error", ErrorMessage: text,
-			ThinkingLevel: cp.Request.ThinkingLevel, Usage: response.Usage}
+		failed := Message{Role: "assistant", Content: seen.Content, Thinking: seen.Thinking, Aborted: true, StopReason: "error", ErrorMessage: text,
+			ThinkingLevel: cp.Request.ThinkingLevel, Usage: seen.Usage}
 		overflow := IsContextOverflowError(err, cp.Request.Model.Provider)
 		if overflow && cp.Compacted == 0 {
 			if compacted, err := overflowCompaction(ctx, r, task, cp, failed, text); compacted || err != nil {
@@ -333,25 +342,8 @@ func requestGeneration(ctx context.Context, r *TaskRuntime, task TaskRecord, cp 
 			return failRunTx(tx, r.h, task, runEnd{reason: RunModelError, detail: text}, text, false)
 		})
 	}
-	state, e := r.h.read(ctx)
-	if e != nil {
+	if e := afterResponse(ctx, r, task, &response); e != nil {
 		return e
-	}
-	conv := state.Conversations[task.Conversation]
-	if conv == nil {
-		return ErrNotFound
-	}
-	conv = cloneRecord(conv)
-	hooks := r.Registry().hooks(conv.Agent)
-	for _, hook := range hooks {
-		if hook.AfterResponse != nil {
-			if e := containPanic(func() error { return hook.AfterResponse(ctx, &response, r) }); e != nil {
-				if ctx.Err() != nil {
-					return ctx.Err()
-				}
-				r.reportExtension(e, hook.extension)
-			}
-		}
 	}
 	stopReason := response.StopReason
 	if stopReason == "" {
@@ -368,8 +360,16 @@ func requestGeneration(ctx context.Context, r *TaskRuntime, task TaskRecord, cp 
 	if stopReason == "toolUse" && len(response.ToolCalls) > 0 {
 		return startToolRound(ctx, r, task, cp, message)
 	}
+	state, e := r.h.read(ctx)
+	if e != nil {
+		return e
+	}
+	conv := state.Conversations[task.Conversation]
+	if conv == nil {
+		return ErrNotFound
+	}
 	var continuation string
-	for _, hook := range hooks {
+	for _, hook := range r.Registry().hooks(conv.Agent) {
 		if hook.OnYield != nil {
 			var value string
 			e := containPanic(func() error {
@@ -726,6 +726,31 @@ func retryTransition(tx *Tx, cid ConversationID, attempt int, until time.Time, t
 	next, err := json.Marshal(generationCheckpoint{Phase: "retry", Attempt: attempt, Until: until.UnixMilli(), Compacted: compacted})
 	wake := time.UnixMilli(until.UnixMilli()).UTC()
 	return TaskTransition{Status: "sleeping", Checkpoint: next, WakeAt: &wake}, err
+}
+
+// afterResponse runs the agent's AfterResponse hooks on a response, in
+// order; a failing hook is reported as extension_error and skipped.
+func afterResponse(ctx context.Context, r *TaskRuntime, task TaskRecord, response *ModelResponse) error {
+	state, err := r.h.read(ctx)
+	if err != nil {
+		return err
+	}
+	conv := state.Conversations[task.Conversation]
+	if conv == nil {
+		return ErrNotFound
+	}
+	for _, hook := range r.Registry().hooks(conv.Agent) {
+		if hook.AfterResponse == nil {
+			continue
+		}
+		if err := containPanic(func() error { return hook.AfterResponse(ctx, response, r) }); err != nil {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			r.reportExtension(err, hook.extension)
+		}
+	}
+	return nil
 }
 
 // buildRequest plans the prompt and tool changes of the next request (spec

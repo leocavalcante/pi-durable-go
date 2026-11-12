@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"sync"
 	"sync/atomic"
 	"testing"
 )
@@ -60,5 +61,41 @@ func TestStopReasonFailedAttemptIsAnErrorEntry(t *testing.T) {
 		if message.Role == "assistant" {
 			t.Fatalf("a failed attempt reached the context: %+v", message)
 		}
+	}
+}
+
+func TestAfterResponseSeesFailedAttempts(t *testing.T) {
+	model := taskModelFunc(func(ctx context.Context, request ModelRequest, delta func(string) error) (ModelResponse, error) {
+		if err := delta("partial"); err != nil {
+			return ModelResponse{}, err
+		}
+		return ModelResponse{}, errors.New("invalid request")
+	})
+	var seen []ModelResponse
+	var mu sync.Mutex
+	extension := Extension{Name: "observer", Hooks: Hooks{AfterResponse: func(_ context.Context, response *ModelResponse, _ *TaskRuntime) error {
+		mu.Lock()
+		defer mu.Unlock()
+		seen = append(seen, *response)
+		response.ErrorMessage = "rewritten: " + response.ErrorMessage
+		return nil
+	}}}
+	h, root := runHarness(t, model, Settings{}, extension)
+	if err := root.Configure(context.Background(), Agent{Model: ModelRef{Provider: "fake", ID: "m"}, Extensions: []string{"observer"}}); err != nil {
+		t.Fatal(err)
+	}
+	record := waitSettled(t, h, submit(t, root, SubmissionRequest{Content: "hi"}))
+	if record.Reason != RunModelError {
+		t.Fatalf("submission=%+v", record)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(seen) != 1 || seen[0].StopReason != "error" || seen[0].ErrorMessage != "invalid request" || seen[0].Content != "partial" {
+		t.Fatalf("hooks saw %+v", seen)
+	}
+	// What the hook left is the error entry.
+	entries, _ := root.Entries(context.Background())
+	if last := entries[len(entries)-1].Message; last == nil || last.ErrorMessage != "rewritten: invalid request" {
+		t.Fatalf("failed attempt entry=%+v", last)
 	}
 }

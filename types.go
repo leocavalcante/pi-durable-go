@@ -491,14 +491,16 @@ type ModelResponse struct {
 	Usage     Usage      `json:"usage"`
 	// StopReason is stop, length (the output limit cut the answer off), or
 	// toolUse. Empty means toolUse with tool calls and stop without. A length
-	// answer is an answer: tool calls it was cut off in never run.
-	StopReason string `json:"stopReason,omitempty"`
+	// answer is an answer: tool calls it was cut off in never run. Hooks see
+	// a failed attempt as error, with ErrorMessage.
+	StopReason   string `json:"stopReason,omitempty"`
+	ErrorMessage string `json:"errorMessage,omitempty"`
 	// ProviderData is copied to the committed assistant Message for later replay.
 	ProviderData json.RawMessage `json:"providerData,omitempty"`
 }
 
-// Model implementations must honor cancellation. Delta callbacks persist progress
-// before publishing it; returning an error from a callback must stop the request.
+// Model implementations must honor cancellation. Delta callbacks report
+// progress; returning an error from a callback must stop the request.
 type Model interface {
 	Generate(context.Context, ModelRequest, func(string) error) (ModelResponse, error)
 }
