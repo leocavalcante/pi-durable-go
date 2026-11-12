@@ -123,7 +123,7 @@ This table highlights compatibility changes since the previous runtime reference
 | Scheduler pass notification race fix | 1.5.1 | Different design: Go rescans snapshots every pass; no direct port is required. |
 | SQLite table namespacing, Cloudflare Durable Object storage, and upstream compaction/image/document-retention/scheduler-index improvements | 1.3.0 | Not ported or not applicable; Go has independent backends and behavior. |
 | IndexedDB, Chord `StoreStorage`, SQLite schema/batching, Cloudflare adapters, and upstream storage-specific fixes | 1.4.0–1.5.1 | Not applicable to the Go backends; no upstream storage compatibility is claimed. |
-| `tool_search` and Code Mode fixes | 1.5.0, 1.5.1 | Not applicable while those APIs are absent. |
+| `tool_search` and Code Mode fixes | 1.5.0–1.5.2 | `tools.ToolSearch()` has the `tool_search` fixes: ranking like the coding agent, words in any script with canonical equivalence, and parameters read through local `$ref`s. Code Mode is absent. |
 
 ## Provenance
 
