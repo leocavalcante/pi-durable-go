@@ -326,3 +326,44 @@ func TestJSONLReadOnlyOpenWritesNothing(t *testing.T) {
 		t.Fatal("the read-only open changed the log")
 	}
 }
+
+func TestSQLiteReadOnlyOpenWritesNothing(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	if st, err := OpenSQLiteReadOnly(ctx, filepath.Join(dir, "missing.sqlite")); err != nil {
+		t.Fatal(err)
+	} else if state, err := st.Load(ctx); err != nil || state != nil {
+		t.Fatalf("missing database state=%v error=%v", state, err)
+	} else {
+		st.Close()
+	}
+	if _, err := os.Stat(filepath.Join(dir, "missing.sqlite")); !os.IsNotExist(err) {
+		t.Fatal("a read-only open created the database")
+	}
+	file := filepath.Join(dir, "state.sqlite")
+	writer, err := OpenSQLite(ctx, file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := runHistory(t, writer)
+	viewer, err := OpenSQLiteReadOnly(ctx, file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer viewer.Close()
+	got, err := viewer.Load(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sameState(t, want, got)
+	if err := viewer.Commit(ctx, got.Sequence, got); !errors.Is(err, durable.ErrReadOnly) {
+		t.Fatalf("commit error=%v", err)
+	}
+	h, err := durable.Open(ctx, viewer, durable.HarnessOptions{ReadOnly: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := h.Close(ctx); err != nil {
+		t.Fatal(err)
+	}
+}

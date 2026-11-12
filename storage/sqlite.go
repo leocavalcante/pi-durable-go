@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -59,6 +61,38 @@ type sqliteStorage struct {
 	mu     sync.Mutex
 	db     *sql.DB
 	closed bool
+	// readOnly storage reads what another process writes and writes nothing.
+	readOnly bool
+}
+
+// OpenSQLiteReadOnly opens a database as a viewer of one another process
+// writes, as storage.OpenJSONLReadOnly does for JSONL: it creates and writes
+// nothing (SQLite's mode=ro), each Load reads the current committed State,
+// and commits are rejected with durable.ErrReadOnly. A missing file is an
+// empty store.
+func OpenSQLiteReadOnly(ctx context.Context, file string) (durable.Storage, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if file == "" || file == ":memory:" || strings.HasPrefix(file, "file:") || strings.Contains(file, "?") {
+		return nil, fmt.Errorf("storage: read-only SQLite requires a filesystem path")
+	}
+	if _, err := os.Stat(file); errors.Is(err, os.ErrNotExist) {
+		return &sqliteStorage{readOnly: true}, nil
+	} else if err != nil {
+		return nil, err
+	}
+	path, err := filepath.Abs(file)
+	if err != nil {
+		return nil, err
+	}
+	dsn := (&url.URL{Scheme: "file", Path: path, RawQuery: "mode=ro"}).String()
+	db, err := sql.Open("sqlite", dsn)
+	if err != nil {
+		return nil, err
+	}
+	db.SetMaxOpenConns(1)
+	return &sqliteStorage{db: db, readOnly: true}, nil
 }
 
 // header is the State without its tables.
@@ -89,6 +123,9 @@ func (s *sqliteStorage) Load(ctx context.Context) (*durable.State, error) {
 	defer s.mu.Unlock()
 	if s.closed {
 		return nil, durable.ErrClosed
+	}
+	if s.db == nil { // a read-only open of a missing file
+		return nil, nil
 	}
 	return load(ctx, s.db)
 }
@@ -281,6 +318,9 @@ func writeAll(ctx context.Context, tx *sql.Tx, st *durable.State) error {
 func (s *sqliteStorage) write(ctx context.Context, expected, next uint64, apply func(*sql.Tx) error) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.readOnly {
+		return &durable.RejectedError{Err: durable.ErrReadOnly}
+	}
 	if s.closed {
 		return &durable.RejectedError{Err: durable.ErrClosed}
 	}
@@ -383,5 +423,8 @@ func (s *sqliteStorage) Close() error {
 		return nil
 	}
 	s.closed = true
+	if s.db == nil {
+		return nil
+	}
 	return s.db.Close()
 }
