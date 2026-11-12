@@ -59,6 +59,10 @@ type State struct {
 	// removedDocuments are documents a transaction retired that its
 	// candidate never held (stored only); its delta removes them.
 	removedDocuments map[string]bool
+	// preDocuments and preConversations are the stored records a
+	// transaction loaded to change: their values before it (cold.go).
+	preDocuments     map[string]*DocumentRecord
+	preConversations map[ConversationID]*ConversationRecord
 }
 
 // Storage is owned by one Session. Commit must atomically publish next only if

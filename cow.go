@@ -94,6 +94,12 @@ func (s *State) mutStoredConversation(id ConversationID) (*ConversationRecord, e
 			return nil, err
 		}
 		if stored != nil {
+			if s.preConversations == nil {
+				s.preConversations = map[ConversationID]*ConversationRecord{}
+			}
+			if _, noted := s.preConversations[id]; !noted {
+				s.preConversations[id] = stored
+			}
 			s.Conversations[id] = cloneRecord(stored)
 			return s.Conversations[id], nil
 		}
@@ -138,12 +144,25 @@ func (s *State) mutStoredDocument(key string) (*DocumentRecord, error) {
 		if err != nil {
 			return nil, err
 		}
+		s.notePreDocument(key, stored)
 		if stored != nil {
 			s.Documents[key] = cloneRecord(stored)
 			return s.Documents[key], nil
 		}
 	}
 	return s.mutDocument(key), nil
+}
+
+// notePreDocument remembers a stored document's value before the
+// transaction (nil: absent), for reads while its commit is stored but not
+// published.
+func (s *State) notePreDocument(key string, stored *DocumentRecord) {
+	if s.preDocuments == nil {
+		s.preDocuments = map[string]*DocumentRecord{}
+	}
+	if _, noted := s.preDocuments[key]; !noted {
+		s.preDocuments[key] = stored
+	}
 }
 
 // detachChanges validates and detaches every record the candidate added or

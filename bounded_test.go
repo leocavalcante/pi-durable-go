@@ -3,9 +3,11 @@ package durable
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -532,5 +534,42 @@ func TestSnapshotWaitsForStoredCommitsToPublish(t *testing.T) {
 	}
 	if state := <-snapshots; state == nil || state.Documents[documentKey(touchDocument, 0)] == nil {
 		t.Fatalf("snapshot after publication=%+v", state)
+	}
+}
+
+func TestReadsDoNotSeeStoredUnpublishedValues(t *testing.T) {
+	ctx := context.Background()
+	store := &aheadStorage{MemoryStorage: NewMemoryStorage(), stored: make(chan struct{}), release: make(chan struct{})}
+	h, root, notes, _ := idleDocuments(t, store)
+	type doc struct{ N int }
+	fresh := DocumentDefinition{Kind: "test.fresh", Version: 1, Scope: "conversation"}
+	var releaseOnce sync.Once
+	release := func() { releaseOnce.Do(func() { close(store.release) }) }
+	defer release() // a failing check must not leave the commit hanging
+	store.armed.Store(true)
+	committed := make(chan error, 1)
+	go func() {
+		committed <- h.Commit(ctx, func(tx *Tx) error {
+			if err := tx.PutDocument(fresh, uint64(root.ID()), json.RawMessage(`{"n":5}`)); err != nil {
+				return err
+			}
+			return tx.PutDocument(notes, uint64(root.ID()), json.RawMessage(`{"n":9}`))
+		})
+	}()
+	<-store.stored
+	// Stored, not published: reads find the published values, the created
+	// document absent.
+	if got, err := ReadDocument[doc](ctx, h, notes, uint64(root.ID())); err != nil || got.N != 1 {
+		t.Fatalf("read while the commit is stored, not published=%+v error=%v", got, err)
+	}
+	if got, err := ReadDocument[doc](ctx, h, fresh, uint64(root.ID())); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("a document an unpublished commit created=%+v error=%v", got, err)
+	}
+	release()
+	if err := <-committed; err != nil {
+		t.Fatal(err)
+	}
+	if got, err := ReadDocument[doc](ctx, h, notes, uint64(root.ID())); err != nil || got.N != 9 {
+		t.Fatalf("read after publication=%+v error=%v", got, err)
 	}
 }

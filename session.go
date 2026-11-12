@@ -230,6 +230,10 @@ type pendingCommit struct {
 	delta   *StateDelta
 	publish bool
 	done    chan error
+	// pre are the values before this commit of records it changed that a
+	// bounded Session did not keep: what reads find while it is stored but
+	// not yet published.
+	pre *preImages
 }
 
 // admitLocked runs a commit's callback on the newest admitted State and
@@ -289,12 +293,15 @@ func (s *Session) admitLocked(ctx context.Context, fn func(*Tx) error, internal,
 	if base.Sequence == ^uint64(0) {
 		return nil, fmt.Errorf("%w: sequence space exhausted", ErrInvalid)
 	}
+	pre := preImagesOf(base, candidate, delta)
 	candidate.Sequence = base.Sequence + 1
 	candidate.base = nil
 	delta.Sequence = candidate.Sequence
 	// Documents deferred commits changed are stored in front of this one.
 	s.foldHeldLocked(candidate, delta)
-	return s.admitStoredLocked(candidate, delta, publish), nil
+	admitted = s.admitStoredLocked(candidate, delta, publish)
+	admitted.pre = pre
+	return admitted, nil
 }
 
 // admitStoredLocked queues a commit for the writer.
@@ -489,6 +496,11 @@ func (s *Session) writeLoop() {
 				stores = append(stores, item)
 			}
 		}
+		// Storage gets ahead of the published State: reads of what the
+		// batch changes find the values before it until it is published.
+		if s.cold != nil {
+			s.cold.overlayFrom(batch)
+		}
 		s.mu.Unlock()
 		stored, err := s.store(stores, full)
 		s.mu.Lock()
@@ -538,6 +550,7 @@ func (s *Session) writeLoop() {
 				// entry is safe meanwhile.
 				s.cold.forgetDocuments(item.delta)
 				s.cold.forgetConversations(item.delta)
+				s.cold.overlayFrom(laterItems(batch, item))
 				_ = s.cold.keepEntries(item.state, s.laterStates(batch, item), item.delta, s.now(), retention, s.held)
 				s.cold.evictConversations(item.state)
 			}
@@ -561,9 +574,22 @@ func (s *Session) writeLoop() {
 		if err != nil {
 			failure()
 		}
+		if s.cold != nil {
+			s.cold.overlayFrom(nil)
+		}
 		s.published.Broadcast()
 		s.mu.Unlock()
 	}
+}
+
+// laterItems are the commits of a batch after item.
+func laterItems(batch []*pendingCommit, item *pendingCommit) []*pendingCommit {
+	for i, other := range batch {
+		if other == item {
+			return batch[i+1:]
+		}
+	}
+	return nil
 }
 
 // store sends one batch, in order, each commit checked against the one

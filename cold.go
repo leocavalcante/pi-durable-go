@@ -4,6 +4,7 @@ import (
 	"container/list"
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 )
@@ -41,6 +42,10 @@ type coldRecords struct {
 	// invalidations counts the forgets of mutable cached records: a read
 	// caches its result only if none happened while it read storage.
 	invalidations uint64
+	// overlayDocuments and overlayConversations are the values records had
+	// before the commits stored and not yet published (overlayFrom).
+	overlayDocuments     map[string]*DocumentRecord
+	overlayConversations map[ConversationID]*ConversationRecord
 	// starts are where each loaded conversation's context range starts, and
 	// loaded when a published commit last touched it (entries.go).
 	starts map[ConversationID]EntryID
@@ -242,6 +247,10 @@ func (l *lru[K, V]) len() int { return l.order.Len() }
 // holds it until a commit writes or retires it (forgetDocuments).
 func (c *coldRecords) document(key string) (*DocumentRecord, error) {
 	c.mu.Lock()
+	if d, overlaid := c.overlayDocuments[key]; overlaid {
+		c.mu.Unlock()
+		return d, nil
+	}
 	if d, ok := c.documents.get(key); ok {
 		c.mu.Unlock()
 		return d, nil
@@ -322,6 +331,21 @@ func (s *State) conversationDocuments(cid ConversationID) ([]*DocumentRecord, er
 			}
 			cursor = page.Next
 		}
+		// Documents that commits stored but not yet published changed read
+		// as they were before them.
+		prefix := documentScopePrefix(query.Scope, query.ScopeID)
+		s.cold.mu.Lock()
+		for key, record := range s.cold.overlayDocuments {
+			if _, kept := s.Documents[key]; kept || !strings.HasPrefix(key, prefix) {
+				continue
+			}
+			if record == nil {
+				delete(own, key)
+			} else {
+				own[key] = record
+			}
+		}
+		s.cold.mu.Unlock()
 	}
 	out := make([]*DocumentRecord, 0, len(own))
 	for _, doc := range own {
@@ -349,6 +373,10 @@ func (l *lru[K, V]) remove(key K) {
 // conversation reads a conversation record a bounded Session does not keep.
 func (c *coldRecords) conversation(id ConversationID) (*ConversationRecord, error) {
 	c.mu.Lock()
+	if conversation, overlaid := c.overlayConversations[id]; overlaid {
+		c.mu.Unlock()
+		return conversation, nil
+	}
 	if conversation, ok := c.conversations.get(id); ok {
 		c.mu.Unlock()
 		return conversation, nil
@@ -422,4 +450,88 @@ func (s *State) conversation(id ConversationID) (*ConversationRecord, error) {
 		return c, nil
 	}
 	return s.cold.conversation(id)
+}
+
+// preImages are the values records had before a commit, for the records it
+// changed that a bounded Session did not keep (nil: absent).
+type preImages struct {
+	documents     map[string]*DocumentRecord
+	conversations map[ConversationID]*ConversationRecord
+}
+
+// preImagesOf collects a commit's pre-images: the stored records its
+// transaction loaded to change, and absent ones for those it created that
+// its base did not hold.
+func preImagesOf(base, candidate *State, delta *StateDelta) *preImages {
+	pre := &preImages{}
+	note := func(key string, record *DocumentRecord) {
+		if pre.documents == nil {
+			pre.documents = map[string]*DocumentRecord{}
+		}
+		pre.documents[key] = record
+	}
+	documents := func(key string) {
+		if record, loaded := candidate.preDocuments[key]; loaded {
+			note(key, record)
+		} else if base.Documents[key] == nil && base.cold != nil {
+			note(key, nil)
+		}
+	}
+	for key := range delta.Documents {
+		documents(key)
+	}
+	for _, key := range delta.Removed.Documents {
+		documents(key)
+	}
+	for id := range delta.Conversations {
+		if record, loaded := candidate.preConversations[id]; loaded {
+			if pre.conversations == nil {
+				pre.conversations = map[ConversationID]*ConversationRecord{}
+			}
+			pre.conversations[id] = record
+		}
+	}
+	candidate.preDocuments, candidate.preConversations = nil, nil
+	if pre.documents == nil && pre.conversations == nil {
+		return nil
+	}
+	return pre
+}
+
+// overlayFrom sets the values reads find for records the given commits
+// change while they are stored and not published: the earliest commit's
+// pre-image of each. Nil clears it.
+func (c *coldRecords) overlayFrom(items []*pendingCommit) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.overlayDocuments, c.overlayConversations = nil, nil
+	for _, item := range items {
+		if item.pre == nil {
+			continue
+		}
+		for key, record := range item.pre.documents {
+			if c.overlayDocuments == nil {
+				c.overlayDocuments = map[string]*DocumentRecord{}
+			}
+			if _, set := c.overlayDocuments[key]; !set {
+				c.overlayDocuments[key] = record
+			}
+		}
+		for id, record := range item.pre.conversations {
+			if c.overlayConversations == nil {
+				c.overlayConversations = map[ConversationID]*ConversationRecord{}
+			}
+			if _, set := c.overlayConversations[id]; !set {
+				c.overlayConversations[id] = record
+			}
+		}
+	}
+}
+
+// documentScopePrefix is the storage key prefix of a scope's documents.
+func documentScopePrefix(scope string, id uint64) string {
+	if scope == "session" {
+		id = 0
+	}
+	return fmt.Sprintf("%s:%d:", scope, id)
 }

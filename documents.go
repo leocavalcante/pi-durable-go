@@ -227,6 +227,7 @@ func (tx *Tx) retireDocument(def DocumentDefinition, id uint64, member string) e
 	if err != nil || stored == nil {
 		return err
 	}
+	tx.state.notePreDocument(key, stored)
 	tx.retired(key, stored)
 	if tx.state.removedDocuments == nil {
 		tx.state.removedDocuments = map[string]bool{}
