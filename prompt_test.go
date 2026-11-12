@@ -3,6 +3,7 @@ package durable
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"reflect"
 	"strings"
 	"sync"
@@ -117,7 +118,7 @@ func TestPositionalSystemMessagesAcrossRequests(t *testing.T) {
 	var preamble sync.Map
 	preamble.Store("text", "first")
 	registry := NewRegistry()
-	if err := registry.Install(Extension{Name: "prompt", Sections: []Section{{Name: "preamble", Render: func(context.Context, ConversationRecord, *Harness) (string, error) {
+	if err := registry.Install(Extension{Name: "prompt", Sections: []Section{{Name: "preamble", Render: func(context.Context, PromptInput) (string, error) {
 		text, _ := preamble.Load("text")
 		return text.(string), nil
 	}}}}); err != nil {
@@ -203,8 +204,8 @@ func TestSectionsRenderAsUpstream(t *testing.T) {
 		requests = append(requests, req)
 		return ModelResponse{Content: "ok"}, nil
 	})
-	render := func(text string, err error) func(context.Context, ConversationRecord, *Harness) (string, error) {
-		return func(context.Context, ConversationRecord, *Harness) (string, error) { return text, err }
+	render := func(text string, err error) func(context.Context, PromptInput) (string, error) {
+		return func(context.Context, PromptInput) (string, error) { return text, err }
 	}
 	registry := NewRegistry()
 	if err := registry.Install(Extension{Name: "prompt", Sections: []Section{
@@ -225,5 +226,52 @@ func TestSectionsRenderAsUpstream(t *testing.T) {
 	defer mu.Unlock()
 	if got, want := promptText(requests[0].Messages), "<empty>\n\n</empty>\n\nplain text\n\n<instructions>\n\n</instructions>"; got != want {
 		t.Fatalf("prompt=%q\nwant %q", got, want)
+	}
+}
+
+type fakeEnv struct{ ExecutionEnv }
+
+func TestSectionsRenderFromThePromptInput(t *testing.T) {
+	var mu sync.Mutex
+	var inputs []PromptInput
+	model := taskModelFunc(func(context.Context, ModelRequest, func(string) error) (ModelResponse, error) {
+		return ModelResponse{Content: "ok"}, nil
+	})
+	env := &fakeEnv{}
+	registry := NewRegistry()
+	if err := registry.Install(Extension{Name: "prompt",
+		Tools: []ToolDefinition{{ToolSpec: ToolSpec{Name: "look", Parameters: json.RawMessage(`{"type":"object"}`)}, Execute: func(context.Context, json.RawMessage, *ToolRuntime) (ToolResult, error) {
+			return ToolResult{}, nil
+		}}},
+		Sections: []Section{{Name: "status", Render: func(_ context.Context, input PromptInput) (string, error) {
+			mu.Lock()
+			defer mu.Unlock()
+			inputs = append(inputs, input)
+			return fmt.Sprintf("turn %d", len(inputs)), nil
+		}}}}); err != nil {
+		t.Fatal(err)
+	}
+	h := taskTestHarness(t, HarnessOptions{Model: model, Registry: registry, Environment: func(ConversationRecord) (ExecutionEnv, error) { return env, nil }})
+	root, err := h.Root(context.Background(), ConversationOptions{Agent: Agent{Model: ModelRef{Provider: "fake", ID: "m"}, Extensions: []string{"prompt"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitSettled(t, h, submit(t, root, SubmissionRequest{Content: "one"}))
+	waitSettled(t, h, submit(t, root, SubmissionRequest{Content: "two"}))
+	mu.Lock()
+	defer mu.Unlock()
+	if len(inputs) != 2 {
+		t.Fatalf("%d renders", len(inputs))
+	}
+	first, second := inputs[0], inputs[1]
+	if first.ConversationID != root.ID() || first.Conversation.ID != root.ID() || first.Env != env || first.Read != h {
+		t.Fatalf("input=%+v", first)
+	}
+	if len(first.Agent.Tools) != 1 || first.Agent.Tools[0].Name != "look" {
+		t.Fatalf("offered tools=%+v", first.Agent.Tools)
+	}
+	// The second preparation sees what the first one showed the model.
+	if len(first.Shown) != 0 || second.Shown["status"] != "<status>\nturn 1\n</status>" {
+		t.Fatalf("shown first=%v second=%v", first.Shown, second.Shown)
 	}
 }

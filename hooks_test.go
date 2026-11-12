@@ -75,7 +75,7 @@ func TestPromptSectionsAndBeforeRequestHook(t *testing.T) {
 	defer cancel()
 	h := testHarness(t)
 	c := testRoot(t, h)
-	if err := h.registry.Install(Extension{Name: "prompt", Sections: []Section{{Name: "project", Render: func(context.Context, ConversationRecord, *Harness) (string, error) {
+	if err := h.registry.Install(Extension{Name: "prompt", Sections: []Section{{Name: "project", Render: func(context.Context, PromptInput) (string, error) {
 		return "project instructions", nil
 	}}}, Hooks: Hooks{BeforeRequest: func(ctx context.Context, req *ModelRequest, r *TaskRuntime) error {
 		if len(req.Messages) < 2 || req.Messages[0].Role != "system" {

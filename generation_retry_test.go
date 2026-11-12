@@ -126,7 +126,7 @@ func TestRetryPolicyGenerationRetriesTransientErrorAndPreparesAgain(t *testing.T
 	var mode atomic.Value
 	mode.Store("before")
 	registry := NewRegistry()
-	if err := registry.Install(Extension{Name: "modes", Sections: []Section{{Name: "mode", Render: func(context.Context, ConversationRecord, *Harness) (string, error) {
+	if err := registry.Install(Extension{Name: "modes", Sections: []Section{{Name: "mode", Render: func(context.Context, PromptInput) (string, error) {
 		return mode.Load().(string), nil
 	}}}}); err != nil {
 		t.Fatal(err)

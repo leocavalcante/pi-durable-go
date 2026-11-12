@@ -769,11 +769,27 @@ func buildRequest(ctx context.Context, r *TaskRuntime, state *State, c Conversat
 	shown := replaySections(view.messages)
 	registry := r.Registry()
 	var desired orderedText
-	for _, section := range registry.sections(c.Agent) {
+	sections := registry.sections(c.Agent)
+	var input PromptInput
+	if len(sections) > 0 {
+		input = PromptInput{ConversationID: c.ID, Conversation: *cloneRecord(&c), Agent: resolveAgent(registry, c.Agent), Shown: map[string]string{}, Read: r.h}
+		for name, text := range shown.text {
+			input.Shown[name] = text
+		}
+		if r.h.options.Environment != nil {
+			env, err := r.h.options.Environment(*cloneRecord(&c))
+			if err != nil {
+				r.ReportHost(err, "env")
+			} else {
+				input.Env = env
+			}
+		}
+	}
+	for _, section := range sections {
 		if section.Render == nil {
 			continue
 		}
-		text, err := section.Render(ctx, c, r.h)
+		text, err := section.Render(ctx, input)
 		if errors.Is(err, ErrOmitSection) {
 			continue
 		}

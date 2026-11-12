@@ -513,7 +513,26 @@ type Model interface {
 type Section struct {
 	Name     string
 	Untagged bool
-	Render   func(context.Context, ConversationRecord, *Harness) (string, error)
+	Render   func(context.Context, PromptInput) (string, error)
+}
+
+// PromptInput is what sections render from, for one request preparation
+// (upstream PromptInput).
+type PromptInput struct {
+	ConversationID ConversationID
+	// Conversation is the conversation's committed record.
+	Conversation ConversationRecord
+	// Agent is the request's resolution: Agent.Tools are the tools offered in
+	// this request.
+	Agent ResolvedAgent
+	// Env is built by HarnessOptions.Environment for this preparation; nil
+	// without one, or when building it failed (reported as host_error env).
+	Env ExecutionEnv
+	// Shown are the sections in effect after replaying the transcript: the
+	// text the model was shown, by section name.
+	Shown map[string]string
+	// Read gives committed document reads (ReadDocument, ReadFamilyDocument).
+	Read *Harness
 }
 
 // ErrOmitSection, returned by a Section's Render, leaves the section out of the

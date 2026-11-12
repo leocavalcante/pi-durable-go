@@ -38,8 +38,11 @@ func (r *TaskRuntime) Agent(ctx context.Context) (ResolvedAgent, error) {
 	if conv == nil {
 		return ResolvedAgent{}, ErrNotFound
 	}
-	agent := cloneRecord(conv).Agent
-	registry := r.Registry()
+	return resolveAgent(r.Registry(), cloneRecord(conv).Agent), nil
+}
+
+// resolveAgent resolves an agent's tools and sections in a registry.
+func resolveAgent(registry *RegistrySnapshot, agent Agent) ResolvedAgent {
 	enabled := registry.Tools(agent)
 	resolved := ResolvedAgent{Agent: agent, Tools: offeredTools(enabled, agent.ModelTools), Sections: registry.Sections(agent)}
 	offered := map[string]bool{}
@@ -54,7 +57,7 @@ func (r *TaskRuntime) Agent(ctx context.Context) (ResolvedAgent, error) {
 			resolved.Deferred = append(resolved.Deferred, tool)
 		}
 	}
-	return resolved, nil
+	return resolved
 }
 
 // Task reads a task record (upstream runtime.getTask); detached.

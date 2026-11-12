@@ -47,7 +47,7 @@ func TestCrashLoopGenerationCutOffInPrepare(t *testing.T) {
 	log := &reportLog{}
 	entered := make(chan struct{}, 4)
 	registry := NewRegistry()
-	if err := registry.Install(Extension{Name: "slow", Sections: []Section{{Name: "slow", Render: func(ctx context.Context, _ ConversationRecord, _ *Harness) (string, error) {
+	if err := registry.Install(Extension{Name: "slow", Sections: []Section{{Name: "slow", Render: func(ctx context.Context, _ PromptInput) (string, error) {
 		entered <- struct{}{}
 		<-ctx.Done() // a section that never finishes preparing
 		return "", ctx.Err()
