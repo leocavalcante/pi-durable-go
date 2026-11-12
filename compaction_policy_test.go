@@ -28,3 +28,56 @@ func TestSummarizedTranscriptsAreUpstreams(t *testing.T) {
 		}
 	}
 }
+
+// Expectations are upstream's selectCut and estimateContext (1.5.2) for the
+// same views and kept-token targets.
+func TestCompactionCutsAreUpstreams(t *testing.T) {
+	want := []int{5, 3, 3, 2, 1, -1, 840, 5, 3, 3, 3, 3, -1, 1131, 4, 4, 4, 4, -1, -1, 403, 3, 3, 3, 2, -1, -1, 1072}
+	U := func(text string) Message { return Message{Role: "user", Content: text} }
+	A := func(text string, calls []string, usage int64) Message {
+		m := Message{Role: "assistant", Content: text, StopReason: "stop", Usage: Usage{InputTokens: usage}}
+		for _, id := range calls {
+			m.ToolCalls = append(m.ToolCalls, ToolCall{ID: id, Name: "t", Arguments: json.RawMessage(`{}`)})
+		}
+		if len(calls) > 0 {
+			m.StopReason = "toolUse"
+		}
+		return m
+	}
+	R := func(id, text string) Message {
+		return Message{Role: "tool", ToolCallID: id, ToolName: "t", Content: text}
+	}
+	big := func(n int) string { return strings.Repeat("w", n) }
+	views := [][][]Message{
+		{{U(big(700))}, {A(big(700), nil, 0)}, {U(big(700))}, {A(big(700), nil, 0)}, {U(big(70))}, {A(big(70), nil, 0)}},
+		{{U(big(350))}, {A("", []string{"c1"}, 0)}, {R("c1", big(3500))}, {A(big(35), nil, 0)}, {U(big(35))}, {A(big(35), nil, 0)}},
+		{{U(big(350))}, {A("", []string{"c1"}, 0)}, {U("steer " + big(350))}, {R("c1", big(350))}, {A(big(350), nil, 0)}},
+		{{U(big(100))}, {A(big(100), nil, 500)}, {U(big(1000))}, {A(big(1000), nil, 0)}},
+	}
+	heads := []bool{false, false, false, true}
+	var got []int
+	for v, contributions := range views {
+		view := contextView{contributions: contributions}
+		for i := range contributions {
+			view.entries = append(view.entries, Entry{ID: EntryID(i + 1)})
+			view.messages = append(view.messages, contributions[i]...)
+		}
+		if heads[v] {
+			view.head = &view.entries[0]
+		}
+		for _, keep := range []float64{10, 50, 150, 300, 600, 5000} {
+			cut := selectCut(view, keep)
+			if cut == 0 {
+				cut = -1
+			}
+			got = append(got, cut)
+		}
+		got = append(got, estimateContext(view, nil))
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("index %d: got %d want %d (all: %v)", i, got[i], want[i], got)
+			break
+		}
+	}
+}

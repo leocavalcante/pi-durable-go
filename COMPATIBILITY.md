@@ -141,6 +141,10 @@ This table highlights compatibility changes since the previous runtime reference
 | IndexedDB, Chord `StoreStorage`, SQLite schema/batching, Cloudflare adapters, and upstream storage-specific fixes | 1.4.0–1.5.1 | Not applicable to the Go backends; no upstream storage compatibility is claimed. |
 | `tool_search` and Code Mode fixes | 1.5.0–1.5.2 | `tools.ToolSearch()` has the `tool_search` fixes: ranking like the coding agent, words in any script with canonical equivalence, and parameters read through local `$ref`s. Code Mode is absent. |
 
+## Cross-checks
+
+Pure behavior is checked against upstream's own 1.5.2 code, run from its TypeScript sources: tool argument coercion and validation, the coding tools, tool search, context ordering, compaction, prompt planning, error classification, and `model.OpenAI`'s requests and responses. [docs/upstream-cross-checks.md](docs/upstream-cross-checks.md) has the method, the results, and the differences that remain.
+
 ## Provenance
 
 The original port base and current upstream reference are distinct: source lineage starts at Pi Durable v1.1.0; current semantic review targets the pinned v1.5.2 release. Pi and Pi Durable use the MIT License. This repository preserves the upstream notice and is independently maintained; the Go storage format and APIs are not official Pi artifacts.
