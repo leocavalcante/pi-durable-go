@@ -184,3 +184,13 @@ func (r *ToolRuntime) RetainedOutput(ctx context.Context) (string, bool) {
 	kept := tailBytes(combined, maxToolOutputBytes)
 	return kept, dropped || len(kept) < len(combined)
 }
+
+// Model is the Harness model for requests a task, hook, or tool makes itself,
+// with the same catalog, credentials, and identity as generation (upstream
+// models); read at each call, so ModelFunc changes apply. Nil without a model.
+func (r *TaskRuntime) Model() Model {
+	if r.h.model() == nil {
+		return nil
+	}
+	return harnessModel{h: r.h}
+}
