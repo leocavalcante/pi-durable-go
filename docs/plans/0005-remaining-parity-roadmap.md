@@ -25,13 +25,12 @@
 | Positional system messages and context edits (spec §7.4) | `prompt.go`, `context.go` |
 | `settings.stream` and `settings.extensions`, `ModelFunc`, runtime helpers (`Agent`, `Task`, `WaitTask`, `Context`, `Diagnostic`, `RetainedOutput`), submission abort results, document families, nested calls as a family, read-only SQLite, trace roots and status categories | `harness.go`, `runtime_api.go`, `documents.go`, `nested.go`, `storage/sqlite.go`, `telemetry.go` |
 | Incremental commits and shared reads ([plan 0006](0006-incremental-commits-and-record-storage.md)); commit observers; read-only JSONL; images end to end with a processor and catalog limits; identity and tool model access; structured tool output; `Tx.Configure` | `cow.go`, `delta.go`, `storage/`, `tools/images.go`, `harness.go` |
-| Final storage errors, group commit, deferred progress commits, upstream section rendering ([plan 0007](0007-upstream-commit-pipeline.md)); `AfterResponse` on failed attempts; section render inputs (`PromptInput`); documents as of an entry; `TaskRuntime.Model`; relative extension and tool selections; synchronous observers with end reasons; partials with thinking and streamed tool-call arguments; deferred model answers (`poll`) | `session.go`, `lifecycle.go`, `delta.go`, `storage/`, `generation.go` |
+| Final storage errors, group commit, deferred progress commits, upstream section rendering ([plan 0007](0007-upstream-commit-pipeline.md)); `AfterResponse` on failed attempts; section render inputs (`PromptInput`); documents as of an entry; `TaskRuntime.Model`; relative extension and tool selections; synchronous observers with end reasons; partials with thinking and streamed tool-call arguments; deferred model answers (`poll`); images interleaved with text | `session.go`, `lifecycle.go`, `delta.go`, `storage/`, `generation.go` |
 
 ## 2. Remaining work, in proposed order
 
-1. **Image order.** Images interleaved with text in one message; Go puts a message's images after its text.
-2. **Environment parity.** The `env` package's bounded binary and directory readers and file watching. Hosts can use the Go standard library directly; tools need none of them today.
-3. **Bounded memory.** Upstream keeps loaded conversations and tails in bounded caches; Go keeps the whole State in memory.
+1. **Environment parity.** The `env` package's bounded binary and directory readers and file watching. Hosts can use the Go standard library directly; tools need none of them today.
+2. **Bounded memory.** Upstream keeps loaded conversations and tails in bounded caches; Go keeps the whole State in memory.
 
 ## 3. Not planned
 

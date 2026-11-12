@@ -269,6 +269,9 @@ func (h *Harness) admitSubmission(tx *Tx, cid ConversationID, request Submission
 			return 0, fmt.Errorf("%w: an image needs a MIME type and data", ErrInvalid)
 		}
 	}
+	if err := validImageOffsets(request.Content, request.Images, request.ImageOffsets); err != nil {
+		return 0, err
+	}
 	if request.RequestID != "" {
 		for _, existing := range tx.state.Submissions {
 			if existing.Conversation == cid && existing.Request.RequestID == request.RequestID {

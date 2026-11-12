@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -123,5 +124,44 @@ func TestOpenAISendsStreamHeaders(t *testing.T) {
 	}
 	if got != "yes" {
 		t.Fatalf("header=%q", got)
+	}
+}
+
+func TestOpenAIInterleavesImagesAtTheirOffsets(t *testing.T) {
+	png := durable.ImageContent{MimeType: "image/png", Data: "iVBORw0KGgo="}
+	message := durable.Message{Role: "user", Content: "first then second", Images: []durable.ImageContent{png, png, png}, ImageOffsets: []int{6, 6, 17}}
+	for _, tc := range []struct {
+		noImages bool
+		want     []string
+	}{
+		{false, []string{"text:first ", "image_url", "image_url", "text:then second", "image_url"}},
+		{true, []string{"text:first ", "text:" + userImagePlaceholder, "text:then second", "text:" + userImagePlaceholder}},
+	} {
+		var got []string
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			var body struct {
+				Messages []struct {
+					Content []struct {
+						Type string `json:"type"`
+						Text string `json:"text"`
+					} `json:"content"`
+				} `json:"messages"`
+			}
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			for _, part := range body.Messages[0].Content {
+				if part.Type == "text" {
+					got = append(got, "text:"+part.Text)
+				} else {
+					got = append(got, part.Type)
+				}
+			}
+			w.Header().Set("Content-Type", "text/event-stream")
+			_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"ok\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n"))
+		}))
+		_, err := OpenAI{BaseURL: server.URL + "/v1", NoImages: tc.noImages}.Generate(context.Background(), durable.ModelRequest{Model: durable.ModelRef{ID: "m"}, Messages: []durable.Message{message}}, nil)
+		server.Close()
+		if err != nil || !reflect.DeepEqual(got, tc.want) {
+			t.Fatalf("noImages=%v parts=%q error=%v\nwant %q", tc.noImages, got, err, tc.want)
+		}
 	}
 }

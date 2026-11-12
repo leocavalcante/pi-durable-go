@@ -124,7 +124,7 @@ A generation retries a failed model attempt only when the error is transient and
 - `tools.NewLocalEnv(cwd)` supplies local filesystem and process execution. **A working directory is not a sandbox.**
 - `model.Pi` reuses an installed Pi coding-agent SDK's authentication and provider transports, including existing `/login` OAuth credentials and refresh. Requires Node.js 22.19+ and the tested Pi SDK 1.5.2 baseline; no Pi agent/tool loop is started.
 - `model.OpenAI` supplies a pure-Go streaming OpenAI-compatible Chat Completions adapter with an explicit API key.
-- Messages, inputs (`SubmissionRequest.Images`), and tool results carry images; both adapters send them, and a model without image input sees pi-ai's placeholders. `HarnessOptions.Identity` (pi-ai's `ClientIdentity`) is set on every model request, including those tasks, hooks, and tools make through `TaskRuntime.Model`.
+- Messages, inputs (`SubmissionRequest.Images`), and tool results carry images, after the text or interleaved with it at `ImageOffsets` (`OrderedContent` gives the ordered blocks); both adapters send them in order, and a model without image input sees pi-ai's placeholders in place. `HarnessOptions.Identity` (pi-ai's `ClientIdentity`) is set on every model request, including those tasks, hooks, and tools make through `TaskRuntime.Model`.
 - Implement `durable.Model` for other integrations. A native Go provider/OAuth catalog is not implemented. See [model/README.md](model/README.md) for setup, credential discovery, and limits.
 
 The [chat example](examples/chat/main.go) wires these together with SQLite and defaults to Pi authentication:

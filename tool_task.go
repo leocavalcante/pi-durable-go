@@ -408,6 +408,19 @@ func finishToolEnding(ctx context.Context, r *TaskRuntime, task TaskRecord, resu
 			limits = *def.OutputLimits
 		}
 		if bounded, lines, bytes := boundOutput(result.Content, limits); lines > 0 || bytes > 0 {
+			// Images keep their places in what is kept: a kept end moves
+			// them by the dropped beginning.
+			shift := 0
+			if limits.Retain == "tail" {
+				shift = len(result.Content) - len(bounded)
+			}
+			if result.ImageOffsets != nil {
+				offsets := make([]int, len(result.ImageOffsets))
+				for i, at := range result.ImageOffsets {
+					offsets[i] = min(max(at-shift, 0), len(bounded))
+				}
+				result.ImageOffsets = offsets
+			}
 			result.Content = bounded
 			kept := "beginning"
 			if limits.Retain == "tail" {
@@ -427,7 +440,7 @@ func finishToolEnding(ctx context.Context, r *TaskRuntime, task TaskRecord, resu
 			}
 			content += renderDiagnostics(result.Diagnostics)
 		}
-		id, err := tx.Append(task.Conversation, Entry{Kind: "pi.tool-result", Message: &Message{Role: "tool", ToolCallID: input.Call.ID, ToolName: input.Call.Name, Content: content, Images: result.Images, IsError: result.IsError, Usage: result.Usage, DurationMs: result.DurationMs}, Data: details})
+		id, err := tx.Append(task.Conversation, Entry{Kind: "pi.tool-result", Message: &Message{Role: "tool", ToolCallID: input.Call.ID, ToolName: input.Call.Name, Content: content, Images: result.Images, ImageOffsets: result.ImageOffsets, IsError: result.IsError, Usage: result.Usage, DurationMs: result.DurationMs}, Data: details})
 		if err != nil {
 			return TaskTransition{}, err
 		}
@@ -487,7 +500,7 @@ func appendToolResult(tx *Tx, cid ConversationID, call ToolCall, result ToolResu
 		}
 		content += renderDiagnostics(result.Diagnostics)
 	}
-	id, err := tx.Append(cid, Entry{Kind: "pi.tool-result", Message: &Message{Role: "tool", ToolCallID: call.ID, ToolName: call.Name, Content: content, Images: result.Images, IsError: result.IsError, Usage: result.Usage, DurationMs: result.DurationMs}, Data: details})
+	id, err := tx.Append(cid, Entry{Kind: "pi.tool-result", Message: &Message{Role: "tool", ToolCallID: call.ID, ToolName: call.Name, Content: content, Images: result.Images, ImageOffsets: result.ImageOffsets, IsError: result.IsError, Usage: result.Usage, DurationMs: result.DurationMs}, Data: details})
 	if err != nil {
 		return 0, err
 	}

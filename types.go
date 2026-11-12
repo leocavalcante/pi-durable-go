@@ -178,8 +178,11 @@ type Message struct {
 	// ProviderData is adapter-owned assistant replay data (for example signed
 	// thinking blocks). Persist it with the message; never put credentials here.
 	ProviderData json.RawMessage `json:"providerData,omitempty"`
-	// Images of a user or tool-result message, after its text.
-	Images []ImageContent `json:"images,omitempty"`
+	// Images of a user or tool-result message, after its text unless
+	// ImageOffsets place them: image i goes at byte offset ImageOffsets[i] of
+	// Content, as upstream's ordered content blocks (OrderedContent).
+	Images       []ImageContent `json:"images,omitempty"`
+	ImageOffsets []int          `json:"imageOffsets,omitempty"`
 	// A system message's prompt sections and tool changes (pi-ai
 	// SystemMessage): Sections set or remove named sections in order, and
 	// ToolsAdded and ToolsRemoved change the tools on offer from this point.
@@ -220,10 +223,12 @@ type UsageState struct {
 type SubmissionRequest struct {
 	Type    string `json:"type"` // input, write, or continue
 	Content string `json:"content,omitempty"`
-	// Images of an input, after its content.
-	Images    []ImageContent `json:"images,omitempty"`
-	Entry     *Entry         `json:"entry,omitempty"`
-	RequestID string         `json:"requestId,omitempty"`
+	// Images of an input, after its content unless ImageOffsets place them
+	// (non-decreasing byte offsets of Content, one per image).
+	Images       []ImageContent `json:"images,omitempty"`
+	ImageOffsets []int          `json:"imageOffsets,omitempty"`
+	Entry        *Entry         `json:"entry,omitempty"`
+	RequestID    string         `json:"requestId,omitempty"`
 	// WhenBusy (input only): followUp (default) queues for the next run, steer
 	// joins the current run at its next boundary, reject fails with ErrBusy.
 	WhenBusy string `json:"whenBusy,omitempty"`
@@ -426,8 +431,10 @@ type ToolDiagnostic struct {
 
 type ToolResult struct {
 	Content string `json:"content"`
-	// Images follow the content in the tool-result message.
-	Images []ImageContent `json:"images,omitempty"`
+	// Images follow the content in the tool-result message unless
+	// ImageOffsets place them (byte offsets of Content, one per image).
+	Images       []ImageContent `json:"images,omitempty"`
+	ImageOffsets []int          `json:"imageOffsets,omitempty"`
 	// Diagnostics follow the content for the model. The Harness's own error
 	// results carry one error diagnostic with a code: tool_unavailable,
 	// invalid_arguments, blocked, interrupted, restart_limit, aborted, or

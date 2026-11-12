@@ -14,7 +14,7 @@ func inputEntry(request SubmissionRequest) Entry {
 		kind = request.Entry.Kind
 		data = request.Entry.Data
 	}
-	return Entry{Kind: kind, Message: &Message{Role: "user", Content: request.Content, Images: request.Images}, Data: data}
+	return Entry{Kind: kind, Message: &Message{Role: "user", Content: request.Content, Images: request.Images, ImageOffsets: request.ImageOffsets}, Data: data}
 }
 
 // isDisplayOnlyWrite: a write that changes nothing the model sees (no
@@ -99,7 +99,9 @@ type InboxItem struct {
 	Mode    string         `json:"mode"`
 	Content string         `json:"content,omitempty"`
 	Images  []ImageContent `json:"images,omitempty"`
-	Entry   *Entry         `json:"entry,omitempty"`
+	// ImageOffsets place Images in Content (Message.ImageOffsets).
+	ImageOffsets []int  `json:"imageOffsets,omitempty"`
+	Entry        *Entry `json:"entry,omitempty"`
 }
 
 // InboxState is the built-in pi.inbox document: one conversation's
@@ -143,7 +145,7 @@ func syncInboxes(tx *Tx) error {
 			case "write":
 				item.Mode, item.Entry = "write", sub.Request.Entry
 			default:
-				item.Mode, item.Content, item.Images = queueMode(sub.Request), sub.Request.Content, sub.Request.Images
+				item.Mode, item.Content, item.Images, item.ImageOffsets = queueMode(sub.Request), sub.Request.Content, sub.Request.Images, sub.Request.ImageOffsets
 				if sub.Request.Entry != nil {
 					item.Entry = &Entry{Kind: sub.Request.Entry.Kind, Data: sub.Request.Entry.Data}
 				}

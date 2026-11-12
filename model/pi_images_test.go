@@ -127,3 +127,19 @@ func TestPiBridgePassesStreamOptions(t *testing.T) {
 		t.Fatalf("headers=%v", o["headers"])
 	}
 }
+
+func TestPiBridgeInterleavesImagesAtTheirOffsets(t *testing.T) {
+	p := fakePi(t)
+	png := durable.ImageContent{MimeType: "image/png", Data: "iVBORw0KGgo="}
+	req := piRequest("inspect")
+	// "café " is 6 bytes: the first image goes after it, the second at the end.
+	req.Messages = []durable.Message{{Role: "user", Content: "café vs bar", Images: []durable.ImageContent{png, png}, ImageOffsets: []int{6, 13}}}
+	inspect := inspectPi(t, p, req)
+	var blocks []map[string]any
+	if err := json.Unmarshal(inspect.Context.Messages[0].Content, &blocks); err != nil {
+		t.Fatal(err)
+	}
+	if len(blocks) != 4 || blocks[0]["text"] != "café " || blocks[1]["type"] != "image" || blocks[2]["text"] != "vs bar" || blocks[3]["type"] != "image" {
+		t.Fatalf("blocks=%v", blocks)
+	}
+}

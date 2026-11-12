@@ -114,13 +114,29 @@ function systemMessage(message, timestamp) {
   return result;
 }
 
-// Text, then images, as pi-ai content blocks; pi-ai downgrades them for a
-// model without image input.
+// Text and images in order, as pi-ai content blocks: imageOffsets (UTF-8
+// byte offsets of the content, one per image) place the images; without
+// them, images follow the text. pi-ai downgrades them for a model without
+// image input.
 function withImages(message) {
-  const blocks = message.content ? [{ type: "text", text: message.content }] : [];
-  for (const image of message.images) {
+  const text = typeof message.content === "string" ? message.content : "";
+  const images = message.images;
+  const bytes = new TextEncoder().encode(text);
+  const offsets = Array.isArray(message.imageOffsets) && message.imageOffsets.length === images.length ? message.imageOffsets : null;
+  const placed = images.map((image, index) => {
+    let at = offsets ? Math.min(Math.max(Number(offsets[index]) || 0, 0), bytes.length) : bytes.length;
+    while (at < bytes.length && (bytes[at] & 0xc0) === 0x80) at++;
+    return { at, index, image };
+  }).sort((a, b) => a.at - b.at || a.index - b.index);
+  const decoder = new TextDecoder();
+  const blocks = [];
+  let written = 0;
+  for (const { at, image } of placed) {
+    if (at > written) blocks.push({ type: "text", text: decoder.decode(bytes.subarray(written, at)) });
+    written = Math.max(written, at);
     blocks.push({ type: "image", data: String(image.data ?? ""), mimeType: String(image.mimeType ?? "") });
   }
+  if (written < bytes.length) blocks.push({ type: "text", text: decoder.decode(bytes.subarray(written)) });
   return blocks;
 }
 

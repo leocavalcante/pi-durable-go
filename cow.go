@@ -222,6 +222,9 @@ func (m Message) detached() Message {
 	if m.Images != nil {
 		out.Images = append([]ImageContent{}, m.Images...)
 	}
+	if m.ImageOffsets != nil {
+		out.ImageOffsets = append([]int{}, m.ImageOffsets...)
+	}
 	if m.Sections != nil {
 		out.Sections = make([]SystemSection, len(m.Sections))
 		for i, section := range m.Sections {

@@ -119,15 +119,22 @@ func (o OpenAI) GenerateEvents(ctx context.Context, req durable.ModelRequest, on
 		}
 		switch {
 		case role == "user" && len(m.Images) > 0:
+			// Text and images in order; without image input, each run of
+			// images becomes one placeholder in place, as pi-ai does.
 			var parts []openAIContentPart
-			if m.Content != "" {
-				parts = append(parts, openAIContentPart{Type: "text", Text: m.Content})
-			}
-			if o.NoImages {
-				parts = append(parts, openAIContentPart{Type: "text", Text: userImagePlaceholder})
-			} else {
-				for _, image := range m.Images {
-					parts = append(parts, imageURL(image))
+			placeholder := false
+			for _, part := range durable.OrderedContent(m.Content, m.Images, m.ImageOffsets) {
+				switch {
+				case part.Image == nil:
+					parts = append(parts, openAIContentPart{Type: "text", Text: part.Text})
+					placeholder = false
+				case o.NoImages:
+					if !placeholder {
+						parts = append(parts, openAIContentPart{Type: "text", Text: userImagePlaceholder})
+					}
+					placeholder = true
+				default:
+					parts = append(parts, imageURL(*part.Image))
 				}
 			}
 			msg.Content = parts
@@ -135,10 +142,19 @@ func (o OpenAI) GenerateEvents(ctx context.Context, req durable.ModelRequest, on
 			msg.ToolCallID = m.ToolCallID
 			text := m.Content
 			if len(m.Images) > 0 && o.NoImages {
-				if text != "" {
-					text += "\n"
+				// Each run of images becomes one placeholder where it was.
+				var blocks []string
+				placeholder := false
+				for _, part := range durable.OrderedContent(m.Content, m.Images, m.ImageOffsets) {
+					if part.Image == nil {
+						blocks = append(blocks, part.Text)
+						placeholder = false
+					} else if !placeholder {
+						blocks = append(blocks, toolImagePlaceholder)
+						placeholder = true
+					}
 				}
-				text += toolImagePlaceholder
+				text = strings.Join(blocks, "\n")
 			}
 			switch {
 			case strings.TrimSpace(text) != "":
