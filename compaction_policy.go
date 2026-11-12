@@ -6,6 +6,7 @@ import (
 	"math"
 	"sort"
 	"strings"
+	"unicode/utf16"
 )
 
 // CompactionSettings is Pi Durable's compaction policy (settings.compaction,
@@ -152,18 +153,32 @@ func estimateMessageTokens(m Message) int {
 		}
 		return tokens
 	}
-	chars := len([]rune(m.Content)) + estimatedImageChars*len(m.Images)
+	// Lengths are JavaScript's, UTF-16 code units, as pi-ai counts.
+	chars := utf16Len(m.Content) + estimatedImageChars*len(m.Images)
 	if m.Role == "assistant" {
-		chars += len([]rune(m.Thinking))
+		chars += utf16Len(m.Thinking)
 		for _, call := range m.ToolCalls {
-			chars += len([]rune(call.Name)) + len(call.Arguments)
+			chars += utf16Len(call.Name) + utf16Len(string(compactJSON(call.Arguments)))
 		}
 	}
 	return int(math.Ceil(float64(chars) / 3.5))
 }
 
 func estimateTextTokens(text string) int {
-	return int(math.Ceil(float64(len([]rune(text))) / 3.5))
+	return int(math.Ceil(float64(utf16Len(text)) / 3.5))
+}
+
+// utf16Len is a string's JavaScript length: UTF-16 code units.
+func utf16Len(text string) int {
+	n := 0
+	for _, r := range text {
+		if r >= 0x10000 {
+			n += 2
+		} else {
+			n++
+		}
+	}
+	return n
 }
 
 func usageTokens(u Usage) int {
@@ -365,8 +380,9 @@ func serializeConversation(messages []Message) string {
 		case "tool":
 			if m.Content != "" {
 				text := m.Content
-				if runes := []rune(text); len(runes) > toolResultMaxChars {
-					text = fmt.Sprintf("%s\n\n[... %d more characters truncated]", string(runes[:toolResultMaxChars]), len(runes)-toolResultMaxChars)
+				// JavaScript lengths and slicing: UTF-16 code units.
+				if units := utf16.Encode([]rune(text)); len(units) > toolResultMaxChars {
+					text = fmt.Sprintf("%s\n\n[... %d more characters truncated]", string(utf16.Decode(units[:toolResultMaxChars])), len(units)-toolResultMaxChars)
 				}
 				parts = append(parts, "[Tool result]: "+text)
 			}

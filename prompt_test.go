@@ -169,3 +169,16 @@ func TestAnEditedBaselineDoesNotLead(t *testing.T) {
 		t.Fatalf("messages=%+v", view.messages)
 	}
 }
+
+func TestEstimatesCountJavaScriptLengths(t *testing.T) {
+	// "😀" is one rune but two UTF-16 code units, as pi-ai counts it.
+	if got := estimateMessageTokens(Message{Role: "user", Content: strings.Repeat("😀", 7)}); got != 4 {
+		t.Fatalf("estimate=%d, want ceil(14/3.5)=4", got)
+	}
+	a := ToolSpec{Name: "t", Parameters: json.RawMessage(`{}`), ConstrainedSampling: json.RawMessage(`false`)}
+	b := a
+	b.ConstrainedSampling = nil
+	if declarationsEqual(a, b) {
+		t.Fatal("constrainedSampling is part of the declaration")
+	}
+}

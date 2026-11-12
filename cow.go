@@ -236,6 +236,7 @@ func (m Message) detached() Message {
 		out.ToolsAdded = make([]ToolSpec, len(m.ToolsAdded))
 		for i, tool := range m.ToolsAdded {
 			tool.Parameters = cloneRaw(tool.Parameters)
+			tool.ConstrainedSampling = cloneRaw(tool.ConstrainedSampling)
 			out.ToolsAdded[i] = tool
 		}
 	}

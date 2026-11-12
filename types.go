@@ -365,6 +365,9 @@ type ToolSpec struct {
 	Name        string          `json:"name"`
 	Description string          `json:"description"`
 	Parameters  json.RawMessage `json:"parameters"`
+	// ConstrainedSampling is pi-ai's Tool.constrainedSampling: false, or a
+	// configuration object; part of the declaration.
+	ConstrainedSampling json.RawMessage `json:"constrainedSampling,omitempty"`
 }
 type ToolDefinition struct {
 	ToolSpec

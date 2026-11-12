@@ -165,7 +165,8 @@ func declarationsEqual(a, b ToolSpec) bool {
 	if a.Name != b.Name || a.Description != b.Description {
 		return false
 	}
-	return bytes.Equal(compactJSON(a.Parameters), compactJSON(b.Parameters))
+	return bytes.Equal(compactJSON(a.Parameters), compactJSON(b.Parameters)) &&
+		bytes.Equal(compactJSON(a.ConstrainedSampling), compactJSON(b.ConstrainedSampling))
 }
 
 func compactJSON(raw json.RawMessage) []byte {
@@ -178,7 +179,7 @@ func compactJSON(raw json.RawMessage) []byte {
 
 // toolDeclaration is the part of a tool that enters the transcript.
 func toolDeclaration(tool ToolSpec) ToolSpec {
-	return ToolSpec{Name: tool.Name, Description: tool.Description, Parameters: cloneRaw(tool.Parameters)}
+	return ToolSpec{Name: tool.Name, Description: tool.Description, Parameters: cloneRaw(tool.Parameters), ConstrainedSampling: cloneRaw(tool.ConstrainedSampling)}
 }
 
 // planSystemEntries plans the pi.system entries that make the replayed

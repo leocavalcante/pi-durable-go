@@ -77,7 +77,8 @@ function systemMessage(message, timestamp) {
   }
   if (Array.isArray(message.toolsAdded) && message.toolsAdded.length > 0) {
     result.toolsAdded = message.toolsAdded.map((tool) => ({ name: tool.name, description: tool.description ?? "",
-      parameters: tool.parameters ?? { type: "object" } }));
+      parameters: tool.parameters ?? { type: "object" },
+      ...(tool.constrainedSampling === undefined ? {} : { constrainedSampling: tool.constrainedSampling }) }));
   }
   if (Array.isArray(message.toolsRemoved) && message.toolsRemoved.length > 0) {
     result.toolsRemoved = message.toolsRemoved.map((name) => ({ name: String(name) }));
