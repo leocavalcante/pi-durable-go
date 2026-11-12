@@ -337,7 +337,7 @@ func (c *Conversation) Submit(ctx context.Context, request SubmissionRequest) (*
 	}
 	// Submitting asks for progress: the run it starts needs scheduling.
 	c.h.Resume()
-	ctx, sp := c.h.span(ctx, "pi.durable.submit", map[string]any{"submission.type": request.Type, "conversation.id": uint64(c.id)})
+	ctx, sp := c.h.submitSpan(ctx, request.Type, c.id)
 	var id SubmissionID
 	err := c.h.Commit(ctx, func(tx *Tx) error {
 		var err error

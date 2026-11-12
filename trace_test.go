@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 )
@@ -135,5 +136,42 @@ func TestTaskTraceOptions(t *testing.T) {
 	}
 	if task, _ := h.Task(context.Background(), explicit); len(task.Links) != 1 || string(task.Links[0]) != `"link#1"` {
 		t.Fatalf("links=%s", task.Links)
+	}
+}
+
+func (t *tracingTelemetry) Root(ctx context.Context) context.Context {
+	return context.WithValue(ctx, traceKey{}, "")
+}
+
+func TestInputSubmissionsStartRootTracesLinkedToTheCaller(t *testing.T) {
+	telemetry := &tracingTelemetry{}
+	h := taskTestHarness(t, HarnessOptions{Model: echoModel{}, Telemetry: telemetry})
+	root := testRoot(t, h)
+	ctx := context.WithValue(context.Background(), traceKey{}, "caller#0")
+	sub, err := root.Submit(ctx, SubmissionRequest{Content: "hi"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitSettled(t, h, sub.ID())
+	if _, err := root.Submit(ctx, SubmissionRequest{Type: "write", Entry: &Entry{Kind: "app.note"}}); err != nil {
+		t.Fatal(err)
+	}
+	telemetry.mu.Lock()
+	defer telemetry.mu.Unlock()
+	var input, write string
+	for span, parent := range telemetry.parents {
+		if strings.HasPrefix(span, "pi.durable.submit") {
+			if parent == "" {
+				input = span
+			} else {
+				write = parent
+			}
+		}
+	}
+	if input == "" || len(telemetry.links[input]) != 1 || telemetry.links[input][0] != "caller#0" {
+		t.Fatalf("input span=%q links=%v", input, telemetry.links)
+	}
+	if write != "caller#0" {
+		t.Fatalf("write parent=%q", write)
 	}
 }

@@ -202,3 +202,33 @@ func truncateRunes(text string, limit int) string {
 	}
 	return string(runes[:limit])
 }
+
+// TelemetryRooter is optionally implemented by a Telemetry adapter that can
+// start a trace at its root: Root returns ctx, keeping its cancellation and
+// values, without the span it carries.
+type TelemetryRooter interface {
+	Root(ctx context.Context) context.Context
+}
+
+// submitSpan starts a public submission's span: inputs and continues start a
+// root trace linked to the caller's span, writes are its children
+// (upstream), when the adapter can root and propagate traces.
+func (h *Harness) submitSpan(ctx context.Context, kind string, cid ConversationID) (context.Context, *span) {
+	attributes := map[string]any{"submission.type": kind, "conversation.id": uint64(cid)}
+	rooter, rooted := h.options.Telemetry.(TelemetryRooter)
+	propagation := h.propagation()
+	if kind == "write" || !rooted || propagation == nil {
+		return h.span(ctx, "pi.durable.submit", attributes)
+	}
+	var caller json.RawMessage
+	root := ctx
+	h.telemetryCall(func() {
+		caller = propagation.Inject(ctx)
+		if r := rooter.Root(ctx); r != nil && r.Done() == ctx.Done() {
+			root = r
+		}
+	})
+	next, sp := h.span(root, "pi.durable.submit", attributes)
+	sp.link(caller)
+	return next, sp
+}
