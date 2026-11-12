@@ -27,12 +27,33 @@ type RegistrySnapshot struct {
 	defaults []string
 }
 
-// selection is the extensions an agent selects: its own, or the defaults.
+// selection is the extensions an agent selects: its own, or the defaults
+// (every installed extension without any) edited by its ExtensionEdits.
 func (s *RegistrySnapshot) selection(agent Agent) []string {
 	if agent.Extensions != nil {
 		return agent.Extensions
 	}
-	return s.defaults
+	edits := agent.ExtensionEdits
+	if edits == nil || len(edits.Add) == 0 && len(edits.Remove) == 0 {
+		return s.defaults
+	}
+	base := s.defaults
+	if base == nil {
+		for _, extension := range s.extensions {
+			base = append(base, extension.Name)
+		}
+	}
+	removed := map[string]bool{}
+	for _, name := range edits.Remove {
+		removed[name] = true
+	}
+	selected := []string{}
+	for _, name := range append(append([]string(nil), base...), edits.Add...) {
+		if !removed[name] {
+			selected = append(selected, name)
+		}
+	}
+	return selected
 }
 
 type resolvedTask struct {
@@ -256,6 +277,19 @@ func (s *RegistrySnapshot) Tools(agent Agent) []ToolDefinition {
 			}
 		}
 		return filtered
+	}
+	if len(agent.RemoveTools) > 0 {
+		removed := map[string]bool{}
+		for _, name := range agent.RemoveTools {
+			removed[name] = true
+		}
+		kept := []ToolDefinition{}
+		for _, tool := range tools {
+			if !removed[tool.Name] {
+				kept = append(kept, tool)
+			}
+		}
+		return kept
 	}
 	return tools
 }

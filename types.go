@@ -68,10 +68,18 @@ type ModelRef struct {
 type Agent struct {
 	Model         ModelRef `json:"model"`
 	ThinkingLevel string   `json:"thinkingLevel,omitempty"`
-	Extensions    []string `json:"extensions"`
-	Tools         []string `json:"tools"`
-	Instructions  *string  `json:"instructions,omitempty"`
-	Cwd           string   `json:"cwd,omitempty"`
+	// Extensions selects exactly these extensions, in order. Nil selects the
+	// host default (Settings.Extensions, or every installed extension),
+	// edited by ExtensionEdits (upstream extensions {add, remove}).
+	Extensions     []string        `json:"extensions"`
+	ExtensionEdits *SelectionEdits `json:"extensionEdits,omitempty"`
+	// Tools enables exactly these tools of the selected extensions, in
+	// order. Nil enables every one except RemoveTools (upstream tools
+	// {remove}).
+	Tools        []string `json:"tools"`
+	RemoveTools  []string `json:"removeTools,omitempty"`
+	Instructions *string  `json:"instructions,omitempty"`
+	Cwd          string   `json:"cwd,omitempty"`
 	// MaxTurns bounds a run's tool rounds; a run that reaches it ends
 	// unanswered with turn_limit, and a continue resumes it. Zero: no bound.
 	MaxTurns int `json:"maxTurns,omitempty"`
@@ -81,6 +89,13 @@ type Agent struct {
 	// offered to it. It never widens; other tools can still call the ones it
 	// leaves out. Nil offers every such tool except deferred ones.
 	ModelTools *ModelTools `json:"modelTools,omitempty"`
+}
+
+// SelectionEdits edit a default selection: the defaults, then Add, without
+// Remove, each name once, in that order.
+type SelectionEdits struct {
+	Add    []string `json:"add,omitempty"`
+	Remove []string `json:"remove,omitempty"`
 }
 
 // ModelTools selects the tools offered to the model (upstream modelTools).

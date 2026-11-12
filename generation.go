@@ -1570,6 +1570,15 @@ func addTools(tx *Tx, cid ConversationID, added []string) error {
 			}
 		}
 		agent.Tools = tools
+	} else if len(agent.RemoveTools) > 0 {
+		// Loading a tool takes it out of the removed ones.
+		var kept []string
+		for _, name := range agent.RemoveTools {
+			if !contains(added, name) {
+				kept = append(kept, name)
+			}
+		}
+		agent.RemoveTools = kept
 	}
 	selection := ModelTools{}
 	if agent.ModelTools != nil {
