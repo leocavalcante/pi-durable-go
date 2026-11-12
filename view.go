@@ -35,14 +35,9 @@ type ConversationWindow struct {
 // value at once and a next one after each commit that changes the window
 // or the conversation's documents, coalesced to the latest. stop ends it.
 func (c *Conversation) WatchWindow(ctx context.Context, window ConversationWindow) (<-chan ConversationView, func(), error) {
-	if window.Min == 0 {
-		window.Min = 50
-	}
-	if window.Max == 0 {
-		window.Max = 2 * window.Min
-	}
-	if window.Min < 1 || window.Max < window.Min {
-		return nil, nil, fmt.Errorf("%w: window bounds", ErrInvalid)
+	window, err := window.resolved()
+	if err != nil {
+		return nil, nil, err
 	}
 	states, stopWatch, err := c.h.session.watchShared(ctx)
 	if err != nil {
@@ -96,6 +91,20 @@ func (c *Conversation) WatchWindow(ctx context.Context, window ConversationWindo
 		}
 	}()
 	return out, func() { cancel(); stopWatch() }, nil
+}
+
+// resolved fills a window's defaults and checks its bounds.
+func (w ConversationWindow) resolved() (ConversationWindow, error) {
+	if w.Min == 0 {
+		w.Min = 50
+	}
+	if w.Max == 0 {
+		w.Max = 2 * w.Min
+	}
+	if w.Min < 1 || w.Max < w.Min {
+		return w, fmt.Errorf("%w: window bounds", ErrInvalid)
+	}
+	return w, nil
 }
 
 // advanceView computes the window's next value from a snapshot.

@@ -40,7 +40,12 @@ func (h *Harness) Inspect(ctx context.Context) (HarnessInspection, error) {
 		return HarnessInspection{}, err
 	}
 	// The committed State is read in place; only returned records are copied.
-	state := h.session.state
+	return h.inspectLocked(h.session.state), nil
+}
+
+// inspectLocked is Inspect's capture of a State; the caller holds the
+// Session line.
+func (h *Harness) inspectLocked(state *State) HarnessInspection {
 	snapshot := h.registry.Snapshot()
 	h.scheduler.mu.Lock()
 	out := HarnessInspection{Scheduling: h.scheduler.stateLocked()}
@@ -97,5 +102,5 @@ func (h *Harness) Inspect(ctx context.Context) (HarnessInspection, error) {
 		}
 	}
 	sort.Slice(out.Submissions, func(i, j int) bool { return out.Submissions[i].ID < out.Submissions[j].ID })
-	return out, nil
+	return out
 }

@@ -96,6 +96,9 @@ func (s *Session) failLocked(cause error) {
 	first := s.failure.CompareAndSwap(nil, &SessionFailedError{cause: cause})
 	s.sealAdmission()
 	s.closeWatchersLocked()
+	if first {
+		s.endObserversLocked(WatchEnd{Kind: "failed", Err: cause})
+	}
 	if first && s.failureHook != nil {
 		// The hook is internal and enqueue-only. Run it after admission has been
 		// sealed, before finishClose can shut report admission.
@@ -128,6 +131,14 @@ func (s *Session) finishClose() {
 	// before touching the backend.
 	s.storeHeld(true)
 	s.drainWriter()
+	// After the last adoption: the observers follow the next Session.
+	s.mu.Lock()
+	if failure := s.failure.Load(); failure != nil {
+		s.endObserversLocked(WatchEnd{Kind: "failed", Err: failure.cause})
+	} else {
+		s.endObserversLocked(WatchEnd{Kind: "failed", Err: ErrClosed})
+	}
+	s.mu.Unlock()
 	err := s.storage.Close()
 	if err != nil && s.failure.CompareAndSwap(nil, &SessionFailedError{cause: err}) && s.failureHook != nil {
 		// A backend close failure is also reported, before afterClose closes

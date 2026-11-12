@@ -57,6 +57,9 @@ type Session struct {
 	// yet, with the time each must be stored by; heldTimer stores them then.
 	held      map[string]time.Time
 	heldTimer *time.Timer
+	// stateObservers are synchronous observers (Observer) of every State
+	// memory adopts.
+	stateObservers map[*stateObserver]struct{}
 	// observerPanic reports an observer that panicked.
 	observerPanic func(any)
 }
@@ -337,6 +340,7 @@ func (s *Session) publishMemoryLocked(item *pendingCommit) {
 	if s.afterCommit != nil {
 		s.afterCommit(item.state)
 	}
+	s.adoptedLocked(item.state)
 	if item.publish {
 		for w := range s.watchers {
 			s.offer(w, item.state)
@@ -483,6 +487,7 @@ func (s *Session) writeLoop() {
 			// Observers follow storage, including the unpublished close
 			// write-back.
 			s.notifyCommitObservers(item.delta, item.state)
+			s.adoptedLocked(item.state)
 			if item.publish {
 				for w := range s.watchers {
 					s.offer(w, item.state)
