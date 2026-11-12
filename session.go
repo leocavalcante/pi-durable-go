@@ -472,10 +472,10 @@ func (s *Session) storeHeld(wait bool) {
 // Session's failure.
 func (s *Session) writeLoop() {
 	for {
-		// The context retention may be host code: read it off the line.
-		retention := time.Duration(0)
+		// The retentions may be host code: read them off the line.
+		retention, documentRetention := time.Duration(0), time.Duration(0)
 		if s.cold != nil {
-			retention = s.cold.contextRetention()
+			retention, documentRetention = s.cold.contextRetention(), s.cold.documentRetention()
 		}
 		s.mu.Lock()
 		batch := s.pending
@@ -551,7 +551,7 @@ func (s *Session) writeLoop() {
 				s.cold.forgetDocuments(item.delta)
 				s.cold.forgetConversations(item.delta)
 				s.cold.overlayFrom(laterItems(batch, item))
-				_ = s.cold.keepEntries(item.state, s.laterStates(batch, item), item.delta, s.now(), retention, s.held)
+				_ = s.cold.keepEntries(item.state, s.laterStates(batch, item), item.delta, s.now(), retention, documentRetention, s.held)
 				s.cold.evictConversations(item.state)
 			}
 			s.state = item.state
@@ -653,7 +653,7 @@ func (s *Session) sweepContexts() {
 	if s.cold == nil {
 		return
 	}
-	retention := s.cold.contextRetention()
+	retention, documentRetention := s.cold.contextRetention(), s.cold.documentRetention()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.failure.Load() != nil || s.writing || s.Err() != nil {
@@ -663,7 +663,7 @@ func (s *Session) sweepContexts() {
 	next.base = nil
 	before := len(next.Entries)
 	documents, conversations := len(next.Documents), len(next.Conversations)
-	_ = s.cold.keepEntries(next, nil, nil, s.now(), retention, s.held)
+	_ = s.cold.keepEntries(next, nil, nil, s.now(), retention, documentRetention, s.held)
 	s.cold.evictConversations(next)
 	if len(next.Entries) != before || len(next.Documents) != documents || len(next.Conversations) != conversations {
 		s.state, s.head = next, next
@@ -681,6 +681,23 @@ func (s *Session) timer(callback func(), delay time.Duration) func() {
 	}
 	t := time.AfterFunc(delay, callback)
 	return func() { t.Stop() }
+}
+
+// pinDocument and pinConversation keep what an observer or watch follows in a
+// bounded Session's memory (upstream keeps observed documents); each returns
+// how to release it.
+func (s *Session) pinDocument(key string) func() {
+	if s.cold == nil {
+		return func() {}
+	}
+	return s.cold.pinDocument(key)
+}
+
+func (s *Session) pinConversation(id ConversationID) func() {
+	if s.cold == nil {
+		return func() {}
+	}
+	return s.cold.pinConversation(id)
 }
 
 // drainWriter waits until the writer stored and published every admitted

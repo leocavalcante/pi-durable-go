@@ -369,9 +369,11 @@ func WatchDocument(ctx context.Context, h *Harness, def DocumentDefinition, id u
 	}
 	out := make(chan json.RawMessage, 1)
 	ctx, cancel := context.WithCancel(ctx)
+	unpin := h.session.pinDocument(documentKey(def, id))
 	go func() {
 		defer close(out)
 		defer stop()
+		defer unpin()
 		for {
 			select {
 			case <-ctx.Done():

@@ -176,7 +176,7 @@ func (c *Conversation) Observe(window ConversationWindow, observer Observer[Conv
 		}
 		view, initial = first, first.detached()
 		last, _ = json.Marshal(first)
-		return &stateObserver{end: observer.End, advance: func(state *State) bool {
+		o := &stateObserver{end: observer.End, cleanup: c.h.session.pinConversation(c.id), advance: func(state *State) bool {
 			next, err := c.advanceView(state, view, window)
 			if err != nil {
 				return false
@@ -190,7 +190,8 @@ func (c *Conversation) Observe(window ConversationWindow, observer Observer[Conv
 				}
 			}
 			return false
-		}}, nil
+		}}
+		return o, nil
 	})
 	if err != nil {
 		return ConversationView{}, nil, err
@@ -231,7 +232,7 @@ func observeDocument(h *Harness, def DocumentDefinition, id uint64, member strin
 	detach, err := h.session.observe(func(state *State) (*stateObserver, error) {
 		last = valueOf(state)
 		initial = cloneRaw(last)
-		return &stateObserver{end: observer.End, advance: func(state *State) bool {
+		return &stateObserver{end: observer.End, cleanup: h.session.pinDocument(key), advance: func(state *State) bool {
 			value := valueOf(state)
 			if !bytes.Equal(value, last) || (value == nil) != (last == nil) {
 				last = value

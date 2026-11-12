@@ -22,8 +22,10 @@ const (
 	coldSubmissionCapacity   = 256
 	coldDocumentCapacity     = 256
 	coldConversationCapacity = 4096
-	// defaultContextRetention is upstream's settings.contextRetentionMs.
-	defaultContextRetention = 10 * time.Minute
+	// defaultContextRetention and defaultDocumentRetention are upstream's
+	// settings.contextRetentionMs and settings.documentRetentionMs.
+	defaultContextRetention  = 10 * time.Minute
+	defaultDocumentRetention = 10 * time.Minute
 )
 
 // coldRecords reads records a bounded Session no longer keeps. Cached records
@@ -52,12 +54,21 @@ type coldRecords struct {
 	loaded map[ConversationID]time.Time
 	// snapshot is loaded as published States carry it: immutable once set.
 	snapshot map[ConversationID]bool
+	// documentTouched is when each kept document was last written or
+	// loaded; pins and pinnedConversations keep observed documents (upstream
+	// keeps observed documents); incomplete marks loaded conversations one
+	// of whose documents left after the document retention.
+	documentTouched     map[string]time.Time
+	pins                map[string]int
+	pinnedConversations map[ConversationID]int
+	incomplete          map[ConversationID]bool
 	// contextRetention is how long an idle conversation keeps its range;
 	// sweep unloads expired ones while nothing is published, at expiry.
-	contextRetention func() time.Duration
-	sweep            func()
-	expiry           func()
-	timer            func(callback func(), delay time.Duration) (stop func())
+	contextRetention  func() time.Duration
+	documentRetention func() time.Duration
+	sweep             func()
+	expiry            func()
+	timer             func(callback func(), delay time.Duration) (stop func())
 	// fail fails the Session on a storage read error, which upstream treats
 	// as fatal like any storage error.
 	fail func(error)
@@ -65,16 +76,21 @@ type coldRecords struct {
 
 func newColdRecords(storage RecordStorage, fail func(error)) *coldRecords {
 	return &coldRecords{
-		storage:          storage,
-		tasks:            newLRU[TaskID, *TaskRecord](coldTaskCapacity),
-		submissions:      newLRU[SubmissionID, *SubmissionRecord](coldSubmissionCapacity),
-		entries:          newLRU[EntryID, *Entry](coldEntryCapacity),
-		documents:        newLRU[string, *DocumentRecord](coldDocumentCapacity),
-		conversations:    newLRU[ConversationID, *ConversationRecord](coldConversationCapacity),
-		starts:           map[ConversationID]EntryID{},
-		loaded:           map[ConversationID]time.Time{},
-		contextRetention: func() time.Duration { return defaultContextRetention },
-		fail:             fail,
+		storage:             storage,
+		tasks:               newLRU[TaskID, *TaskRecord](coldTaskCapacity),
+		submissions:         newLRU[SubmissionID, *SubmissionRecord](coldSubmissionCapacity),
+		entries:             newLRU[EntryID, *Entry](coldEntryCapacity),
+		documents:           newLRU[string, *DocumentRecord](coldDocumentCapacity),
+		conversations:       newLRU[ConversationID, *ConversationRecord](coldConversationCapacity),
+		starts:              map[ConversationID]EntryID{},
+		loaded:              map[ConversationID]time.Time{},
+		documentTouched:     map[string]time.Time{},
+		pins:                map[string]int{},
+		pinnedConversations: map[ConversationID]int{},
+		incomplete:          map[ConversationID]bool{},
+		contextRetention:    func() time.Duration { return defaultContextRetention },
+		documentRetention:   func() time.Duration { return defaultDocumentRetention },
+		fail:                fail,
 	}
 }
 
@@ -534,4 +550,74 @@ func documentScopePrefix(scope string, id uint64) string {
 		id = 0
 	}
 	return fmt.Sprintf("%s:%d:", scope, id)
+}
+
+// pinDocument keeps a document an observer follows; the returned func
+// unpins it.
+func (c *coldRecords) pinDocument(key string) func() {
+	c.mu.Lock()
+	c.pins[key]++
+	c.mu.Unlock()
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			c.mu.Lock()
+			if c.pins[key]--; c.pins[key] <= 0 {
+				delete(c.pins, key)
+			}
+			c.mu.Unlock()
+		})
+	}
+}
+
+// pinConversation keeps the documents of a conversation a view follows.
+func (c *coldRecords) pinConversation(id ConversationID) func() {
+	c.mu.Lock()
+	c.pinnedConversations[id]++
+	c.mu.Unlock()
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			c.mu.Lock()
+			if c.pinnedConversations[id]--; c.pinnedConversations[id] <= 0 {
+				delete(c.pinnedConversations, id)
+			}
+			c.mu.Unlock()
+		})
+	}
+}
+
+// evictIdleDocuments drops from st the documents unused (unwritten and not
+// loaded) for the document retention, except held and observed ones; it
+// reports whether any left. The caller holds the Session line.
+func (c *coldRecords) evictIdleDocuments(st *State, now time.Time, retention time.Duration, held map[string]time.Time) bool {
+	if retention >= maxRetention {
+		return false
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	evicted := false
+	for key, doc := range st.Documents {
+		touched, known := c.documentTouched[key]
+		if !known {
+			c.documentTouched[key] = now
+			continue
+		}
+		if now.Sub(touched) < retention {
+			continue
+		}
+		if _, pinned := held[key]; pinned || c.pins[key] > 0 {
+			continue
+		}
+		if doc.Scope == "conversation" && c.pinnedConversations[ConversationID(doc.ScopeID)] > 0 {
+			continue
+		}
+		delete(st.Documents, key)
+		delete(c.documentTouched, key)
+		if doc.Scope == "conversation" {
+			c.incomplete[ConversationID(doc.ScopeID)] = true
+		}
+		evicted = true
+	}
+	return evicted
 }

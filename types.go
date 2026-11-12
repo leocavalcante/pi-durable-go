@@ -748,6 +748,11 @@ type Settings struct {
 	// default ten minutes); 0 drops it once idle, math.Inf(1) keeps it. Busy
 	// conversations always keep theirs; a dropped range is read from storage.
 	ContextRetentionMs *float64
+	// DocumentRetentionMs is how long a document no watch observes stays in
+	// a bounded Session's memory after it was last written or loaded
+	// (settings.documentRetentionMs, default ten minutes); 0 drops one right
+	// after use, math.Inf(1) keeps them. Reads find dropped ones in storage.
+	DocumentRetentionMs *float64
 	// SteeringMode and FollowUpMode select how many queued steers or
 	// follow-ups a boundary places: QueueOneAtATime (default) or QueueAll.
 	SteeringMode string

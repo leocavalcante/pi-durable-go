@@ -573,3 +573,49 @@ func TestReadsDoNotSeeStoredUnpublishedValues(t *testing.T) {
 		t.Fatalf("read after publication=%+v error=%v", got, err)
 	}
 }
+
+func TestDocumentRetentionDropsIdleDocuments(t *testing.T) {
+	ctx := context.Background()
+	h, err := Open(ctx, NewMemoryStorage(), HarnessOptions{Settings: Settings{DocumentRetentionMs: ptr(0.0)}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer h.Close(ctx)
+	root := testRoot(t, h)
+	cid := uint64(root.ID())
+	kept := DocumentDefinition{Kind: "test.kept", Version: 1, Scope: "conversation"}
+	dropped := DocumentDefinition{Kind: "test.dropped", Version: 1, Scope: "conversation"}
+	_, detach, err := ObserveDocument(h, kept, cid, Observer[json.RawMessage]{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer detach()
+	if err := h.Commit(ctx, func(tx *Tx) error {
+		if err := tx.PutDocument(kept, cid, json.RawMessage(`{"n":1}`)); err != nil {
+			return err
+		}
+		return tx.PutDocument(dropped, cid, json.RawMessage(`{"n":2}`))
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// Another commit lets the next publication drop the idle document.
+	if err := h.Commit(ctx, touchStorage); err != nil {
+		t.Fatal(err)
+	}
+	resident := func(def DocumentDefinition) bool {
+		h.session.mu.Lock()
+		defer h.session.mu.Unlock()
+		return h.session.state.Documents[documentKey(def, cid)] != nil
+	}
+	if resident(dropped) || !resident(kept) {
+		t.Fatalf("resident: dropped=%v kept (observed)=%v", resident(dropped), resident(kept))
+	}
+	type doc struct{ N int }
+	if got, err := ReadDocument[doc](ctx, h, dropped, cid); err != nil || got.N != 2 {
+		t.Fatalf("a dropped document reads %+v error=%v", got, err)
+	}
+	view, err := root.View(ctx)
+	if err != nil || string(view.Documents["test.dropped"]) != `{"n":2}` || string(view.Documents["test.kept"]) != `{"n":1}` {
+		t.Fatalf("view documents=%v error=%v", view.Documents, err)
+	}
+}

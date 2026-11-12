@@ -45,9 +45,11 @@ func (c *Conversation) WatchWindow(ctx context.Context, window ConversationWindo
 	}
 	ctx, cancel := context.WithCancel(ctx)
 	out := make(chan ConversationView, 1)
+	unpin := c.h.session.pinConversation(c.id)
 	go func() {
 		defer close(out)
 		defer stopWatch()
+		defer unpin()
 		var view *ConversationView
 		var last []byte
 		for {

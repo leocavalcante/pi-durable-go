@@ -608,9 +608,11 @@ func (c *Conversation) Watch(ctx context.Context) (<-chan View, func(), error) {
 	}
 	out := make(chan View, 1)
 	ctx, cancel := context.WithCancel(ctx)
+	unpin := c.h.session.pinConversation(c.id)
 	go func() {
 		defer close(out)
 		defer stop()
+		defer unpin()
 		for {
 			select {
 			case <-ctx.Done():

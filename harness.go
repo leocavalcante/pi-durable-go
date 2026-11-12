@@ -60,6 +60,7 @@ func Open(ctx context.Context, storage Storage, options HarnessOptions) (*Harnes
 	}
 	if session.cold != nil {
 		session.cold.contextRetention = h.contextRetention
+		session.cold.documentRetention = h.documentRetention
 	}
 	// Held documents' deadlines and context expiry run on the host's timer
 	// and clock, as upstream's setTimer and now.
@@ -307,10 +308,21 @@ func (h *Harness) ObserveCommits(observe func(*StateDelta)) (detach func()) {
 
 // contextRetention is Settings.ContextRetentionMs as a duration.
 func (h *Harness) contextRetention() time.Duration {
-	ms := h.settings().ContextRetentionMs
+	return retentionOf(h.settings().ContextRetentionMs, defaultContextRetention)
+}
+
+// documentRetention is Settings.DocumentRetentionMs as a duration.
+func (h *Harness) documentRetention() time.Duration {
+	return retentionOf(h.settings().DocumentRetentionMs, defaultDocumentRetention)
+}
+
+// retentionOf is a retention setting in milliseconds as a duration: the
+// default for a value that is not a number 0 or more, maxRetention for
+// math.Inf(1).
+func retentionOf(ms *float64, fallback time.Duration) time.Duration {
 	switch {
 	case ms == nil || *ms < 0 || math.IsNaN(*ms):
-		return defaultContextRetention
+		return fallback
 	case *ms >= float64(maxRetention/time.Millisecond):
 		return maxRetention
 	}

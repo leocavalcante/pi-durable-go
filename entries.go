@@ -191,7 +191,7 @@ type laterState struct {
 	delta *StateDelta
 }
 
-func (c *coldRecords) keepEntries(st *State, later []laterState, delta *StateDelta, now time.Time, retention time.Duration, held map[string]time.Time) error {
+func (c *coldRecords) keepEntries(st *State, later []laterState, delta *StateDelta, now time.Time, retention, documentRetention time.Duration, held map[string]time.Time) error {
 	changed := false
 	if delta != nil {
 		touched := map[ConversationID]bool{}
@@ -210,7 +210,7 @@ func (c *coldRecords) keepEntries(st *State, later []laterState, delta *StateDel
 				continue
 			}
 			if _, loaded := c.loaded[id]; !loaded {
-				if err := c.load(st, later, id); err != nil {
+				if err := c.load(st, later, id, now); err != nil {
 					return err
 				}
 				changed = true
@@ -220,6 +220,15 @@ func (c *coldRecords) keepEntries(st *State, later []laterState, delta *StateDel
 			}
 			c.loaded[id] = now
 		}
+		// Documents a commit wrote are in use.
+		c.mu.Lock()
+		for key := range delta.Documents {
+			c.documentTouched[key] = now
+		}
+		for _, key := range delta.Removed.Documents {
+			delete(c.documentTouched, key)
+		}
+		c.mu.Unlock()
 	}
 	for id, touched := range c.loaded {
 		conversation := st.Conversations[id]
@@ -229,15 +238,24 @@ func (c *coldRecords) keepEntries(st *State, later []laterState, delta *StateDel
 			changed = true
 		}
 	}
-	if changed || c.snapshot == nil {
-		c.snapshot = map[ConversationID]bool{}
-		for id := range c.loaded {
-			c.snapshot[id] = true
-		}
+	if changed {
 		c.evictEntries(st, held)
 	}
+	idle := c.evictIdleDocuments(st, now, documentRetention, held)
+	if changed || idle || c.snapshot == nil {
+		// A loaded conversation one of whose documents left is not
+		// complete: readers merge storage's documents for it.
+		c.snapshot = map[ConversationID]bool{}
+		c.mu.Lock()
+		for id := range c.loaded {
+			if !c.incomplete[id] {
+				c.snapshot[id] = true
+			}
+		}
+		c.mu.Unlock()
+	}
 	st.loaded = c.snapshot
-	c.scheduleExpiry(st, now, retention)
+	c.scheduleExpiry(st, now, retention, documentRetention)
 	return nil
 }
 
@@ -245,7 +263,7 @@ func (c *coldRecords) keepEntries(st *State, later []laterState, delta *StateDel
 // every later State admitted meanwhile, so each of them holds all of a
 // loaded conversation's documents (State.loaded promises it); a document a
 // later commit retired stays out of that State and those after it.
-func (c *coldRecords) load(st *State, later []laterState, id ConversationID) error {
+func (c *coldRecords) load(st *State, later []laterState, id ConversationID, now time.Time) error {
 	entries, err := rangeEntries(st, id)
 	if err != nil {
 		return err
@@ -269,6 +287,12 @@ func (c *coldRecords) load(st *State, later []laterState, id ConversationID) err
 		}
 	}
 	insert(st, nil)
+	c.mu.Lock()
+	for _, doc := range docs {
+		c.documentTouched[keyOfRecord(doc)] = now
+	}
+	delete(c.incomplete, id)
+	c.mu.Unlock()
 	removed := map[string]bool{}
 	for _, next := range later {
 		if next.state == st {
@@ -296,13 +320,21 @@ func (c *coldRecords) load(st *State, later []laterState, id ConversationID) err
 // and the documents of conversations not loaded, except held ones (their
 // changes are not stored yet).
 func (c *coldRecords) evictEntries(st *State, held map[string]time.Time) {
+	c.mu.Lock()
 	for key, doc := range st.Documents {
 		if doc.Scope == "conversation" && c.loaded[ConversationID(doc.ScopeID)].IsZero() {
 			if _, pinned := held[key]; !pinned {
 				delete(st.Documents, key)
+				delete(c.documentTouched, key)
 			}
 		}
 	}
+	for id := range c.incomplete {
+		if c.loaded[id].IsZero() {
+			delete(c.incomplete, id)
+		}
+	}
+	c.mu.Unlock()
 	keep := map[ConversationID]EntryID{}
 	for id := range c.loaded {
 		start := c.starts[id]
@@ -328,20 +360,32 @@ func (c *coldRecords) evictEntries(st *State, held map[string]time.Time) {
 
 // scheduleExpiry arms the sweep that unloads the next idle conversation, for
 // a Session that publishes nothing meanwhile.
-func (c *coldRecords) scheduleExpiry(st *State, now time.Time, retention time.Duration) {
+func (c *coldRecords) scheduleExpiry(st *State, now time.Time, retention, documentRetention time.Duration) {
 	var next time.Time
-	for id, touched := range c.loaded {
-		if conversation := st.Conversations[id]; conversation != nil && conversation.Busy == 0 {
-			if at := touched.Add(retention); next.IsZero() || at.Before(next) {
-				next = at
+	consider := func(at time.Time) {
+		if next.IsZero() || at.Before(next) {
+			next = at
+		}
+	}
+	if retention < maxRetention {
+		for id, touched := range c.loaded {
+			if conversation := st.Conversations[id]; conversation != nil && conversation.Busy == 0 {
+				consider(touched.Add(retention))
 			}
 		}
+	}
+	if documentRetention < maxRetention {
+		c.mu.Lock()
+		for _, touched := range c.documentTouched {
+			consider(touched.Add(documentRetention))
+		}
+		c.mu.Unlock()
 	}
 	if c.expiry != nil {
 		c.expiry()
 		c.expiry = nil
 	}
-	if !next.IsZero() && c.sweep != nil && c.timer != nil && retention < maxRetention {
+	if !next.IsZero() && c.sweep != nil && c.timer != nil {
 		c.expiry = c.timer(c.sweep, next.Sub(now))
 	}
 }
