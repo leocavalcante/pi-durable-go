@@ -152,3 +152,20 @@ func TestPositionalSystemMessagesAcrossRequests(t *testing.T) {
 		t.Fatalf("folded prompt=%q", got)
 	}
 }
+
+func TestAnEditedBaselineDoesNotLead(t *testing.T) {
+	baseline := Message{Role: "system", Sections: []SystemSection{{Name: "preamble", Text: str("P")}}}
+	history := []Entry{
+		{ID: 1, Kind: "pi.user", Message: &Message{Role: "user", Content: "hi"}},
+		{ID: 2, Kind: "pi.assistant", Message: &Message{Role: "assistant", Content: "hello"}},
+		{ID: 3, Kind: "pi.system", Message: &baseline},
+		{ID: 4, Kind: "app.edit", Edits: []ContextEdit{{Target: 3, Action: "replace", Messages: []Message{{Role: "system", Content: "replaced"}}}}},
+	}
+	view, err := deriveContext(history)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if roles := []string{view.messages[0].Role, view.messages[2].Role}; roles[0] != "user" || roles[1] != "system" || view.messages[2].Content != "replaced" {
+		t.Fatalf("messages=%+v", view.messages)
+	}
+}

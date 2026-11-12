@@ -573,8 +573,10 @@ func (c *Conversation) Watch(ctx context.Context) (<-chan View, func(), error) {
 
 // contributesContext excludes assistant attempts that did not finish: aborted
 // or failed messages never reach later model context (spec §2.1).
+// contributesContext reports whether a message reaches model context: not an
+// assistant attempt that was aborted, failed, or deferred (spec §2.1).
 func contributesContext(message *Message) bool {
-	return !message.Aborted && message.StopReason != "error" && message.StopReason != "aborted"
+	return !message.Aborted && message.StopReason != "error" && message.StopReason != "aborted" && message.StopReason != "deferred"
 }
 
 // validateSubmission checks a submission's type, modes, and entry.

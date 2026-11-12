@@ -127,7 +127,9 @@ func deriveContext(history []Entry) (contextView, error) {
 		}
 	}
 	var flat []Message
-	firstSystem := EntryID(0)
+	// The first system message's entry, and whether it is the entry's own
+	// message: an edit's replacement is never the baseline's message.
+	firstSystem, firstOwn := EntryID(0), false
 	for _, e := range view.entries {
 		edit, edited := edits[e.ID]
 		contributed, err := contribute(e, edit, edited)
@@ -137,13 +139,13 @@ func deriveContext(history []Entry) (contextView, error) {
 		view.contributions = append(view.contributions, contributed)
 		for _, m := range contributed {
 			if m.Role == "system" && firstSystem == 0 {
-				firstSystem = e.ID
+				firstSystem, firstOwn = e.ID, !edited
 			}
 		}
 		flat = append(flat, contributed...)
 	}
 	baseline, ok := findBaseline(head, view.entries)
-	view.messages = leadWithSystem(orderToolResults(flat), ok && baseline == firstSystem)
+	view.messages = leadWithSystem(orderToolResults(flat), ok && firstOwn && baseline == firstSystem)
 	return view, nil
 }
 
