@@ -49,3 +49,17 @@ func TestDocumentFamilies(t *testing.T) {
 		t.Fatalf("view documents=%v error=%v", view.Documents, err)
 	}
 }
+
+func TestNestedCallsReadMembersAndTheEarlierSingleDocument(t *testing.T) {
+	legacy, _ := json.Marshal(map[string]nestedCallState{"old": {TaskID: 7}})
+	member, _ := json.Marshal(nestedCallState{TaskID: 9})
+	state := &State{Documents: map[string]*DocumentRecord{
+		documentKey(nestedCallsDocument, 3):     {Kind: nestedCallsDocument.Kind, Version: 1, Scope: "task", ScopeID: 3, History: "latest", Value: legacy},
+		memberKey(nestedCallDocument, 3, "new"): {Kind: nestedCallDocument.Kind, Version: 1, Scope: "task", ScopeID: 3, History: "latest", Value: member, Member: "new"},
+	}}
+	for key, want := range map[string]TaskID{"old": 7, "new": 9, "missing": 0} {
+		if call, err := readNestedCall(state, 3, key); err != nil || call.TaskID != want {
+			t.Fatalf("%s=%+v error=%v", key, call, err)
+		}
+	}
+}

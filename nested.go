@@ -37,6 +37,13 @@ type NestedCallOptions struct {
 var nestedCallsDocument = DocumentDefinition{Kind: "pi.tool.nested-calls", Version: 1, Scope: "task",
 	Initial: func() any { return map[string]nestedCallState{} }}
 
+// nestedCallDocument is upstream's NestedCallDoc: a task-scoped family of the
+// calling task keyed by the nested call's key, one document per call, so no
+// commit rewrites the others. It retires with the caller. Calls made before
+// it existed stay in nestedCallsDocument, which is still read.
+var nestedCallDocument = DocumentDefinition{Kind: "pi.tool.nested-call", Version: 1, Scope: "task", Family: true,
+	InitialSeed: func(json.RawMessage) any { return nestedCallState{} }}
+
 type nestedCallState struct {
 	TaskID TaskID            `json:"taskId,omitempty"`
 	Result *NestedToolResult `json:"result,omitempty"`
@@ -100,11 +107,11 @@ func (r *ToolRuntime) ExecuteTool(ctx context.Context, name string, args json.Ra
 		if err != nil {
 			return TaskTransition{}, err
 		}
-		calls, err := readNestedCalls(tx, r.ID)
+		existing, err := readNestedCall(tx.state, r.ID, key)
 		if err != nil {
 			return TaskTransition{}, err
 		}
-		if existing := calls[key]; existing.TaskID != 0 {
+		if existing.TaskID != 0 {
 			var input toolTaskInput
 			if task, err := tx.Task(existing.TaskID); err == nil {
 				_ = json.Unmarshal(task.Input, &input)
@@ -129,8 +136,7 @@ func (r *ToolRuntime) ExecuteTool(ctx context.Context, name string, args json.Ra
 		if err != nil {
 			return TaskTransition{}, err
 		}
-		calls[key] = nestedCallState{TaskID: id}
-		if err := writeNestedCalls(tx, r.ID, calls); err != nil {
+		if err := writeNestedCall(tx, r.ID, key, nestedCallState{TaskID: id}); err != nil {
 			return TaskTransition{}, err
 		}
 		if err := updateLive(tx, r.ConversationID, func(live *LiveState) error {
@@ -164,13 +170,8 @@ func (r *ToolRuntime) ExecuteTool(ctx context.Context, name string, args json.Ra
 	if err != nil {
 		return NestedToolResult{}, err
 	}
-	if doc := state.Documents[documentKey(nestedCallsDocument, uint64(r.ID))]; doc != nil {
-		var calls map[string]nestedCallState
-		if json.Unmarshal(doc.Value, &calls) == nil {
-			if stored := calls[key].Result; stored != nil {
-				return *stored, nil
-			}
-		}
+	if stored, err := readNestedCall(state, r.ID, key); err == nil && stored.Result != nil {
+		return *stored.Result, nil
 	}
 	// The scheduler faulted or orphaned it, storing no result.
 	result := NestedToolResult{TaskID: id, IsError: true}
@@ -184,27 +185,31 @@ func (r *ToolRuntime) ExecuteTool(ctx context.Context, name string, args json.Ra
 	return result, nil
 }
 
-func readNestedCalls(tx *Tx, caller TaskID) (map[string]nestedCallState, error) {
-	calls := map[string]nestedCallState{}
-	doc := tx.state.Documents[documentKey(nestedCallsDocument, uint64(caller))]
-	if doc == nil {
-		return calls, nil
+// readNestedCall reads one nested call of a caller: its family member, or
+// its entry in the single document earlier versions kept.
+func readNestedCall(state *State, caller TaskID, key string) (nestedCallState, error) {
+	var call nestedCallState
+	if doc := state.Documents[memberKey(nestedCallDocument, uint64(caller), key)]; doc != nil {
+		err := json.Unmarshal(doc.Value, &call)
+		return call, err
 	}
-	if err := json.Unmarshal(doc.Value, &calls); err != nil {
-		return nil, err
+	if doc := state.Documents[documentKey(nestedCallsDocument, uint64(caller))]; doc != nil {
+		var calls map[string]nestedCallState
+		if err := json.Unmarshal(doc.Value, &calls); err != nil {
+			return call, err
+		}
+		return calls[key], nil
 	}
-	if calls == nil {
-		calls = map[string]nestedCallState{}
-	}
-	return calls, nil
+	return call, nil
 }
 
-func writeNestedCalls(tx *Tx, caller TaskID, calls map[string]nestedCallState) error {
-	data, err := json.Marshal(calls)
+// writeNestedCall stores one nested call as its family member.
+func writeNestedCall(tx *Tx, caller TaskID, key string, call nestedCallState) error {
+	data, err := json.Marshal(call)
 	if err != nil {
 		return err
 	}
-	return tx.PutDocument(nestedCallsDocument, uint64(caller), data)
+	return tx.PutFamilyDocument(nestedCallDocument, uint64(caller), key, data)
 }
 
 // settleNested stores a nested call's result with its caller and marks its
@@ -223,14 +228,12 @@ func settleNested(tx *Tx, input toolTaskInput, task TaskRecord, def *ToolDefinit
 		nested.StructuredOutput = unstructuredOutput(result)
 	}
 	if parent, err := tx.Task(input.Parent); err == nil && parent.Status != "terminal" {
-		calls, err := readNestedCalls(tx, input.Parent)
+		state, err := readNestedCall(tx.state, input.Parent, input.Key)
 		if err != nil {
 			return nil, err
 		}
-		state := calls[input.Key]
 		state.TaskID, state.Result = task.ID, &nested
-		calls[input.Key] = state
-		if err := writeNestedCalls(tx, input.Parent, calls); err != nil {
+		if err := writeNestedCall(tx, input.Parent, input.Key, state); err != nil {
 			return nil, err
 		}
 	}
