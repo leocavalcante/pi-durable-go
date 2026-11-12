@@ -8,9 +8,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"math"
 	"os"
 	"strings"
+	"syscall"
 	"time"
 	"unicode/utf8"
 
@@ -227,7 +229,7 @@ func editTool(ctx context.Context, raw json.RawMessage, rt *durable.ToolRuntime)
 	defer unlock()
 	original, err := e.ReadFile(ctx, a.Path)
 	if err != nil {
-		return durable.ToolResult{}, err
+		return durable.ToolResult{}, editAccessError(ctx, a.Path, err)
 	}
 	text, bom := string(original), ""
 	if strings.HasPrefix(text, "\uFEFF") {
@@ -243,7 +245,7 @@ func editTool(ctx context.Context, raw json.RawMessage, rt *durable.ToolRuntime)
 		return durable.ToolResult{}, err
 	}
 	if err := e.WriteFile(ctx, a.Path, []byte(bom+restoreLineEndings(updated, ending))); err != nil {
-		return durable.ToolResult{}, err
+		return durable.ToolResult{}, editAccessError(ctx, a.Path, err)
 	}
 	diff, firstChanged := generateDiffString(base, updated, 4)
 	details := map[string]any{"diff": diff, "patch": generateUnifiedPatch(a.Path, base, updated, 4)}
@@ -435,4 +437,45 @@ func truncateTail(retained string, totalNewlines, totalBytes int) (string, int, 
 		droppedLines = 0
 	}
 	return content, droppedLines, droppedBytes
+}
+
+// editAccessError is upstream's message for a file the edit tool cannot read
+// or write: the environment's file error code, or that the path is not a
+// file. The cause stays reachable with errors.Is and errors.As.
+func editAccessError(ctx context.Context, path string, err error) error {
+	if ctx.Err() != nil {
+		return err
+	}
+	code := fileErrorCode(err)
+	if code == "is_directory" {
+		return &fileAccessError{message: fmt.Sprintf("Could not edit file: %s. Path is not a file.", path), cause: err}
+	}
+	return &fileAccessError{message: fmt.Sprintf("Could not edit file: %s. Error code: %s.", path, code), cause: err}
+}
+
+type fileAccessError struct {
+	message string
+	cause   error
+}
+
+func (e *fileAccessError) Error() string { return e.message }
+func (e *fileAccessError) Unwrap() error { return e.cause }
+
+// fileErrorCode is upstream's FileErrorCode for a file system error.
+func fileErrorCode(err error) string {
+	switch {
+	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
+		return "aborted"
+	case errors.Is(err, fs.ErrNotExist):
+		return "not_found"
+	case errors.Is(err, fs.ErrPermission):
+		return "permission_denied"
+	case errors.Is(err, syscall.ENOTDIR):
+		return "not_directory"
+	case errors.Is(err, syscall.EISDIR):
+		return "is_directory"
+	case errors.Is(err, fs.ErrInvalid):
+		return "invalid"
+	}
+	return "unknown"
 }

@@ -336,3 +336,23 @@ func TestCodingToolsGiveProgramsStructuredOutput(t *testing.T) {
 		t.Fatalf("nested results=%+v", got)
 	}
 }
+
+func TestEditAccessErrorsAreWordedAsUpstream(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(dir, "folder"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	env, err := NewLocalEnv(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for path, want := range map[string]string{
+		"missing.txt": "Could not edit file: missing.txt. Error code: not_found.",
+		"folder":      "Could not edit file: folder. Path is not a file.",
+	} {
+		_, err := env.ReadFile(context.Background(), path)
+		if got := editAccessError(context.Background(), path, err); got == nil || got.Error() != want {
+			t.Fatalf("%s: %v, want %q", path, got, want)
+		}
+	}
+}
