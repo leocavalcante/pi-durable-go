@@ -176,3 +176,29 @@ func checkpointPhase(checkpoint json.RawMessage) (string, int) {
 	_ = json.Unmarshal(checkpoint, &cp)
 	return cp.Phase, cp.Attempt
 }
+
+// phaseStatusError is the error a failed phase span ends with: upstream's
+// fixed status category (task_faulted, task_failed, or task_orphaned) and a
+// diagnostic of at most 500 characters.
+type phaseStatusError struct {
+	category   string
+	diagnostic string
+}
+
+func (e *phaseStatusError) Error() string {
+	if e.diagnostic == "" {
+		return e.category
+	}
+	return e.category + ": " + e.diagnostic
+}
+
+// Category is the span's status category.
+func (e *phaseStatusError) Category() string { return e.category }
+
+func truncateRunes(text string, limit int) string {
+	runes := []rune(text)
+	if len(runes) <= limit {
+		return text
+	}
+	return string(runes[:limit])
+}

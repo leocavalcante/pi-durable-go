@@ -157,7 +157,20 @@ func (s *Scheduler) runInvocation(id TaskID, inv *taskInvocation, resolved resol
 			}
 			return resolved.Definition.Run(phaseCtx, r, record)
 		})
+		spanErr := phaseErr
 		if after, err := s.h.Task(context.Background(), id); err == nil {
+			// A failed phase ends its span with upstream's fixed status
+			// category and a bounded diagnostic; an aborted one stays ok.
+			if after.Outcome != nil && (after.Status == "terminal" || after.Status == "completing") {
+				switch after.Outcome.Status {
+				case OutcomeFaulted, OutcomeFailed, OutcomeOrphaned:
+					message := after.Outcome.Error
+					if message == "" {
+						message = after.Outcome.Reason
+					}
+					spanErr = &phaseStatusError{category: "task_" + after.Outcome.Status, diagnostic: truncateRunes(message, 500)}
+				}
+			}
 			outcome := after.Status
 			switch after.Status {
 			case "running":
@@ -178,7 +191,7 @@ func (s *Scheduler) runInvocation(id TaskID, inv *taskInvocation, resolved resol
 			}
 		}
 		inv.span.Store(nil)
-		sp.end(phaseErr)
+		sp.end(spanErr)
 		first = false
 	}
 }

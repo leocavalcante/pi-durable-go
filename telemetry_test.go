@@ -223,3 +223,49 @@ func TestTelemetryCountsReports(t *testing.T) {
 		t.Fatalf("reports=%v", telemetry.reports)
 	}
 }
+
+func TestTelemetryFailedPhaseStatus(t *testing.T) {
+	ended := make(chan error, 4)
+	telemetry := &endRecordingTelemetry{ended: ended}
+	definition := TaskDefinition{Kind: "app.failing", Version: 1, Run: func(ctx context.Context, r *TaskRuntime, _ TaskRecord) error {
+		return r.Commit(ctx, func(*Tx) (TaskTransition, error) {
+			return TaskTransition{Status: "terminal", Outcome: &Outcome{Status: OutcomeFailed, Error: "no luck"}}, nil
+		})
+	}}
+	registry := NewRegistry()
+	installTasks(t, registry, "failing", definition)
+	h := taskTestHarness(t, HarnessOptions{Telemetry: telemetry, Registry: registry})
+	id := createTaskForTest(t, h, definition)
+	h.Resume()
+	waitForTask(t, h, id, func(task TaskRecord) bool { return task.Status == "terminal" })
+	select {
+	case err := <-ended:
+		var status interface{ Category() string }
+		if !errors.As(err, &status) || status.Category() != "task_failed" || err.Error() != "task_failed: no luck" {
+			t.Fatalf("span error=%v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("no phase span ended")
+	}
+}
+
+type endRecordingTelemetry struct{ ended chan error }
+
+func (e *endRecordingTelemetry) StartSpan(ctx context.Context, name string, _ map[string]any) (context.Context, TelemetrySpan) {
+	if name != "pi.durable.phase" {
+		return ctx, nopSpan{}
+	}
+	return ctx, endSpan{ended: e.ended}
+}
+
+type nopSpan struct{}
+
+func (nopSpan) SetAttributes(map[string]any)    {}
+func (nopSpan) AddEvent(string, map[string]any) {}
+func (nopSpan) End(error)                       {}
+
+type endSpan struct{ ended chan error }
+
+func (endSpan) SetAttributes(map[string]any)    {}
+func (endSpan) AddEvent(string, map[string]any) {}
+func (s endSpan) End(err error)                 { s.ended <- err }
