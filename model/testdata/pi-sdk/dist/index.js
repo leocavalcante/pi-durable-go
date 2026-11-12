@@ -79,6 +79,12 @@ export class ModelRuntime {
       yield { type: "toolcall_end", contentIndex: 2, toolCall: { ...call, arguments: { path: "a.txt" } } };
       result.content = [{ type: "thinking", thinking: "plan" }, { type: "text", text: "reading" }, { ...call, arguments: { path: "a.txt" } }];
       result.stopReason = "toolUse";
+    } else if (model.id === "payload") {
+      // The provider body passes through onPayload; the answer is the body
+      // that would be sent.
+      const built = { model: model.id, messages: context.messages.length };
+      const sent = options.onPayload ? (await options.onPayload(built, model)) ?? built : built;
+      result.content = [{ type: "text", text: JSON.stringify(sent) }];
     } else if (model.id === "hold") {
       yield { type: "text_delta", delta: "started" };
       if (!options.signal.aborted) await new Promise((accept) => options.signal.addEventListener("abort", accept, { once: true }));

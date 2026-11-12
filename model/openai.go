@@ -217,6 +217,16 @@ func (o OpenAI) GenerateEvents(ctx context.Context, req durable.ModelRequest, on
 	if err != nil {
 		return durable.ModelResponse{}, sanitizedError("cannot encode model request", false)
 	}
+	// Hooks see the body as built, in pi-ai's API name for this format.
+	if req.OnPayload != nil {
+		replaced, err := req.OnPayload(ctx, "openai-completions", body)
+		if err != nil {
+			return durable.ModelResponse{}, err
+		}
+		if replaced != nil {
+			body = replaced
+		}
+	}
 	if req.Stream != nil && req.Stream.TimeoutMs > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, time.Duration(req.Stream.TimeoutMs)*time.Millisecond)

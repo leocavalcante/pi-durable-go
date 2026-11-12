@@ -497,6 +497,21 @@ type ModelRequest struct {
 	Identity *ClientIdentity `json:"identity,omitempty"`
 	// Stream is Settings.Stream, set as the request is sent.
 	Stream *StreamOptions `json:"stream,omitempty"`
+	// OnPayload, when set, is for adapters that build provider request
+	// bodies: they call it after building one and before sending it, with
+	// the body in the provider API's format (api, such as
+	// "openai-completions"), and send the body it returns. The Harness sets
+	// it for Hooks.BeforeProviderRequest; it is never stored.
+	OnPayload func(ctx context.Context, api string, payload json.RawMessage) (json.RawMessage, error) `json:"-"`
+}
+
+// ProviderRequest is a provider request body an adapter built for a
+// generation request (upstream beforeProviderRequest). Payload is in the
+// provider API's own format, so a hook checks API before changing it.
+type ProviderRequest struct {
+	Model   ModelRef        `json:"model"`
+	API     string          `json:"api,omitempty"`
+	Payload json.RawMessage `json:"payload"`
 }
 
 // StreamOptions are curated pi-ai request options (upstream
@@ -661,11 +676,18 @@ var ErrOmitSection = errors.New("durable: section omitted")
 
 type Hooks struct {
 	BeforeRequest func(context.Context, *ModelRequest, *TaskRuntime) error
-	AfterResponse func(context.Context, *ModelResponse, *TaskRuntime) error
-	BeforeTool    func(context.Context, *ToolCall, *ToolRuntime) error
-	AfterTool     func(context.Context, *ToolResult, *ToolRuntime) error
-	AfterTools    func(context.Context, []ToolResult, *TaskRuntime) error
-	OnYield       func(context.Context, ModelResponse, *TaskRuntime) (string, error)
+	// BeforeProviderRequest runs after the adapter builds a generation
+	// request's provider body, before it is sent; a hook may replace
+	// Payload, for that request only. It runs again whenever the adapter
+	// rebuilds the body. A failing hook, or one that leaves a payload that is
+	// not JSON, is reported as extension_error and skipped. Adapters that
+	// build no body (a plain Model) never run it.
+	BeforeProviderRequest func(context.Context, *ProviderRequest, *TaskRuntime) error
+	AfterResponse         func(context.Context, *ModelResponse, *TaskRuntime) error
+	BeforeTool            func(context.Context, *ToolCall, *ToolRuntime) error
+	AfterTool             func(context.Context, *ToolResult, *ToolRuntime) error
+	AfterTools            func(context.Context, []ToolResult, *TaskRuntime) error
+	OnYield               func(context.Context, ModelResponse, *TaskRuntime) (string, error)
 	// AfterRun runs once a run answered, or every call of its tool round asked
 	// to terminate, before the run's final boundary. The tasks it asks for are
 	// created as the generation's children, and the run ends once they are

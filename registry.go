@@ -413,7 +413,7 @@ func (s *RegistrySnapshot) hooks(agent Agent) []namedHooks {
 		return out
 	}
 	for _, ext := range selectedExtensions(s.extensions, s.selection(agent)) {
-		if ext.Hooks.BeforeRequest != nil || ext.Hooks.AfterResponse != nil || ext.Hooks.BeforeTool != nil || ext.Hooks.AfterTool != nil || ext.Hooks.AfterTools != nil || ext.Hooks.OnYield != nil || ext.Hooks.AfterRun != nil || ext.Hooks.BeforeCompact != nil {
+		if ext.Hooks.BeforeRequest != nil || ext.Hooks.BeforeProviderRequest != nil || ext.Hooks.AfterResponse != nil || ext.Hooks.BeforeTool != nil || ext.Hooks.AfterTool != nil || ext.Hooks.AfterTools != nil || ext.Hooks.OnYield != nil || ext.Hooks.AfterRun != nil || ext.Hooks.BeforeCompact != nil {
 			out = append(out, namedHooks{Hooks: ext.Hooks, extension: ext.Name})
 		}
 	}
@@ -446,7 +446,7 @@ func (s *RegistrySnapshot) Hooks(agent Agent, kind string) []Hooks {
 		return out
 	}
 	for _, ext := range selectedExtensions(s.extensions, s.selection(agent)) {
-		if ext.Hooks.BeforeRequest != nil || ext.Hooks.AfterResponse != nil || ext.Hooks.BeforeTool != nil || ext.Hooks.AfterTool != nil || ext.Hooks.AfterTools != nil || ext.Hooks.OnYield != nil || ext.Hooks.AfterRun != nil || ext.Hooks.BeforeCompact != nil {
+		if ext.Hooks.BeforeRequest != nil || ext.Hooks.BeforeProviderRequest != nil || ext.Hooks.AfterResponse != nil || ext.Hooks.BeforeTool != nil || ext.Hooks.AfterTool != nil || ext.Hooks.AfterTools != nil || ext.Hooks.OnYield != nil || ext.Hooks.AfterRun != nil || ext.Hooks.BeforeCompact != nil {
 			out = append(out, ext.Hooks)
 		}
 	}

@@ -205,7 +205,7 @@ func TestPiOutputProtocol(t *testing.T) {
 		`{"type":"result","response":{}}` + "\n" + `{"type":"delta","delta":"late"}` + "\n",
 		`{"type":"error","code":"secret-body"}` + "\n",
 	} {
-		if _, err := readPiOutput(strings.NewReader(output), nil); err == nil || strings.Contains(err.Error(), "secret-body") {
+		if _, err := readPiOutput(strings.NewReader(output), nil, nil); err == nil || strings.Contains(err.Error(), "secret-body") {
 			t.Fatalf("output=%q, error=%v", output, err)
 		}
 	}
@@ -376,5 +376,48 @@ func TestPiDeferredAnswers(t *testing.T) {
 	}
 	if data, err := os.ReadFile(cancelled); err != nil || string(data) != "job-ready" {
 		t.Fatalf("cancelled=%q error=%v", data, err)
+	}
+}
+
+func TestPiSendsThePayloadItsHookReturns(t *testing.T) {
+	p := fakePi(t)
+	var api string
+	response, err := p.GenerateEvents(context.Background(), durable.ModelRequest{
+		Model:    durable.ModelRef{Provider: "fake", ID: "payload"},
+		Messages: []durable.Message{{Role: "user", Content: "hi"}},
+		OnPayload: func(_ context.Context, format string, payload json.RawMessage) (json.RawMessage, error) {
+			api = format
+			var body map[string]any
+			if err := json.Unmarshal(payload, &body); err != nil {
+				return nil, err
+			}
+			body["hooked"] = true
+			return json.Marshal(body)
+		},
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if api != "fake-api" || response.Content != `{"hooked":true,"messages":1,"model":"payload"}` {
+		t.Fatalf("api=%q sent=%s", api, response.Content)
+	}
+	// A failing hook fails the provider request.
+	_, err = p.GenerateEvents(context.Background(), durable.ModelRequest{
+		Model:    durable.ModelRef{Provider: "fake", ID: "payload"},
+		Messages: []durable.Message{{Role: "user", Content: "hi"}},
+		OnPayload: func(context.Context, string, json.RawMessage) (json.RawMessage, error) {
+			return nil, errors.New("hook failed")
+		},
+	}, nil)
+	if err == nil {
+		t.Fatal("a failing payload hook was ignored")
+	}
+	// Without a hook, the bridge sends no payload events.
+	response, err = p.GenerateEvents(context.Background(), durable.ModelRequest{
+		Model:    durable.ModelRef{Provider: "fake", ID: "payload"},
+		Messages: []durable.Message{{Role: "user", Content: "hi"}},
+	}, nil)
+	if err != nil || response.Content != `{"model":"payload","messages":1}` {
+		t.Fatalf("without a hook: sent=%s error=%v", response.Content, err)
 	}
 }

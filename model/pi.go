@@ -147,7 +147,7 @@ func (p Pi) GenerateEvents(ctx context.Context, req durable.ModelRequest, onEven
 	if req.Model.Provider == "" || req.Model.ID == "" {
 		return durable.ModelResponse{}, sanitizedError("pi: model provider and ID are required", false)
 	}
-	return p.call(ctx, piCall{Request: req}, onEvent)
+	return p.call(ctx, piCall{Request: req, ProviderPayload: req.OnPayload != nil}, onEvent)
 }
 
 // FetchDeferred fetches a deferred answer through Pi's ModelRuntime
@@ -177,6 +177,9 @@ type piCall struct {
 	AgentDir       string                  `json:"agentDir,omitempty"`
 	FetchDeferred  *durable.DeferredHandle `json:"fetchDeferred,omitempty"`
 	CancelDeferred *durable.DeferredHandle `json:"cancelDeferred,omitempty"`
+	// ProviderPayload asks the bridge to send each provider body for
+	// Request.OnPayload before it is sent.
+	ProviderPayload bool `json:"providerPayload,omitempty"`
 }
 
 // call runs one bridge request in a Node process.
@@ -238,8 +241,32 @@ func (p Pi) call(ctx context.Context, call piCall, onEvent func(durable.StreamEv
 	}
 	var response durable.ModelResponse
 	var readErr error
+	// A provider body the bridge sends: the hooks' body goes back on stdin.
+	var onPayload func(uint64, string, json.RawMessage) error
+	if call.ProviderPayload && call.Request.OnPayload != nil {
+		onPayload = func(id uint64, api string, payload json.RawMessage) error {
+			reply := map[string]any{"type": "payload", "payloadId": id}
+			replaced, err := call.Request.OnPayload(ctx, api, payload)
+			switch {
+			case err != nil:
+				reply["type"] = "payload_error"
+			case replaced != nil:
+				reply["payload"] = json.RawMessage(replaced)
+			default:
+				reply["payload"] = payload
+			}
+			line, encodeErr := json.Marshal(reply)
+			if encodeErr != nil {
+				return sanitizedError("pi: cannot encode provider payload", false)
+			}
+			if _, err := input.Write(append(line, '\n')); err != nil {
+				return sanitizedError("pi: cannot answer the SDK", false)
+			}
+			return err
+		}
+	}
 	if writeErr == nil {
-		response, readErr = readPiOutput(&limitedReader{r: output, remaining: maxBytes}, onEvent)
+		response, readErr = readPiOutput(&limitedReader{r: output, remaining: maxBytes}, onEvent, onPayload)
 	}
 	if writeErr != nil || readErr != nil {
 		cancel()
@@ -259,7 +286,7 @@ func (p Pi) call(ctx context.Context, call piCall, onEvent func(durable.StreamEv
 	return response, nil
 }
 
-func readPiOutput(r io.Reader, onEvent func(durable.StreamEvent) error) (durable.ModelResponse, error) {
+func readPiOutput(r io.Reader, onEvent func(durable.StreamEvent) error, onPayload func(uint64, string, json.RawMessage) error) (durable.ModelResponse, error) {
 	scanner := bufio.NewScanner(r)
 	// The final record includes the assistant's native replay data, which can
 	// exceed a single provider SSE line. The reader still caps total output.
@@ -274,6 +301,10 @@ func readPiOutput(r io.Reader, onEvent func(durable.StreamEvent) error) (durable
 			Name     string                 `json:"name"`
 			Response *durable.ModelResponse `json:"response"`
 			Code     string                 `json:"code"`
+			// A provider body for Request.OnPayload.
+			PayloadID uint64          `json:"payloadId"`
+			API       string          `json:"api"`
+			Payload   json.RawMessage `json:"payload"`
 			// pi-ai's classification of the provider error, computed in Node.
 			Retryable bool `json:"retryable"`
 			Overflow  bool `json:"overflow"`
@@ -291,6 +322,13 @@ func readPiOutput(r io.Reader, onEvent func(durable.StreamEvent) error) (durable
 				if err := onEvent(durable.StreamEvent{Type: kind, Index: event.Index, Delta: event.Delta, ID: event.ID, Name: event.Name}); err != nil {
 					return durable.ModelResponse{}, err
 				}
+			}
+		case "payload":
+			if onPayload == nil || event.PayloadID == 0 || len(event.Payload) == 0 {
+				return durable.ModelResponse{}, sanitizedError("pi: invalid SDK stream", false)
+			}
+			if err := onPayload(event.PayloadID, event.API, event.Payload); err != nil {
+				return durable.ModelResponse{}, err
 			}
 		case "result":
 			if event.Response == nil {

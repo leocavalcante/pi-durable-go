@@ -837,10 +837,11 @@ func (s *Session) recordCommitted(storeCaughtUp ...bool) {
 		if held != nil && s.cold != nil {
 			held = s.residentJSON(held)
 		}
-		if held != nil && len(s.held) > 0 {
+		if later := s.unstoredDocuments(); held != nil && len(later) > 0 {
 			// Documents still held are stored later (with a commit that
-			// reads or writes them, at their deadline, or at close).
-			held, data = s.withoutHeld(held), s.withoutHeld(data)
+			// reads or writes them, at their deadline, or at close), and so
+			// are those a pending commit took from the held ones.
+			held, data = withoutDocuments(held, later), withoutDocuments(data, later)
 		}
 		if held != nil && !bytes.Equal(held, data) {
 			panic(fmt.Sprintf("durable: storage diverged from the committed state: %s", firstDifference(data, held)))
@@ -848,13 +849,30 @@ func (s *Session) recordCommitted(storeCaughtUp ...bool) {
 	}
 }
 
-// withoutHeld is a State's JSON without the documents still held.
-func (s *Session) withoutHeld(data []byte) []byte {
+// unstoredDocuments are the documents published but not stored yet: held,
+// or in a pending commit's changes (a held document a commit took with it).
+func (s *Session) unstoredDocuments() map[string]bool {
+	keys := map[string]bool{}
+	for key := range s.held {
+		keys[key] = true
+	}
+	for _, item := range s.pending {
+		if item.delta != nil {
+			for key := range item.delta.Documents {
+				keys[key] = true
+			}
+		}
+	}
+	return keys
+}
+
+// withoutDocuments is a State's JSON without the given documents.
+func withoutDocuments(data []byte, keys map[string]bool) []byte {
 	var st State
 	if err := json.Unmarshal(data, &st); err != nil {
 		panic(fmt.Sprintf("durable: state is not JSON: %v", err))
 	}
-	for key := range s.held {
+	for key := range keys {
 		delete(st.Documents, key)
 	}
 	out, err := json.Marshal(st)

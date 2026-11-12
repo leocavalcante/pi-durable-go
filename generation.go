@@ -316,7 +316,14 @@ func requestGeneration(ctx context.Context, r *TaskRuntime, task TaskRecord, cp 
 	cp.Partial = ""
 	stream := newPartialStream(r, task, attempt)
 	started := time.Now()
-	response, err := r.h.generateEvents(ctx, cp.Request, stream.event)
+	request := cp.Request
+	onPayload, err := providerPayload(ctx, r, task, request.Model)
+	if err != nil {
+		stream.stop()
+		return err
+	}
+	request.OnPayload = onPayload
+	response, err := r.h.generateEvents(ctx, request, stream.event)
 	stream.stop()
 	partial := stream.message()
 	responseDurationMs := time.Since(started).Milliseconds()
@@ -903,6 +910,50 @@ func afterResponse(ctx context.Context, r *TaskRuntime, task TaskRecord, respons
 		}
 	}
 	return nil
+}
+
+// providerPayload is the BeforeProviderRequest chain over the provider bodies
+// an adapter builds for this request, or nil without such hooks.
+func providerPayload(ctx context.Context, r *TaskRuntime, task TaskRecord, model ModelRef) (func(context.Context, string, json.RawMessage) (json.RawMessage, error), error) {
+	state, err := r.h.read(ctx)
+	if err != nil {
+		return nil, err
+	}
+	conv, err := state.conversation(task.Conversation)
+	if err != nil {
+		return nil, err
+	}
+	if conv == nil {
+		return nil, ErrNotFound
+	}
+	var hooks []namedHooks
+	for _, hook := range r.Registry().hooks(conv.Agent) {
+		if hook.BeforeProviderRequest != nil {
+			hooks = append(hooks, hook)
+		}
+	}
+	if len(hooks) == 0 {
+		return nil, nil
+	}
+	return func(ctx context.Context, api string, payload json.RawMessage) (json.RawMessage, error) {
+		current := payload
+		for _, hook := range hooks {
+			request := ProviderRequest{Model: model, API: api, Payload: cloneRaw(current)}
+			if err := containPanic(func() error { return hook.BeforeProviderRequest(ctx, &request, r) }); err != nil {
+				if ctx.Err() != nil {
+					return nil, ctx.Err()
+				}
+				r.reportExtension(err, hook.extension)
+				continue
+			}
+			if !json.Valid(request.Payload) {
+				r.reportExtension(fmt.Errorf("%w: the provider payload is not JSON", ErrInvalid), hook.extension)
+				continue
+			}
+			current = request.Payload
+		}
+		return current, nil
+	}, nil
 }
 
 // buildRequest plans the prompt and tool changes of the next request (spec

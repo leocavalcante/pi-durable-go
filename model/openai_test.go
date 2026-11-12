@@ -143,3 +143,36 @@ func TestOpenAIStreamsReasoningAndToolCallEvents(t *testing.T) {
 		t.Fatalf("response=%+v", got)
 	}
 }
+
+func TestOpenAISendsThePayloadItsHookReturns(t *testing.T) {
+	var got map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
+			t.Error(err)
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"ok\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n"))
+	}))
+	defer server.Close()
+	var api string
+	m := &OpenAI{BaseURL: server.URL + "/v1", APIKey: "test-key"}
+	_, err := m.Generate(context.Background(), durable.ModelRequest{
+		Model:    durable.ModelRef{Provider: "openai", ID: "gpt-test"},
+		Messages: []durable.Message{{Role: "user", Content: "hi"}},
+		OnPayload: func(_ context.Context, format string, payload json.RawMessage) (json.RawMessage, error) {
+			api = format
+			var body map[string]any
+			if err := json.Unmarshal(payload, &body); err != nil {
+				return nil, err
+			}
+			body["user"] = "hooked"
+			return json.Marshal(body)
+		},
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if api != "openai-completions" || got["user"] != "hooked" || got["model"] != "gpt-test" {
+		t.Fatalf("api=%q body=%v", api, got)
+	}
+}

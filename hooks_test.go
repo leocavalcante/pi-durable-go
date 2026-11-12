@@ -3,6 +3,9 @@ package durable
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -100,5 +103,52 @@ func TestPromptSectionsAndBeforeRequestHook(t *testing.T) {
 	}
 	if state.Entries[settled.Answer].Message.Content != "echo: hooked" {
 		t.Fatal("request hook not applied")
+	}
+}
+
+func TestBeforeProviderRequestReplacesThePayload(t *testing.T) {
+	var mu sync.Mutex
+	var sent []string
+	model := taskModelFunc(func(ctx context.Context, req ModelRequest, delta func(string) error) (ModelResponse, error) {
+		body := json.RawMessage(`{"n":1}`)
+		if req.OnPayload != nil {
+			replaced, err := req.OnPayload(ctx, "test-api", body)
+			if err != nil {
+				return ModelResponse{}, err
+			}
+			body = replaced
+		}
+		mu.Lock()
+		sent = append(sent, string(body))
+		mu.Unlock()
+		return ModelResponse{Content: "ok", StopReason: "stop"}, nil
+	})
+	bump := func(name string) Extension {
+		return Extension{Name: name, Hooks: Hooks{BeforeProviderRequest: func(_ context.Context, request *ProviderRequest, _ *TaskRuntime) error {
+			var body struct{ N int }
+			if request.API != "test-api" || request.Model.ID != "m" {
+				return errors.New("unexpected request")
+			}
+			if err := json.Unmarshal(request.Payload, &body); err != nil {
+				return err
+			}
+			request.Payload = json.RawMessage(fmt.Sprintf(`{"n":%d}`, body.N+1))
+			return nil
+		}}}
+	}
+	broken := Extension{Name: "broken", Hooks: Hooks{BeforeProviderRequest: func(_ context.Context, request *ProviderRequest, _ *TaskRuntime) error {
+		request.Payload = json.RawMessage(`{"n":100}`)
+		return errors.New("broken hook")
+	}}}
+	h, root := runHarness(t, model, Settings{}, bump("first"), broken, bump("second"))
+	if err := root.Configure(context.Background(), Agent{Model: ModelRef{Provider: "fake", ID: "m"}, Extensions: []string{"first", "broken", "second"}}); err != nil {
+		t.Fatal(err)
+	}
+	waitSettled(t, h, submit(t, root, SubmissionRequest{Content: "hi"}))
+	mu.Lock()
+	defer mu.Unlock()
+	// The chain runs in extension order; the failing hook is skipped.
+	if len(sent) != 1 || sent[0] != `{"n":3}` {
+		t.Fatalf("sent=%v", sent)
 	}
 }

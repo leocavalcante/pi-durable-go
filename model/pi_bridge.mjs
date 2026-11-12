@@ -24,6 +24,34 @@ const input = new Promise((accept) => {
 });
 process.on("SIGTERM", () => controller.abort());
 
+// Provider payload hooks (durable Hooks.BeforeProviderRequest): the bridge
+// sends the body pi-ai built and waits for Go's reply on stdin. A closed
+// stdin fails every pending reply.
+const replies = new Map();
+let payloadSeq = 0;
+lines.on("line", (line) => {
+  let reply;
+  try { reply = JSON.parse(line); } catch { return; }
+  const settle = reply && typeof reply === "object" ? replies.get(reply.payloadId) : undefined;
+  if (settle) {
+    replies.delete(reply.payloadId);
+    settle(reply);
+  }
+});
+lines.on("close", () => {
+  for (const settle of replies.values()) settle({ type: "payload_error" });
+  replies.clear();
+});
+
+async function providerPayload(payload, model) {
+  const id = ++payloadSeq;
+  const answer = new Promise((accept) => replies.set(id, accept));
+  await emit({ type: "payload", payloadId: id, api: typeof model?.api === "string" ? model.api : "", payload });
+  const reply = await answer;
+  if (reply.type !== "payload") throw new Error("provider payload hook failed");
+  return reply.payload;
+}
+
 async function emit(value) {
   await new Promise((accept, reject) => {
     process.stdout.write(`${JSON.stringify(value)}\n`, (error) => error ? reject(error) : accept());
@@ -304,6 +332,7 @@ async function main() {
       transport: "sse",
       ...streamOptions(request.stream),
       ...(request.identity ? { identity: request.identity } : {}),
+      ...(config.providerPayload === true ? { onPayload: providerPayload } : {}),
     });
     let result;
     for await (const event of stream) {
