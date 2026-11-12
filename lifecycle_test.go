@@ -169,7 +169,9 @@ func TestSessionCleanCloseAndCloseFailure(t *testing.T) {
 	}
 }
 
-func TestCertifiedRejectionDoesNotCloseSession(t *testing.T) {
+// Storage failures are final (upstream): a rejection, certified or not,
+// fails the Session.
+func TestStorageRejectionFailsTheSession(t *testing.T) {
 	cause := errors.New("certified not applied")
 	store := &lifecycleStorage{MemoryStorage: NewMemoryStorage(), writeErr: &RejectedError{Err: cause}}
 	store.fail.Store(true)
@@ -178,24 +180,15 @@ func TestCertifiedRejectionDoesNotCloseSession(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer s.Close()
-	watch, stop, err := s.Watch(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer stop()
-	<-watch
 	if err := s.Commit(context.Background(), nil); !errors.Is(err, cause) {
 		t.Fatalf("rejection=%v", err)
 	}
-	if s.Err() != nil || store.closes.Load() != 0 {
-		t.Fatal("certified rejection sealed or closed Session")
+	if !errors.Is(s.Err(), ErrPoisoned) || !errors.Is(s.Err(), cause) {
+		t.Fatalf("Session=%v", s.Err())
 	}
-	store.fail.Store(false)
-	if err := s.Commit(context.Background(), nil); err != nil {
-		t.Fatal(err)
-	}
-	if next := <-watch; next.Sequence != 1 {
-		t.Fatalf("rejected commit advanced sequence: %+v", next)
+	end, err := s.WaitClosed(context.Background())
+	if err != nil || end.Kind != "failed" || store.closes.Load() != 1 {
+		t.Fatalf("end=%+v error=%v closes=%d", end, err, store.closes.Load())
 	}
 }
 

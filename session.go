@@ -184,20 +184,19 @@ func (s *Session) commitLocked(ctx context.Context, fn func(*Tx) error, internal
 	}
 	candidate.Sequence = s.state.Sequence + 1
 	candidate.base = nil
-	if err = ctx.Err(); err != nil {
-		return err
-	}
+	// Cancellation was checked when the job started: an admitted commit is
+	// stored, whatever happens to its caller's context meanwhile (upstream).
+	storeCtx := context.WithoutCancel(ctx)
 	if deltas, ok := s.storage.(DeltaStorage); ok && !s.fullWrite {
 		delta.Sequence = candidate.Sequence
-		err = deltas.CommitDelta(ctx, s.state.Sequence, delta)
+		err = deltas.CommitDelta(storeCtx, s.state.Sequence, delta)
 	} else {
-		err = s.storage.Commit(ctx, s.state.Sequence, candidate)
+		err = s.storage.Commit(storeCtx, s.state.Sequence, candidate)
 	}
 	if err != nil {
-		var rejected *RejectedError
-		if !errors.As(err, &rejected) {
-			s.failLocked(err)
-		}
+		// Storage failures are final (upstream): the first error a commit
+		// returns, a certified rejection included, fails the Session.
+		s.failLocked(err)
 		return err
 	}
 	s.state = candidate

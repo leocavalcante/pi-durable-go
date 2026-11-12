@@ -50,7 +50,7 @@ At a phase boundary, a task hands over to a changed definition if it can reserve
 
 State v2 adds outcome and submission diagnostic fields. State v1 can be loaded and upgraded in memory; `Harness.Open` persists v2 in its reconciliation commit. Older binaries cannot safely reopen a v2 store, and future state versions are rejected. Direct `NewSession` users persist v2 on their next commit. This is a Go storage migration, not upstream file-format compatibility.
 
-Uncertain storage errors still fail and seal the Session. Scheduler bookkeeping writes also fail the Session on errors, including a certified `RejectedError`, because the scheduler cannot safely continue after a failed internal decision. The exception is caller cancellation before storage admission or a certified-unapplied write for that cancelled call. Ordinary caller commits retain the `RejectedError` rollback-without-poisoning contract. `SessionEnd.Reason` is now `SessionEnd.Kind`.
+Storage failures are final, as upstream's are: the first error a storage commit returns, a certified `RejectedError` or a wrapped cancellation included, fails and seals the Session ([plan 0007](docs/plans/0007-upstream-commit-pipeline.md)). Cancellation is checked when a commit's job starts; once its callback ran, the commit is stored whatever happens to its caller's context. Scheduler bookkeeping callbacks that fail also fail the Session. `SessionEnd.Reason` is now `SessionEnd.Kind`.
 
 ### Restart accounting and clean close
 

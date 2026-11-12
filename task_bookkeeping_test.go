@@ -25,33 +25,40 @@ func TestTaskSchedulerCommitDecisionsAndCancellation(t *testing.T) {
 	if committed || !errors.Is(err, context.Canceled) || h.Err() != nil {
 		t.Fatalf("pre-admission cancellation: committed=%v error=%v Session=%v", committed, err, h.Err())
 	}
+	// Cancellation is checked when the job starts: once its callback ran,
+	// the commit is stored.
 	cancelled, cancel = context.WithCancel(ctx)
 	committed, err = h.scheduler.commitInternal(cancelled, func(*Tx) error { cancel(); return nil })
-	if committed || !errors.Is(err, context.Canceled) || h.Err() != nil {
-		t.Fatalf("pre-storage cancellation: committed=%v error=%v Session=%v", committed, err, h.Err())
+	if !committed || err != nil || h.Err() != nil {
+		t.Fatalf("cancellation after the job started: committed=%v error=%v Session=%v", committed, err, h.Err())
 	}
 }
 
-func TestTaskSchedulerRejectedWriteFailsButCallerRejectionDoesNot(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
-	cause := &RejectedError{Err: ErrConflict}
-	store := &lifecycleStorage{MemoryStorage: NewMemoryStorage(), writeErr: cause}
-	h, err := Open(ctx, store, HarnessOptions{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer h.Close(context.Background())
-	store.fail.Store(true)
-	if err := h.Commit(ctx, nil); err != cause || h.Err() != nil {
-		t.Fatalf("caller rejection: error=%v Session=%v", err, h.Err())
-	}
-	committed, err := h.scheduler.commitInternal(ctx, func(*Tx) error { return nil })
-	if committed || err != cause || !errors.Is(h.Err(), ErrPoisoned) || !errors.Is(h.Err(), cause) {
-		t.Fatalf("internal rejection: committed=%v error=%v Session=%v", committed, err, h.Err())
-	}
-	if _, err := h.WaitClosed(ctx); err != nil {
-		t.Fatal(err)
+func TestTaskSchedulerRejectedWritesFailTheSession(t *testing.T) {
+	for _, internal := range []bool{false, true} {
+		t.Run(map[bool]string{false: "caller", true: "internal"}[internal], func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+			defer cancel()
+			cause := &RejectedError{Err: ErrConflict}
+			store := &lifecycleStorage{MemoryStorage: NewMemoryStorage(), writeErr: cause}
+			h, err := Open(ctx, store, HarnessOptions{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer h.Close(context.Background())
+			store.fail.Store(true)
+			if internal {
+				_, err = h.scheduler.commitInternal(ctx, func(*Tx) error { return nil })
+			} else {
+				err = h.Commit(ctx, nil)
+			}
+			if err != cause || !errors.Is(h.Err(), ErrPoisoned) || !errors.Is(h.Err(), cause) {
+				t.Fatalf("rejection: error=%v Session=%v", err, h.Err())
+			}
+			if _, err := h.WaitClosed(ctx); err != nil {
+				t.Fatal(err)
+			}
+		})
 	}
 }
 
@@ -158,26 +165,16 @@ func TestTaskSchedulerStorageDecisionSentinelIsNotANoOp(t *testing.T) {
 	}
 }
 
-func TestTaskSchedulerCertifiedDeadlineIsCallerCancellation(t *testing.T) {
-	store := &cancelBookkeepingStorage{MemoryStorage: NewMemoryStorage(), reject: true, writeErr: context.DeadlineExceeded}
-	h, err := Open(context.Background(), store, HarnessOptions{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer h.Close(context.Background())
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	store.cancel = cancel
-	committed, err := h.scheduler.commitInternal(ctx, nil)
-	if committed || !errors.Is(err, context.DeadlineExceeded) || h.Err() != nil {
-		t.Fatalf("certified cancellation: committed=%v error=%v Session=%v", committed, err, h.Err())
-	}
-}
-
-func TestTaskSchedulerCancelledWriteRequiresCertifiedRejection(t *testing.T) {
-	for _, reject := range []bool{false, true} {
-		t.Run(map[bool]string{false: "uncertain", true: "rejected"}[reject], func(t *testing.T) {
-			store := &cancelBookkeepingStorage{MemoryStorage: NewMemoryStorage(), reject: reject}
+// A storage error that wraps a cancellation is a storage error like any
+// other: final, certified or not.
+func TestTaskSchedulerCancelledStorageErrorsFailTheSession(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		reject bool
+		cause  error
+	}{{"uncertain", false, context.Canceled}, {"rejected", true, context.Canceled}, {"rejected-deadline", true, context.DeadlineExceeded}} {
+		t.Run(tc.name, func(t *testing.T) {
+			store := &cancelBookkeepingStorage{MemoryStorage: NewMemoryStorage(), reject: tc.reject, writeErr: tc.cause}
 			h, err := Open(context.Background(), store, HarnessOptions{})
 			if err != nil {
 				t.Fatal(err)
@@ -187,11 +184,8 @@ func TestTaskSchedulerCancelledWriteRequiresCertifiedRejection(t *testing.T) {
 			defer cancel()
 			store.cancel = cancel
 			committed, err := h.scheduler.commitInternal(ctx, func(*Tx) error { return nil })
-			if committed || !errors.Is(err, context.Canceled) {
-				t.Fatalf("committed=%v error=%v", committed, err)
-			}
-			if reject && h.Err() != nil || !reject && !errors.Is(h.Err(), ErrPoisoned) {
-				t.Fatalf("reject=%v Session=%v", reject, h.Err())
+			if committed || !errors.Is(err, tc.cause) || !errors.Is(h.Err(), ErrPoisoned) {
+				t.Fatalf("committed=%v error=%v Session=%v", committed, err, h.Err())
 			}
 		})
 	}
@@ -216,7 +210,7 @@ func TestTaskOrphanRejectedWriteFailsSession(t *testing.T) {
 	}
 }
 
-func TestTaskMigrationCacheSurvivesCancelledRejectedOrphanWrite(t *testing.T) {
+func TestTaskMigrationFailureIsCachedAcrossAnOrphanWrite(t *testing.T) {
 	store := &cancelBookkeepingStorage{MemoryStorage: NewMemoryStorage(), reject: true}
 	reports := make(chan Report, 4)
 	h, err := Open(context.Background(), store, HarnessOptions{OnReport: func(r Report) { reports <- r }})
@@ -236,13 +230,6 @@ func TestTaskMigrationCacheSurvivesCancelledRejectedOrphanWrite(t *testing.T) {
 	if err := h.registry.Install(Extension{Name: "cached-orphan", Tasks: []TaskDefinition{newer}}); err != nil {
 		t.Fatal(err)
 	}
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	store.cancel = cancel
-	if _, err := h.AbortTask(ctx, id); !errors.Is(err, context.Canceled) || h.Err() != nil {
-		t.Fatalf("cancelled orphan: error=%v Session=%v", err, h.Err())
-	}
-	store.cancel = nil
 	if _, err := h.AbortTask(context.Background(), id); err != nil {
 		t.Fatal(err)
 	}
