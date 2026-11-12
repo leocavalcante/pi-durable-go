@@ -385,3 +385,80 @@ func ReadFamilyDocument[T any](ctx context.Context, h *Harness, def DocumentDefi
 	err = json.Unmarshal(data, &value)
 	return value, err
 }
+
+// ReadDocumentAsOf reads a rewindable conversation document as it was when
+// entry at was committed (upstream snapshotAsOf): the document of the
+// conversation that owns the entry, which must be visible from conversation
+// id (its own or one its lineage forked from). ErrNotFound when the document
+// had no value then.
+func ReadDocumentAsOf[T any](ctx context.Context, h *Harness, def DocumentDefinition, id uint64, at EntryID) (T, error) {
+	return readDocumentAsOf[T](ctx, h, def, id, "", at)
+}
+
+// ReadFamilyDocumentAsOf is ReadDocumentAsOf for a member of a rewindable
+// conversation document family.
+func ReadFamilyDocumentAsOf[T any](ctx context.Context, h *Harness, def DocumentDefinition, id uint64, member string, at EntryID) (T, error) {
+	return readDocumentAsOf[T](ctx, h, def, id, member, at)
+}
+
+func readDocumentAsOf[T any](ctx context.Context, h *Harness, def DocumentDefinition, id uint64, member string, at EntryID) (T, error) {
+	var value T
+	if err := validateDocument(def); err != nil {
+		return value, err
+	}
+	if def.Scope != "conversation" {
+		return value, fmt.Errorf("%w: reading as of an entry requires a conversation document", ErrInvalid)
+	}
+	if normalizeHistory(def.History) != "rewindable" {
+		return value, fmt.Errorf("%w: reading as of an entry requires rewindable history", ErrInvalid)
+	}
+	if _, err := keyOf(def, id, member); err != nil {
+		return value, err
+	}
+	s, err := h.read(ctx)
+	if err != nil {
+		return value, err
+	}
+	entries, err := entriesFromState(s, ConversationID(id))
+	if err != nil {
+		return value, err
+	}
+	var entry *Entry
+	for i := range entries {
+		if entries[i].ID == at {
+			entry = &entries[i]
+			break
+		}
+	}
+	if entry == nil {
+		return value, fmt.Errorf("%w: entry %d is not visible from conversation %d", ErrInvalid, at, id)
+	}
+	key, err := keyOf(def, uint64(entry.Conversation), member)
+	if err != nil {
+		return value, err
+	}
+	doc := s.Documents[key]
+	if doc == nil {
+		return value, ErrNotFound
+	}
+	var revision *DocumentRevision
+	for i := range doc.Revisions {
+		if doc.Revisions[i].Sequence <= entry.Sequence {
+			revision = &doc.Revisions[i]
+		}
+	}
+	if revision == nil {
+		return value, ErrNotFound
+	}
+	then := *doc
+	then.Value, then.Version = revision.Value, doc.Version
+	if revision.Version > 0 {
+		then.Version = revision.Version
+	}
+	data, err := migratedDocument(def, &then)
+	if err != nil {
+		return value, err
+	}
+	err = json.Unmarshal(data, &value)
+	return value, err
+}
