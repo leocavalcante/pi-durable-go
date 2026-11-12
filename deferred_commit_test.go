@@ -273,3 +273,42 @@ func TestPartialAnswersAreHeldAndStoredAtClose(t *testing.T) {
 		t.Fatalf("stored at close=%+v", live.Generation)
 	}
 }
+
+func TestTheAttemptShownIsStoredLikeProgress(t *testing.T) {
+	release := make(chan struct{})
+	defer close(release)
+	model := taskModelFunc(func(ctx context.Context, request ModelRequest, delta func(string) error) (ModelResponse, error) {
+		select {
+		case <-release:
+		case <-ctx.Done():
+			return ModelResponse{}, ctx.Err()
+		}
+		return ModelResponse{Content: "done"}, nil
+	})
+	store := NewMemoryStorage()
+	h, err := Open(context.Background(), store, HarnessOptions{Model: model, Settings: Settings{Progress: ProgressSettings{PersistWithinMs: ptr(math.Inf(1))}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer h.Close(context.Background())
+	root, err := h.Root(context.Background(), ConversationOptions{Agent: Agent{Model: ModelRef{Provider: "fake", ID: "m"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	submit(t, root, SubmissionRequest{Content: "hi"})
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		live := readLiveState(t, h, root.ID())
+		if live.Generation != nil && live.Generation.Attempt == 1 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("no attempt shown")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	// Shown, not stored: a crash now would leave no attempt behind.
+	if live := storedLive(t, store, root.ID()); live.Generation != nil {
+		t.Fatalf("stored the attempt marker: %+v", live.Generation)
+	}
+}

@@ -277,10 +277,35 @@ func runTool(ctx context.Context, r *TaskRuntime, task TaskRecord) error {
 			return reject(harnessError("invalid_arguments", err.Error()))
 		}
 		cp = toolCheckpoint{Phase: "execute", Arguments: runtime.Call.Arguments, ReplaySafe: def.ReplaySafe}
-		if err := r.Commit(ctx, func(tx *Tx) (TaskTransition, error) {
+		// The slot's status and arguments are presentation, stored like
+		// progress; the intent is durable before the tool runs (upstream).
+		if err := r.CommitWith(ctx, progressCommit(), func(tx *Tx) (TaskTransition, error) {
+			current, err := tx.Task(r.ID)
+			if err != nil {
+				return TaskTransition{}, err
+			}
 			if err := runtime.updateLive(tx, func(slot *ToolSlot) { slot.Status = "running" }); err != nil {
 				return TaskTransition{}, err
 			}
+			// A nested slot shows the arguments the call runs with, which
+			// hooks may have changed.
+			if runtime.nested && !runtime.noProgress {
+				if err := updateLive(tx, runtime.ConversationID, func(live *LiveState) error {
+					for i := range live.NestedTools {
+						if slot := &live.NestedTools[i]; slot.TaskID == r.ID && !jsonEqual(slot.Arguments, cp.Arguments) {
+							slot.Arguments = append(json.RawMessage(nil), cp.Arguments...)
+						}
+					}
+					return nil
+				}); err != nil {
+					return TaskTransition{}, err
+				}
+			}
+			return TaskTransition{Status: "running", Checkpoint: current.Checkpoint}, nil
+		}); err != nil {
+			return err
+		}
+		if err := r.Commit(ctx, func(*Tx) (TaskTransition, error) {
 			data, err := json.Marshal(cp)
 			return TaskTransition{Status: "running", Checkpoint: data}, err
 		}); err != nil {

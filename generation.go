@@ -269,12 +269,7 @@ func prepareGeneration(ctx context.Context, r *TaskRuntime, task TaskRecord, cp 
 				return TaskTransition{}, err
 			}
 		}
-		if err := updateLive(tx, task.Conversation, func(live *LiveState) error {
-			live.Generation = &LiveGeneration{Attempt: attempt}
-			return nil
-		}); err != nil {
-			return TaskTransition{}, err
-		}
+		// The request phase shows the attempt, stored like progress.
 		data, err := json.Marshal(generationCheckpoint{Phase: "request", Attempt: attempt, Request: request, Compacted: cp.Compacted})
 		return TaskTransition{Status: "running", Checkpoint: data}, err
 	})
@@ -291,9 +286,11 @@ func requestGeneration(ctx context.Context, r *TaskRuntime, task TaskRecord, cp 
 		return failNoModel(ctx, r, task)
 	}
 	// A partial left by an interrupted attempt becomes an aborted entry, and
-	// the attempt shown is presentation, in pi.live.
+	// the attempt shown is presentation, in pi.live, stored like progress
+	// (upstream PROGRESS_COMMIT); converting a partial appends an entry,
+	// which makes the commit immediate.
 	attempt := cp.attempt()
-	if err := r.Commit(ctx, func(tx *Tx) (TaskTransition, error) {
+	if err := r.CommitWith(ctx, progressCommit(), func(tx *Tx) (TaskTransition, error) {
 		if err := convertPartial(tx, task); err != nil {
 			return TaskTransition{}, err
 		}
