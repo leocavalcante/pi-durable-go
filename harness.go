@@ -154,6 +154,14 @@ func (h *Harness) commit(ctx context.Context, change func(*Tx) error, internal b
 }
 func (h *Harness) now() time.Time { return h.options.Now().UTC() }
 
+// model is the Harness model, calling ModelFunc at each use.
+func (h *Harness) model() Model {
+	if h.options.ModelFunc != nil {
+		return h.options.ModelFunc()
+	}
+	return h.options.Model
+}
+
 // settings reads the Harness settings, calling SettingsFunc at each use.
 func (h *Harness) settings() Settings {
 	if h.options.SettingsFunc != nil {
@@ -172,7 +180,7 @@ func (h *Harness) generate(ctx context.Context, req ModelRequest, onDelta func(s
 	if stream := h.settings().Stream; req.Stream == nil && !stream.isZero() {
 		req.Stream = &stream
 	}
-	return h.options.Model.Generate(ctx, req, onDelta)
+	return h.model().Generate(ctx, req, onDelta)
 }
 
 // harnessModel is the Harness model as tools see it: requests carry the

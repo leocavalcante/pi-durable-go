@@ -274,7 +274,7 @@ func (r *ToolRuntime) Env() (ExecutionEnv, error) {
 // catalog, credentials, and identity as generation (upstream api.models);
 // nil without a model.
 func (r *ToolRuntime) Model() Model {
-	if r.h.options.Model == nil {
+	if r.h.model() == nil {
 		return nil
 	}
 	return harnessModel{h: r.h}
@@ -284,7 +284,7 @@ func (r *ToolRuntime) Model() Model {
 // (ImageInputModel); true when unknown. Tools that return images say when the
 // model will see a placeholder instead.
 func (r *ToolRuntime) AcceptsImages(ctx context.Context) bool {
-	model, ok := r.h.options.Model.(ImageInputModel)
+	model, ok := r.h.model().(ImageInputModel)
 	if !ok {
 		return true
 	}
@@ -302,7 +302,7 @@ func (r *ToolRuntime) AcceptsImages(ctx context.Context) bool {
 // ImageLimits are the conversation model's image limits (ImageLimitsModel);
 // zero fields when unknown, which keeps the defaults.
 func (r *ToolRuntime) ImageLimits(ctx context.Context) ImageLimits {
-	model, ok := r.h.options.Model.(ImageLimitsModel)
+	model, ok := r.h.model().(ImageLimitsModel)
 	if !ok {
 		return ImageLimits{}
 	}

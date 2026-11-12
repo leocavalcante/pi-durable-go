@@ -157,7 +157,7 @@ func runGeneration(ctx context.Context, r *TaskRuntime, task TaskRecord) error {
 // request. A retry prepares again, so agent, section, and settings changes
 // made during its backoff apply.
 func prepareGeneration(ctx context.Context, r *TaskRuntime, task TaskRecord, cp generationCheckpoint) error {
-	if r.h.options.Model == nil {
+	if r.h.model() == nil {
 		return failNoModel(ctx, r, task)
 	}
 	state, err := r.h.read(ctx)
@@ -261,7 +261,7 @@ func requestGeneration(ctx context.Context, r *TaskRuntime, task TaskRecord, cp 
 	if task.Restarts > 0 {
 		return chargeInterruptedRequest(ctx, r, task, cp)
 	}
-	if r.h.options.Model == nil {
+	if r.h.model() == nil {
 		return failNoModel(ctx, r, task)
 	}
 	// A partial left by an interrupted attempt becomes an aborted entry, and
@@ -1357,7 +1357,7 @@ func unofferedCall(live *LiveState, callID string) bool {
 // finds a cut. The context window comes from a ContextWindowModel; unknown
 // disables thresholds.
 func thresholdCompaction(r *TaskRuntime, state *State, c ConversationRecord, planned []Entry) string {
-	model, ok := r.h.options.Model.(ContextWindowModel)
+	model, ok := r.h.model().(ContextWindowModel)
 	if !ok {
 		return ""
 	}

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 )
 
@@ -273,5 +274,35 @@ func TestSubmissionAbortSaysWhatItFound(t *testing.T) {
 	view, err := root.ContextView(context.Background(), 0)
 	if err != nil || len(view.Messages) == 0 || len(view.Entries) != len(view.Contributions) {
 		t.Fatalf("view=%+v error=%v", view, err)
+	}
+}
+
+func TestModelFuncIsReadAtEachUse(t *testing.T) {
+	var current atomic.Value
+	current.Store(Model(taskModelFunc(func(context.Context, ModelRequest, func(string) error) (ModelResponse, error) {
+		return ModelResponse{Content: "first"}, nil
+	})))
+	h := taskTestHarness(t, HarnessOptions{ModelFunc: func() Model { return current.Load().(Model) }})
+	root, err := h.Root(context.Background(), ConversationOptions{Agent: Agent{Model: ModelRef{Provider: "fake", ID: "m"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitSettled(t, h, submit(t, root, SubmissionRequest{Content: "one"}))
+	current.Store(Model(taskModelFunc(func(context.Context, ModelRequest, func(string) error) (ModelResponse, error) {
+		return ModelResponse{Content: "second"}, nil
+	})))
+	record := waitSettled(t, h, submit(t, root, SubmissionRequest{Content: "two"}))
+	entries, err := root.Entries(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var answer string
+	for _, e := range entries {
+		if e.ID == record.Answer && e.Message != nil {
+			answer = e.Message.Content
+		}
+	}
+	if answer != "second" {
+		t.Fatalf("answer=%q", answer)
 	}
 }

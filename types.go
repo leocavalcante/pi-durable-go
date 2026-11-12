@@ -619,9 +619,12 @@ type ProgressSettings struct {
 }
 
 type HarnessOptions struct {
-	Model    Model
-	Registry *Registry
-	Settings Settings
+	Model Model
+	// ModelFunc, when set, returns the model at each use instead of Model
+	// (upstream's function-valued HarnessOptions.models).
+	ModelFunc func() Model
+	Registry  *Registry
+	Settings  Settings
 	// SettingsFunc, when set, replaces Settings and is read at each use, as
 	// upstream reads function-valued settings: a change applies to the next
 	// decision that reads it. It must not block or call the Harness.
