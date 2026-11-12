@@ -211,3 +211,54 @@ func TestBoundedSessionKeepsContextRangesOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// reopenable is memory storage that survives its Harness's close.
+type reopenable struct{ *MemoryStorage }
+
+func (reopenable) Close() error { return nil }
+
+func TestBoundedOpenLoadsOnlyWhatItKeeps(t *testing.T) {
+	ctx := context.Background()
+	store := reopenable{NewMemoryStorage()}
+	h, err := Open(ctx, store, HarnessOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := testRoot(t, h)
+	old := appendNotes(t, h, root, 20)
+	if _, err := root.Reset(ctx, ""); err != nil {
+		t.Fatal(err)
+	}
+	appendNotes(t, h, root, 2)
+	write, err := root.Submit(ctx, SubmissionRequest{Type: "write", Entry: &Entry{Kind: "app.note", Data: json.RawMessage(`{}`)}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := h.Close(ctx); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := Open(ctx, store, HarnessOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reopened.Close(ctx)
+	if n := residentEntries(reopened, root.ID()); n > 5 {
+		t.Fatalf("reopening loaded %d entries", n)
+	}
+	if _, submissions, _ := residentCounts(reopened); submissions != 0 {
+		t.Fatalf("reopening loaded %d settled submissions", submissions)
+	}
+	again, err := reopened.Root(ctx, ConversationOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	entries, err := again.Entries(ctx)
+	if err != nil || len(entries) < 20 || entries[1].ID != old[0] {
+		t.Fatalf("history after reopening=%d error=%v", len(entries), err)
+	}
+	if sub, err := reopened.Submission(ctx, write.ID()); err != nil {
+		t.Fatal(err)
+	} else if record, err := sub.Record(ctx); err != nil || record.Status != "done" {
+		t.Fatalf("write=%+v error=%v", record, err)
+	}
+}

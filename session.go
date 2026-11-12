@@ -91,9 +91,22 @@ func newSession(ctx context.Context, storage Storage, now func() time.Time, boun
 	if now == nil {
 		now = time.Now
 	}
-	st, err := storage.Load(ctx)
-	if err != nil {
-		return nil, err
+	records, hasRecords := storage.(RecordStorage)
+	bounded = bounded && hasRecords
+	var st *State
+	var err error
+	if bounded {
+		// Load what a bounded Session keeps; a store an older version wrote
+		// is loaded whole and upgraded instead.
+		st, bounded, err = loadResidentState(ctx, records)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if !bounded {
+		if st, err = storage.Load(ctx); err != nil {
+			return nil, err
+		}
 	}
 	if st == nil {
 		st = &State{Version: stateVersion, NextID: 1, Conversations: map[ConversationID]*ConversationRecord{}, Entries: map[EntryID]*Entry{}, Tasks: map[TaskID]*TaskRecord{}, Submissions: map[SubmissionID]*SubmissionRecord{}, Documents: map[string]*DocumentRecord{}}
@@ -116,7 +129,7 @@ func newSession(ctx context.Context, storage Storage, now func() time.Time, boun
 	// Bounded memory needs record reads and no whole-State write: an
 	// upgraded State is written whole by its first commit, so it opens in
 	// full mode once.
-	if records, ok := storage.(RecordStorage); ok && bounded && !upgraded {
+	if bounded && !upgraded {
 		s.cold = newColdRecords(records, func(err error) { go s.fail(err) })
 		st.cold = s.cold
 		s.cold.evict(st)

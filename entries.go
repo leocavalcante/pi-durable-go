@@ -230,3 +230,79 @@ func (c *coldRecords) keepEntries(st *State, delta *StateDelta, all bool) error 
 	}
 	return nil
 }
+
+// loadResidentState loads what a bounded Session keeps at open (plan 0008):
+// the header, live tasks, and open submissions (LoadResident), every
+// conversation, the documents of the session, of each conversation, and of
+// each live task (an ended task's documents are retired with it), and each
+// conversation's context range. ok is false for a store an older version
+// wrote, which must be loaded whole to be upgraded; nil for an empty store.
+func loadResidentState(ctx context.Context, records RecordStorage) (st *State, ok bool, err error) {
+	st, err = records.LoadResident(ctx)
+	if err != nil || st == nil {
+		return nil, err == nil, err
+	}
+	if st.Version != stateVersion {
+		return nil, false, nil
+	}
+	// One logical load, as Storage.Load is: once begun, it completes, and
+	// Open's own checks see a cancellation.
+	ctx = context.WithoutCancel(ctx)
+	ensureTables(st)
+	var cursor *ScanCursor
+	for {
+		page, err := records.ScanConversations(ctx, ConversationQuery{}, 512, cursor)
+		if err != nil {
+			return nil, false, err
+		}
+		for i := range page.Items {
+			conversation := page.Items[i]
+			st.Conversations[conversation.ID] = &conversation
+		}
+		if page.Next == nil {
+			break
+		}
+		cursor = page.Next
+	}
+	scopes := []DocumentQuery{{Scope: "session"}}
+	for id := range st.Conversations {
+		scopes = append(scopes, DocumentQuery{Scope: "conversation", ScopeID: uint64(id)})
+	}
+	for id := range st.Tasks {
+		scopes = append(scopes, DocumentQuery{Scope: "task", ScopeID: uint64(id)})
+	}
+	for _, scope := range scopes {
+		var cursor *ScanCursor
+		for {
+			page, err := records.ScanDocuments(ctx, scope, 512, cursor)
+			if err != nil {
+				return nil, false, err
+			}
+			for i := range page.Items {
+				doc := page.Items[i]
+				key := documentKey(DocumentDefinition{Kind: doc.Kind, Scope: doc.Scope}, doc.ScopeID)
+				if doc.Member != "" {
+					key += "/" + doc.Member
+				}
+				st.Documents[key] = &doc
+			}
+			if page.Next == nil {
+				break
+			}
+			cursor = page.Next
+		}
+	}
+	// Each conversation's context range, read from storage.
+	view := &State{Conversations: st.Conversations, cold: &coldRecords{storage: records, fail: func(error) {}}}
+	for id := range st.Conversations {
+		entries, err := rangeEntries(view, id)
+		if err != nil {
+			return nil, false, err
+		}
+		for i := range entries {
+			entry := entries[i]
+			st.Entries[entry.ID] = &entry
+		}
+	}
+	return st, true, nil
+}

@@ -86,6 +86,11 @@ func (s *cancelledReconcileStorage) Load(ctx context.Context) (*State, error) {
 	s.cancel()
 	return state, err
 }
+func (s *cancelledReconcileStorage) LoadResident(ctx context.Context) (*State, error) {
+	state, err := s.MemoryStorage.LoadResident(ctx)
+	s.cancel()
+	return state, err
+}
 func (s *cancelledReconcileStorage) Close() error {
 	close(s.closed)
 	<-s.release

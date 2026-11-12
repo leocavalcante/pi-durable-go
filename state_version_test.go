@@ -14,7 +14,7 @@ func versionedState(version int) *State {
 		Entries:       map[EntryID]*Entry{},
 		Tasks:         map[TaskID]*TaskRecord{},
 		Submissions:   map[SubmissionID]*SubmissionRecord{},
-		Documents:     map[string]*DocumentRecord{"kept": {Kind: "test.value", Version: 1}},
+		Documents:     map[string]*DocumentRecord{"session:0:test.value": {Kind: "test.value", Version: 1, Scope: "session", History: "latest", Value: []byte(`{}`)}},
 	}
 }
 
@@ -35,7 +35,7 @@ func TestSessionAcceptsAndPersistsEarlierStateVersions(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if snapshot.Version != stateVersion || snapshot.Documents["kept"] == nil {
+			if snapshot.Version != stateVersion || snapshot.Documents["session:0:test.value"] == nil {
 				t.Fatalf("in-memory upgraded snapshot=%+v", snapshot)
 			}
 			store.mu.Lock()
