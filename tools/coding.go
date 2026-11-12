@@ -11,6 +11,7 @@ import (
 	"io/fs"
 	"math"
 	"os"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -33,7 +34,7 @@ func PowerShell(programs ...string) durable.Extension {
 		programs = []string{"pwsh", "powershell"}
 	}
 	return durable.Extension{Name: "powershell-tool", Tools: []durable.ToolDefinition{
-		{ToolSpec: durable.ToolSpec{Name: "powershell", Description: "Execute a PowerShell command in the current working directory. Returns combined stdout and stderr. Output is truncated to last 2000 lines or 50KB (whichever is hit first). If truncated, full output is saved to a temp file. Optionally provide a timeout in seconds.", Parameters: schema(`{"type":"object","required":["command"],"properties":{"command":{"type":"string","minLength":1,"description":"PowerShell command to execute"},"timeout":{"type":"number","description":"Timeout in seconds (optional, no default timeout)"}},"additionalProperties":false}`)}, StructuredOutputSchema: shellOutputSchema, Execute: powershellTool(programs)},
+		{ToolSpec: durable.ToolSpec{Name: "powershell", Description: "Execute a PowerShell command in the current working directory. Returns combined stdout and stderr. Output is truncated to last 2000 lines or 50KB (whichever is hit first). If truncated, full output is saved to a temp file. Optionally provide a timeout in seconds.", Parameters: schema(`{"type":"object","properties":{"command":{"type":"string","description":"PowerShell command to execute"},"timeout":{"type":"number","description":"Timeout in seconds (optional, no default timeout)"}},"required":["command"]}`)}, StructuredOutputSchema: shellOutputSchema, OutputLimits: &durable.OutputLimits{Retain: "tail"}, Execute: powershellTool(programs)},
 	}}
 }
 
@@ -64,19 +65,19 @@ func CodingWith(options CodingOptions) durable.Extension {
 		formats += ", bmp"
 	}
 	return durable.Extension{Name: "coding-tools", Tools: []durable.ToolDefinition{
-		{ToolSpec: durable.ToolSpec{Name: "read", Description: "Read the contents of a file. Supports text files and images (" + formats + "). Images are sent as attachments. For text files, output is truncated to 2000 lines or 50KB (whichever is hit first). Use offset/limit for large files. When you need the full file, continue with offset until complete.", Parameters: schema(`{"type":"object","required":["path"],"properties":{"path":{"type":"string","description":"Path to the file to read (relative or absolute)"},"offset":{"type":"integer","minimum":1,"description":"Line number to start reading from (1-indexed)"},"limit":{"type":"integer","minimum":0,"description":"Maximum number of lines to read"}},"additionalProperties":false}`)}, StructuredOutputSchema: readOutputSchema, Execute: readToolWith(options.Images)},
-		{ToolSpec: durable.ToolSpec{Name: "write", Description: "Write content to a file. Creates the file if it doesn't exist, overwrites if it does. Automatically creates parent directories.", Parameters: schema(`{"type":"object","required":["path","content"],"properties":{"path":{"type":"string"},"content":{"type":"string"}},"additionalProperties":false}`)}, Execute: writeTool},
-		{ToolSpec: durable.ToolSpec{Name: "edit", Description: "Edit a single file using exact text replacement. Every edits[].oldText must match a unique, non-overlapping region of the original file. If two changes affect the same block or nearby lines, merge them into one edit instead of emitting overlapping edits. Do not include large unchanged regions just to connect distant changes.", Parameters: schema(`{"type":"object","required":["path","edits"],"properties":{"path":{"type":"string"},"edits":{"type":"array","minItems":1,"items":{"type":"object","required":["oldText","newText"],"properties":{"oldText":{"type":"string","minLength":1},"newText":{"type":"string"}},"additionalProperties":false}}},"additionalProperties":false}`)}, Execute: editTool},
-		{ToolSpec: durable.ToolSpec{Name: "bash", Description: "Execute a bash command in the current working directory. Returns combined stdout and stderr. Output is truncated to last 2000 lines or 50KB (whichever is hit first). If truncated, full output is saved to a temp file. Optionally provide a timeout in seconds.", Parameters: schema(`{"type":"object","required":["command"],"properties":{"command":{"type":"string","minLength":1,"description":"Bash command to execute"},"timeout":{"type":"number","description":"Timeout in seconds (optional, no default timeout)"}},"additionalProperties":false}`)}, StructuredOutputSchema: shellOutputSchema, Execute: bashTool},
+		{ToolSpec: durable.ToolSpec{Name: "read", Description: "Read the contents of a file. Supports text files and images (" + formats + "). Images are sent as attachments. For text files, output is truncated to 2000 lines or 50KB (whichever is hit first). Use offset/limit for large files. When you need the full file, continue with offset until complete.", Parameters: schema(`{"type":"object","properties":{"path":{"type":"string","description":"Path to the file to read (relative or absolute)"},"offset":{"type":"number","description":"Line number to start reading from (1-indexed)"},"limit":{"type":"number","description":"Maximum number of lines to read"}},"required":["path"]}`)}, StructuredOutputSchema: readOutputSchema, Execute: readToolWith(options.Images)},
+		{ToolSpec: durable.ToolSpec{Name: "write", Description: "Write content to a file. Creates the file if it doesn't exist, overwrites if it does. Automatically creates parent directories.", Parameters: schema(`{"type":"object","properties":{"path":{"type":"string","description":"Path to the file to write (relative or absolute)"},"content":{"type":"string","description":"Content to write to the file"}},"required":["path","content"]}`)}, Execute: writeTool},
+		{ToolSpec: durable.ToolSpec{Name: "edit", Description: "Edit a single file using exact text replacement. Every edits[].oldText must match a unique, non-overlapping region of the original file. If two changes affect the same block or nearby lines, merge them into one edit instead of emitting overlapping edits. Do not include large unchanged regions just to connect distant changes.", Parameters: schema(`{"type":"object","properties":{"path":{"type":"string","description":"Path to the file to edit (relative or absolute)"},"edits":{"type":"array","items":{"type":"object","properties":{"oldText":{"type":"string","description":"Exact text for one targeted replacement. It must be unique in the original file and must not overlap with any other edits[].oldText in the same call."},"newText":{"type":"string","description":"Replacement text for this targeted edit."}},"required":["oldText","newText"]},"description":"One or more targeted replacements. Each edit is matched against the original file, not incrementally. Do not include overlapping or nested edits. If two changes touch the same block or nearby lines, merge them into one edit instead."}},"required":["path","edits"]}`)}, Execute: editTool},
+		{ToolSpec: durable.ToolSpec{Name: "bash", Description: "Execute a bash command in the current working directory. Returns combined stdout and stderr. Output is truncated to last 2000 lines or 50KB (whichever is hit first). If truncated, full output is saved to a temp file. Optionally provide a timeout in seconds.", Parameters: schema(`{"type":"object","properties":{"command":{"type":"string","description":"Bash command to execute"},"timeout":{"type":"number","description":"Timeout in seconds (optional, no default timeout)"}},"required":["command"]}`)}, StructuredOutputSchema: shellOutputSchema, OutputLimits: &durable.OutputLimits{Retain: "tail"}, Execute: bashTool},
 	}}
 }
 
 func schema(raw string) json.RawMessage { return json.RawMessage(raw) }
 
 type readArgs struct {
-	Path   string `json:"path"`
-	Offset int    `json:"offset,omitempty"`
-	Limit  *int   `json:"limit,omitempty"`
+	Path   string   `json:"path"`
+	Offset *float64 `json:"offset,omitempty"`
+	Limit  *float64 `json:"limit,omitempty"`
 }
 type writeArgs struct {
 	Path    string `json:"path"`
@@ -102,8 +103,9 @@ func decodeArgs(raw json.RawMessage, out any) error {
 	if len(raw) == 0 {
 		return errors.New("missing arguments")
 	}
+	// Fields the schema does not name are ignored, as upstream's tools read
+	// only their own.
 	d := json.NewDecoder(bytes.NewReader(raw))
-	d.DisallowUnknownFields()
 	if err := d.Decode(out); err != nil {
 		return fmt.Errorf("invalid arguments: %w", err)
 	}
@@ -150,9 +152,6 @@ func readTool(ctx context.Context, raw json.RawMessage, rt *durable.ToolRuntime,
 	if a.Path == "" {
 		return durable.ToolResult{}, errors.New("path must not be empty")
 	}
-	if a.Offset < 0 || (a.Limit != nil && *a.Limit < 0) {
-		return durable.ToolResult{}, errors.New("offset and limit must not be negative")
-	}
 	e, err := env(rt)
 	if err != nil {
 		return durable.ToolResult{}, err
@@ -187,7 +186,32 @@ func readTool(ctx context.Context, raw json.RawMessage, rt *durable.ToolRuntime,
 		}
 		return readImage(image, size, a.Path, mimeType, rt.AcceptsImages(ctx), rt.ImageLimits(ctx), processor)
 	}
-	return readText(buffered, a.Path, a.Offset, a.Limit)
+	startLine, offset, limit := readRange(a)
+	return readText(buffered, a.Path, startLine, offset, limit)
+}
+
+// readRange is the selection upstream's read takes from its numbers: a
+// falsy offset starts at the first line, another at max(0, offset - 1); the
+// lines are taken like Array.prototype.slice, which truncates fractions. A
+// limit of 0 or less selects nothing (a negative one, which slice counts
+// from the end, too).
+func readRange(a readArgs) (int, string, *int) {
+	const most = math.MaxInt32
+	startLine, offset := 0, "undefined"
+	if a.Offset != nil {
+		offset = strconv.FormatFloat(*a.Offset, 'f', -1, 64)
+		if *a.Offset > 1 {
+			startLine = int(math.Min(math.Trunc(*a.Offset-1), most))
+		}
+	}
+	if a.Limit == nil {
+		return startLine, offset, nil
+	}
+	n := 0
+	if *a.Limit > 0 {
+		n = int(math.Min(math.Trunc(*a.Limit), most))
+	}
+	return startLine, offset, &n
 }
 
 func writeTool(ctx context.Context, raw json.RawMessage, rt *durable.ToolRuntime) (durable.ToolResult, error) {
@@ -299,9 +323,6 @@ func shellTool(ctx context.Context, raw json.RawMessage, rt *durable.ToolRuntime
 	var a bashArgs
 	if err := decodeArgs(raw, &a); err != nil {
 		return durable.ToolResult{}, err
-	}
-	if strings.TrimSpace(a.Command) == "" {
-		return durable.ToolResult{}, errors.New("command must not be empty")
 	}
 	if a.Timeout != nil {
 		if math.IsNaN(*a.Timeout) || math.IsInf(*a.Timeout, 0) || *a.Timeout <= 0 {

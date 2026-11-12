@@ -356,3 +356,51 @@ func TestEditAccessErrorsAreWordedAsUpstream(t *testing.T) {
 		}
 	}
 }
+
+// The parameter schemas are upstream's (1.5.2), which the model reads and
+// arguments are coerced and checked against.
+func TestCodingToolSchemasAreUpstreams(t *testing.T) {
+	want := map[string]string{
+		"read":  `{"type":"object","properties":{"path":{"type":"string","description":"Path to the file to read (relative or absolute)"},"offset":{"type":"number","description":"Line number to start reading from (1-indexed)"},"limit":{"type":"number","description":"Maximum number of lines to read"}},"required":["path"]}`,
+		"write": `{"type":"object","properties":{"path":{"type":"string","description":"Path to the file to write (relative or absolute)"},"content":{"type":"string","description":"Content to write to the file"}},"required":["path","content"]}`,
+		"edit":  `{"type":"object","properties":{"path":{"type":"string","description":"Path to the file to edit (relative or absolute)"},"edits":{"type":"array","items":{"type":"object","properties":{"oldText":{"type":"string","description":"Exact text for one targeted replacement. It must be unique in the original file and must not overlap with any other edits[].oldText in the same call."},"newText":{"type":"string","description":"Replacement text for this targeted edit."}},"required":["oldText","newText"]},"description":"One or more targeted replacements. Each edit is matched against the original file, not incrementally. Do not include overlapping or nested edits. If two changes touch the same block or nearby lines, merge them into one edit instead."}},"required":["path","edits"]}`,
+		"bash":  `{"type":"object","properties":{"command":{"type":"string","description":"Bash command to execute"},"timeout":{"type":"number","description":"Timeout in seconds (optional, no default timeout)"}},"required":["command"]}`,
+	}
+	tools := append(Coding().Tools, PowerShell().Tools...)
+	want["powershell"] = `{"type":"object","properties":{"command":{"type":"string","description":"PowerShell command to execute"},"timeout":{"type":"number","description":"Timeout in seconds (optional, no default timeout)"}},"required":["command"]}`
+	for _, tool := range tools {
+		if string(tool.Parameters) != want[tool.Name] {
+			t.Errorf("%s parameters=%s\nwant %s", tool.Name, tool.Parameters, want[tool.Name])
+		}
+		if (tool.Name == "bash" || tool.Name == "powershell") && (tool.OutputLimits == nil || tool.OutputLimits.Retain != "tail") {
+			t.Errorf("%s keeps its output's head", tool.Name)
+		}
+	}
+}
+
+func TestReadTakesNumbersAsUpstreamDoes(t *testing.T) {
+	for _, c := range []struct {
+		args    string
+		start   int
+		offset  string
+		limit   int
+		limited bool
+	}{
+		{`{"path":"a"}`, 0, "undefined", 0, false},
+		{`{"path":"a","offset":0}`, 0, "0", 0, false},
+		{`{"path":"a","offset":-3}`, 0, "-3", 0, false},
+		{`{"path":"a","offset":2.9,"limit":1.5}`, 1, "2.9", 1, true},
+		{`{"path":"a","offset":5,"limit":0}`, 4, "5", 0, true},
+		{`{"path":"a","limit":-2}`, 0, "undefined", 0, true},
+		{`{"path":"a","unknown":true}`, 0, "undefined", 0, false},
+	} {
+		var a readArgs
+		if err := decodeArgs(json.RawMessage(c.args), &a); err != nil {
+			t.Fatalf("%s: %v", c.args, err)
+		}
+		start, offset, limit := readRange(a)
+		if start != c.start || offset != c.offset || (limit != nil) != c.limited || limit != nil && *limit != c.limit {
+			t.Fatalf("%s: start=%d offset=%s limit=%v", c.args, start, offset, limit)
+		}
+	}
+}

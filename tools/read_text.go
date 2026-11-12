@@ -108,11 +108,7 @@ func characterEnd(b []byte, limit int) int {
 // and bounding the selection with truncateHead, while holding only the
 // selection's head. Remarks about truncation and continuation are
 // diagnostics.
-func readText(r io.Reader, path string, offset int, limit *int) (durable.ToolResult, error) {
-	startLine := 0
-	if offset > 0 {
-		startLine = offset - 1
-	}
+func readText(r io.Reader, path string, startLine int, offset string, limit *int) (durable.ToolResult, error) {
 	endLine := -1
 	if limit != nil {
 		endLine = startLine + *limit
@@ -179,7 +175,7 @@ func readText(r io.Reader, path string, offset int, limit *int) (durable.ToolRes
 	}
 	totalFileLines := newlines + 1
 	if startLine >= totalFileLines {
-		return durable.ToolResult{}, fmt.Errorf("Offset %d is beyond end of file (%d lines total)", offset, totalFileLines)
+		return durable.ToolResult{}, fmt.Errorf("Offset %s is beyond end of file (%d lines total)", offset, totalFileLines)
 	}
 	var userLimitedLines *int
 	if limit != nil {
