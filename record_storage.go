@@ -229,8 +229,11 @@ func conversationFilter(st *State, query ConversationQuery) func(*ConversationRe
 			return false
 		}
 		if query.OwnerConversation != 0 {
-			owner := st.Tasks[c.Owner.Task]
-			return c.Owner.Task != 0 && owner != nil && owner.Conversation == query.OwnerConversation
+			if c.Owner.Task == 0 {
+				return false
+			}
+			owner, _ := st.task(c.Owner.Task) // an ended owner too
+			return owner != nil && owner.Conversation == query.OwnerConversation
 		}
 		return true
 	}

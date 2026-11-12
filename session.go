@@ -60,6 +60,9 @@ type Session struct {
 	// stateObservers are synchronous observers (Observer) of every State
 	// memory adopts.
 	stateObservers map[*stateObserver]struct{}
+	// cold reads the ended tasks and settled submissions a bounded Session
+	// no longer keeps (plan 0008); nil in full mode.
+	cold *coldRecords
 	// observerPanic reports an observer that panicked.
 	observerPanic func(any)
 }
@@ -74,6 +77,14 @@ type stateWatcher struct {
 }
 
 func NewSession(ctx context.Context, storage Storage, now func() time.Time) (*Session, error) {
+	return newSession(ctx, storage, now, true)
+}
+
+// newSession opens a Session; bounded asks for bounded memory over a
+// RecordStorage (plan 0008), which a read-only Session never uses: another
+// process writes its storage, so records read later could be newer than the
+// State it keeps.
+func newSession(ctx context.Context, storage Storage, now func() time.Time, bounded bool) (*Session, error) {
 	if storage == nil {
 		return nil, fmt.Errorf("durable: nil storage")
 	}
@@ -102,6 +113,14 @@ func NewSession(ctx context.Context, storage Storage, now func() time.Time) (*Se
 	}
 	s := &Session{storage: storage, state: st, head: st, now: now, watchers: map[*stateWatcher]struct{}{}, closing: make(chan struct{}), closeDone: make(chan struct{})}
 	s.idle = sync.NewCond(&s.mu)
+	// Bounded memory needs record reads and no whole-State write: an
+	// upgraded State is written whole by its first commit, so it opens in
+	// full mode once.
+	if records, ok := storage.(RecordStorage); ok && bounded && !upgraded {
+		s.cold = newColdRecords(records, func(err error) { go s.fail(err) })
+		st.cold = s.cold
+		s.cold.evict(st)
+	}
 	// The upgrade changed records no delta would carry: the first commit
 	// stores the whole State.
 	s.fullWrite = upgraded
@@ -335,6 +354,9 @@ func (s *Session) holdLocked(candidate *State, delta *StateDelta, publish bool, 
 
 // publishMemoryLocked shows a held commit: adopted, without a store.
 func (s *Session) publishMemoryLocked(item *pendingCommit) {
+	if s.cold != nil {
+		s.cold.evict(item.state)
+	}
 	s.state = item.state
 	s.recordCommitted(false)
 	if s.afterCommit != nil {
@@ -478,6 +500,9 @@ func (s *Session) writeLoop() {
 				item.done <- s.Err()
 				continue
 			}
+			if s.cold != nil {
+				s.cold.evict(item.state)
+			}
 			s.state = item.state
 			s.fullWrite = false
 			s.recordCommitted(position-1 == lastStore)
@@ -561,7 +586,36 @@ func (s *Session) Snapshot(ctx context.Context) (*State, error) {
 		return nil, err
 	}
 	s.verifyCommitted("a snapshot")
-	return cloneState(s.state)
+	return s.wholeStateLocked()
+}
+
+// wholeStateLocked is a detached copy of the whole committed State. A
+// bounded Session adds the ended tasks and settled submissions it no longer
+// keeps from storage, which reads every stored record. When storage is ahead
+// of the published State (a batch stored, not all published yet), records
+// created by those commits (IDs from NextID on) are left out. The caller
+// holds s.mu.
+func (s *Session) wholeStateLocked() (*State, error) {
+	out, err := cloneState(s.state)
+	if err != nil || s.cold == nil {
+		return out, err
+	}
+	stored, err := s.storage.Load(context.Background())
+	if err != nil || stored == nil {
+		return out, err
+	}
+	published := func(id uint64) bool { return stored.Sequence <= out.Sequence || id < out.NextID }
+	for id, task := range stored.Tasks {
+		if out.Tasks[id] == nil && published(uint64(id)) && task.Status == "terminal" {
+			out.Tasks[id] = task
+		}
+	}
+	for id, sub := range stored.Submissions {
+		if out.Submissions[id] == nil && published(uint64(id)) && !residentSubmission(sub) {
+			out.Submissions[id] = sub
+		}
+	}
+	return out, nil
 }
 
 // view returns the committed State for internal reading (see Harness.read):
@@ -602,10 +656,44 @@ func (s *Session) recordCommitted(storeCaughtUp ...bool) {
 	// commit published its last one.
 	caughtUp := len(storeCaughtUp) == 0 || storeCaughtUp[0]
 	if stored, ok := s.storage.(interface{ storedStateJSON() []byte }); ok && !s.fullWrite && caughtUp {
-		if held := stored.storedStateJSON(); held != nil && !bytes.Equal(held, data) {
+		held := stored.storedStateJSON()
+		if held != nil && s.cold != nil {
+			held = s.residentJSON(held)
+		}
+		if held != nil && !bytes.Equal(held, data) {
 			panic(fmt.Sprintf("durable: storage diverged from the committed state: %s", firstDifference(data, held)))
 		}
 	}
+}
+
+// residentJSON is a stored State's JSON with only the tasks and submissions
+// a bounded Session keeps; every other one must be ended or settled.
+func (s *Session) residentJSON(storedJSON []byte) []byte {
+	var stored State
+	if err := json.Unmarshal(storedJSON, &stored); err != nil {
+		panic(fmt.Sprintf("durable: stored state is not JSON: %v", err))
+	}
+	for id, task := range stored.Tasks {
+		if s.state.Tasks[id] == nil {
+			if task.Status != "terminal" {
+				panic(fmt.Sprintf("durable: live task %d left a bounded Session's state", id))
+			}
+			delete(stored.Tasks, id)
+		}
+	}
+	for id, sub := range stored.Submissions {
+		if s.state.Submissions[id] == nil {
+			if residentSubmission(sub) {
+				panic(fmt.Sprintf("durable: open submission %d left a bounded Session's state", id))
+			}
+			delete(stored.Submissions, id)
+		}
+	}
+	data, err := json.Marshal(stored)
+	if err != nil {
+		panic(fmt.Sprintf("durable: stored state is not JSON: %v", err))
+	}
+	return data
 }
 
 // verifyCommitted panics when the committed State changed since it was
@@ -673,7 +761,7 @@ func (s *Session) watch(ctx context.Context, shared bool) (<-chan *State, func()
 	initial := s.state
 	if !shared {
 		var err error
-		if initial, err = cloneState(s.state); err != nil {
+		if initial, err = s.wholeStateLocked(); err != nil {
 			s.mu.Unlock()
 			return nil, nil, err
 		}
@@ -739,7 +827,12 @@ func (s *Session) offer(w *stateWatcher, state *State) {
 	v := state
 	if !w.shared {
 		var err error
-		if v, err = cloneState(state); err != nil {
+		if s.cold != nil && state == s.state {
+			v, err = s.wholeStateLocked()
+		} else {
+			v, err = cloneState(state)
+		}
+		if err != nil {
 			return
 		}
 	}

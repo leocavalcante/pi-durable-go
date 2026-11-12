@@ -48,6 +48,9 @@ type State struct {
 	// base is the committed State a transaction candidate shares records
 	// with; nil outside a transaction (see cow.go).
 	base *State
+	// cold reads the tasks and submissions a bounded Session's State no
+	// longer keeps (cold.go); nil when the State holds every record.
+	cold *coldRecords
 }
 
 // Storage is owned by one Session. Commit must atomically publish next only if

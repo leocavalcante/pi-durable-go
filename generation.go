@@ -715,7 +715,10 @@ func finishToolRound(ctx context.Context, r *TaskRuntime, task TaskRecord, cp ge
 	terminate := len(cp.Children) > 0
 	handoff := ""
 	for _, id := range cp.Children {
-		child := state.Tasks[id]
+		child, err := state.task(id)
+		if err != nil {
+			return err
+		}
 		if child == nil || child.Status != "terminal" {
 			return fmt.Errorf("%w: unfinished tool round", ErrInvalid)
 		}
@@ -762,7 +765,7 @@ func finishToolRound(ctx context.Context, r *TaskRuntime, task TaskRecord, cp ge
 	var newestResult EntryID
 	for _, id := range cp.Children {
 		var result toolTaskResult
-		if child := state.Tasks[id]; child != nil && child.Outcome != nil && json.Unmarshal(child.Outcome.Result, &result) == nil && result.EntryID > newestResult {
+		if child, _ := state.task(id); child != nil && child.Outcome != nil && json.Unmarshal(child.Outcome.Result, &result) == nil && result.EntryID > newestResult {
 			newestResult = result.EntryID
 		}
 	}

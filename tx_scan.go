@@ -1,6 +1,7 @@
 package durable
 
 import (
+	"context"
 	"fmt"
 	"sort"
 )
@@ -55,7 +56,14 @@ func (tx *Tx) ScanTasks(query TaskQuery, limit int, cursor *ScanCursor) (ScanPag
 	if err := tx.check(); err != nil {
 		return ScanPage[TaskRecord]{}, err
 	}
-	return scanRecords(tx.state.Tasks, query.Order, limit, cursor, taskFilter(query))
+	if tx.state.cold == nil {
+		return scanRecords(tx.state.Tasks, query.Order, limit, cursor, taskFilter(query))
+	}
+	// A bounded Session keeps live tasks only: merge the ended ones from
+	// storage, where the State's own record of a task decides.
+	return scanMerged(tx.state.Tasks, query.Order, limit, cursor, taskFilter(query), func(c *ScanCursor, n int) (ScanPage[TaskRecord], error) {
+		return tx.state.cold.storage.ScanTasks(context.Background(), query, n, c)
+	}, func(t *TaskRecord) uint64 { return uint64(t.ID) })
 }
 
 // ScanEntries pages through a conversation's fork-aware history inside a
@@ -101,12 +109,14 @@ func (tx *Tx) SubmissionByRequest(cid ConversationID, requestID string) (Submiss
 	if requestID == "" {
 		return SubmissionRecord{}, fmt.Errorf("%w: a request ID is required", ErrInvalid)
 	}
-	for _, sub := range tx.state.Submissions {
-		if sub.Conversation == cid && sub.Request.RequestID == requestID {
-			return *cloneRecord(sub), nil
-		}
+	sub, err := tx.state.submissionByRequest(cid, requestID)
+	if err != nil {
+		return SubmissionRecord{}, err
 	}
-	return SubmissionRecord{}, ErrNotFound
+	if sub == nil {
+		return SubmissionRecord{}, ErrNotFound
+	}
+	return *cloneRecord(sub), nil
 }
 
 // scanRecords pages through a table's records matching keep, by ID.
@@ -147,4 +157,91 @@ func scanRecords[K ~uint64, V any](table map[K]*V, order string, limit int, curs
 		page.Items = append(page.Items, *cloneRecord(table[id]))
 	}
 	return page, nil
+}
+
+// scanMerged pages through a table's records matching keep: the State's own,
+// merged by ID with stored ones it does not keep (stored, which pages through
+// storage with the same filter).
+func scanMerged[K ~uint64, V any](table map[K]*V, order string, limit int, cursor *ScanCursor, keep func(*V) bool,
+	stored func(*ScanCursor, int) (ScanPage[V], error), idOf func(*V) uint64) (ScanPage[V], error) {
+	if limit <= 0 {
+		return ScanPage[V]{}, fmt.Errorf("%w: limit must be positive", ErrInvalid)
+	}
+	if cursor != nil {
+		order = cursor.Order
+	}
+	if order == "" {
+		order = "ascending"
+	}
+	if order != "ascending" && order != "descending" {
+		return ScanPage[V]{}, fmt.Errorf("%w: order", ErrInvalid)
+	}
+	before := func(a, b uint64) bool {
+		if order == "descending" {
+			return a > b
+		}
+		return a < b
+	}
+	// The State's own matches, past the cursor, in order.
+	var own []uint64
+	for id, record := range table {
+		if cursor != nil && !before(cursor.After, uint64(id)) {
+			continue
+		}
+		if keep(record) {
+			own = append(own, uint64(id))
+		}
+	}
+	sort.Slice(own, func(i, j int) bool { return before(own[i], own[j]) })
+	// Stored records the State does not keep, a page at a time.
+	var pending []V
+	storedCursor := cursor // the stored scan's query carries the order
+	exhausted := false
+	next := func() (*V, error) {
+		for len(pending) == 0 && !exhausted {
+			page, err := stored(storedCursor, limit+1)
+			if err != nil {
+				return nil, err
+			}
+			for _, record := range page.Items {
+				if _, ok := table[K(idOf(&record))]; !ok {
+					pending = append(pending, record)
+				}
+			}
+			if page.Next == nil {
+				exhausted = true
+			}
+			storedCursor = page.Next
+		}
+		if len(pending) == 0 {
+			return nil, nil
+		}
+		return &pending[0], nil
+	}
+	var page ScanPage[V]
+	var last uint64
+	for {
+		storedHead, err := next()
+		if err != nil {
+			return ScanPage[V]{}, err
+		}
+		var take *V
+		switch {
+		case len(own) > 0 && (storedHead == nil || before(own[0], idOf(storedHead))):
+			take = cloneRecord(table[K(own[0])])
+			own = own[1:]
+		case storedHead != nil:
+			record := *storedHead
+			take = &record
+			pending = pending[1:]
+		default:
+			return page, nil
+		}
+		if len(page.Items) == limit {
+			page.Next = &ScanCursor{After: last, Order: order}
+			return page, nil
+		}
+		page.Items = append(page.Items, *take)
+		last = idOf(take)
+	}
 }

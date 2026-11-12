@@ -33,7 +33,7 @@ func Open(ctx context.Context, storage Storage, options HarnessOptions) (*Harnes
 	if options.Now == nil {
 		options.Now = time.Now
 	}
-	session, err := NewSession(ctx, storage, options.Now)
+	session, err := newSession(ctx, storage, options.Now, !options.ReadOnly)
 	if err != nil {
 		return nil, err
 	}
@@ -279,7 +279,10 @@ func (h *Harness) Task(ctx context.Context, id TaskID) (TaskRecord, error) {
 	if e != nil {
 		return TaskRecord{}, e
 	}
-	r := s.Tasks[id]
+	r, e := s.task(id)
+	if e != nil {
+		return TaskRecord{}, e
+	}
 	if r == nil {
 		return TaskRecord{}, ErrNotFound
 	}

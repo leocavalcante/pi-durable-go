@@ -273,13 +273,15 @@ func (h *Harness) admitSubmission(tx *Tx, cid ConversationID, request Submission
 		return 0, err
 	}
 	if request.RequestID != "" {
-		for _, existing := range tx.state.Submissions {
-			if existing.Conversation == cid && existing.Request.RequestID == request.RequestID {
-				if existing.Request.Type != request.Type {
-					return 0, fmt.Errorf("%w: requestId reused for another type", ErrInvalid)
-				}
-				return existing.ID, nil
+		existing, err := tx.state.submissionByRequest(cid, request.RequestID)
+		if err != nil {
+			return 0, err
+		}
+		if existing != nil {
+			if existing.Request.Type != request.Type {
+				return 0, fmt.Errorf("%w: requestId reused for another type", ErrInvalid)
 			}
+			return existing.ID, nil
 		}
 	}
 	create := func(status string) *SubmissionRecord {

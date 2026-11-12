@@ -93,7 +93,10 @@ func (s *Scheduler) wait(ctx context.Context, id TaskID) (TaskRecord, error) {
 			if err := s.h.Err(); err != nil {
 				return TaskRecord{}, err
 			}
-			t := state.Tasks[id]
+			t, err := state.task(id)
+			if err != nil {
+				return TaskRecord{}, err
+			}
 			if t == nil {
 				return TaskRecord{}, ErrNotFound
 			}

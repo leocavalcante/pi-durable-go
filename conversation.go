@@ -334,8 +334,11 @@ func (h *Harness) Submission(ctx context.Context, id SubmissionID) (*Submission,
 	if err != nil {
 		return nil, err
 	}
-	if state.Submissions[id] == nil {
-		return nil, ErrNotFound
+	if rec, err := state.submission(id); err != nil || rec == nil {
+		if err == nil {
+			err = ErrNotFound
+		}
+		return nil, err
 	}
 	return &Submission{h: h, id: id}, nil
 }
@@ -362,8 +365,12 @@ func (c *Conversation) Submit(ctx context.Context, request SubmissionRequest) (*
 		sp.end(err)
 		return nil, err
 	}
-	if state, serr := c.h.read(ctx); serr == nil && state.Submissions[id] != nil {
-		result := state.Submissions[id].Status
+	if state, serr := c.h.read(ctx); serr == nil {
+		rec, _ := state.submission(id)
+		result := "done"
+		if rec != nil {
+			result = rec.Status
+		}
 		if result == "unanswered" {
 			result = "done"
 		}
@@ -377,7 +384,10 @@ func (s *Submission) Record(ctx context.Context) (SubmissionRecord, error) {
 	if err != nil {
 		return SubmissionRecord{}, err
 	}
-	rec := state.Submissions[s.id]
+	rec, err := state.submission(s.id)
+	if err != nil {
+		return SubmissionRecord{}, err
+	}
 	if rec == nil {
 		return SubmissionRecord{}, ErrNotFound
 	}
@@ -406,7 +416,10 @@ func (s *Submission) Wait(ctx context.Context) (SubmissionRecord, error) {
 			if err := s.h.Err(); err != nil {
 				return SubmissionRecord{}, err
 			}
-			rec := state.Submissions[s.id]
+			rec, err := state.submission(s.id)
+			if err != nil {
+				return SubmissionRecord{}, err
+			}
 			if rec == nil {
 				return SubmissionRecord{}, ErrNotFound
 			}
@@ -434,7 +447,10 @@ const (
 func (s *Submission) Abort(ctx context.Context) (string, error) {
 	result := ""
 	err := s.h.Commit(ctx, func(tx *Tx) error {
-		rec := tx.state.Submissions[s.id]
+		rec, err := tx.state.submission(s.id)
+		if err != nil {
+			return err
+		}
 		if rec == nil {
 			return ErrNotFound
 		}

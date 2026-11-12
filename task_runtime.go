@@ -106,7 +106,10 @@ func (r *TaskRuntime) Outcomes(ctx context.Context, ids []TaskID) ([]Outcome, er
 	}
 	out := make([]Outcome, 0, len(ids))
 	for _, id := range ids {
-		task := state.Tasks[id]
+		task, err := state.task(id)
+		if err != nil {
+			return nil, err
+		}
 		if task == nil {
 			return nil, ErrNotFound
 		}

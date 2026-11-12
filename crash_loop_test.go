@@ -34,6 +34,81 @@ func (s *crashStorage) Commit(ctx context.Context, sequence uint64, next *State)
 
 func (s *crashStorage) Close() error { return nil }
 
+// crashRecordStorage is crashStorage over a backend with record reads: it
+// stores deltas, rebuilding the next whole State for crashOn.
+type crashRecordStorage struct {
+	*crashStorage
+	records RecordStorage
+}
+
+func (s *crashRecordStorage) CommitDelta(ctx context.Context, expected uint64, delta *StateDelta) error {
+	if s.crashed.Load() {
+		return errSimulatedCrash
+	}
+	if s.crashOn != nil {
+		next, err := s.records.Load(ctx)
+		if err != nil {
+			return err
+		}
+		if next == nil {
+			next = &State{}
+		}
+		detached, err := delta.Clone()
+		if err != nil {
+			return err
+		}
+		if err := detached.ApplyTo(next); err != nil {
+			return err
+		}
+		if s.crashOn(next) {
+			s.crashed.Store(true)
+			return errSimulatedCrash
+		}
+	}
+	return s.records.CommitDelta(ctx, expected, delta)
+}
+
+func (s *crashRecordStorage) CommitDeltas(ctx context.Context, expected uint64, deltas []*StateDelta) (int, error) {
+	return commitEach(ctx, s, expected, deltas)
+}
+
+func (s *crashRecordStorage) LoadResident(ctx context.Context) (*State, error) {
+	return s.records.LoadResident(ctx)
+}
+func (s *crashRecordStorage) Conversation(ctx context.Context, id ConversationID) (*ConversationRecord, error) {
+	return s.records.Conversation(ctx, id)
+}
+func (s *crashRecordStorage) ScanConversations(ctx context.Context, query ConversationQuery, limit int, cursor *ScanCursor) (ScanPage[ConversationRecord], error) {
+	return s.records.ScanConversations(ctx, query, limit, cursor)
+}
+func (s *crashRecordStorage) Entry(ctx context.Context, id EntryID) (*Entry, error) {
+	return s.records.Entry(ctx, id)
+}
+func (s *crashRecordStorage) ScanEntries(ctx context.Context, cid ConversationID, query EntryQuery, limit int, cursor *EntryCursor) (EntryPage, error) {
+	return s.records.ScanEntries(ctx, cid, query, limit, cursor)
+}
+func (s *crashRecordStorage) Task(ctx context.Context, id TaskID) (*TaskRecord, error) {
+	return s.records.Task(ctx, id)
+}
+func (s *crashRecordStorage) ScanTasks(ctx context.Context, query TaskQuery, limit int, cursor *ScanCursor) (ScanPage[TaskRecord], error) {
+	return s.records.ScanTasks(ctx, query, limit, cursor)
+}
+func (s *crashRecordStorage) Submission(ctx context.Context, id SubmissionID) (*SubmissionRecord, error) {
+	return s.records.Submission(ctx, id)
+}
+func (s *crashRecordStorage) SubmissionByRequest(ctx context.Context, cid ConversationID, requestID string) (*SubmissionRecord, error) {
+	return s.records.SubmissionByRequest(ctx, cid, requestID)
+}
+func (s *crashRecordStorage) ScanSubmissions(ctx context.Context, query SubmissionQuery, limit int, cursor *ScanCursor) (ScanPage[SubmissionRecord], error) {
+	return s.records.ScanSubmissions(ctx, query, limit, cursor)
+}
+func (s *crashRecordStorage) Document(ctx context.Context, key string) (*DocumentRecord, error) {
+	return s.records.Document(ctx, key)
+}
+func (s *crashRecordStorage) ScanDocuments(ctx context.Context, query DocumentQuery, limit int, cursor *ScanCursor) (ScanPage[DocumentRecord], error) {
+	return s.records.ScanDocuments(ctx, query, limit, cursor)
+}
+
 // crashHosts opens successive Harnesses over one backend, each of which can crash.
 type crashHosts struct {
 	t       *testing.T
@@ -63,7 +138,12 @@ func (c *crashHosts) open(crashOn func(*State) bool) *Harness {
 func (c *crashHosts) openWith(options HarnessOptions, crashOn func(*State) bool) *Harness {
 	c.t.Helper()
 	c.store = &crashStorage{Storage: c.backend, crashOn: crashOn}
-	h, err := Open(context.Background(), c.store, options)
+	var storage Storage = c.store
+	if records, ok := c.backend.(RecordStorage); ok {
+		// A backend with record reads gives a bounded Session (plan 0008).
+		storage = &crashRecordStorage{crashStorage: c.store, records: records}
+	}
+	h, err := Open(context.Background(), storage, options)
 	if err != nil {
 		c.t.Fatal(err)
 	}

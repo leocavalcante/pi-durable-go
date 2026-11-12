@@ -60,7 +60,16 @@ func (tx *Tx) Task(id TaskID) (*TaskRecord, error) {
 	}
 	t := tx.state.mutTask(id)
 	if t == nil {
-		return nil, ErrNotFound
+		// An ended task a bounded Session no longer keeps: a detached copy,
+		// as a terminal task never changes.
+		cold, err := tx.state.task(id)
+		if err != nil {
+			return nil, err
+		}
+		if cold == nil {
+			return nil, ErrNotFound
+		}
+		return cloneRecord(cold), nil
 	}
 	return t, nil
 }
@@ -70,7 +79,16 @@ func (tx *Tx) Submission(id SubmissionID) (*SubmissionRecord, error) {
 	}
 	s := tx.state.mutSubmission(id)
 	if s == nil {
-		return nil, ErrNotFound
+		// A settled submission a bounded Session no longer keeps: a
+		// detached copy, as a settled submission never changes.
+		cold, err := tx.state.submission(id)
+		if err != nil {
+			return nil, err
+		}
+		if cold == nil {
+			return nil, ErrNotFound
+		}
+		return cloneRecord(cold), nil
 	}
 	return s, nil
 }
