@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"strings"
 	"sync"
 	"testing"
 )
@@ -197,5 +198,46 @@ func TestSettingsExtensionsAreTheDefaultSelection(t *testing.T) {
 	defer mu.Unlock()
 	if len(offered) != 1 || offered[0] != "tool-b" {
 		t.Fatalf("offered=%v", offered)
+	}
+}
+
+func TestRuntimeAgentTaskEntryDiagnosticAndRetainedOutput(t *testing.T) {
+	var resolved ResolvedAgent
+	var retained string
+	registry := toolExtension("look", true, func(ctx context.Context, _ json.RawMessage, r *ToolRuntime) (ToolResult, error) {
+		var err error
+		if resolved, err = r.Agent(ctx); err != nil {
+			return ToolResult{}, err
+		}
+		if err := r.Output(ctx, "partial"); err != nil {
+			return ToolResult{}, err
+		}
+		retained, _ = r.RetainedOutput(ctx)
+		r.Diagnostic(ToolDiagnostic{Severity: "info", Code: "note", Message: "looked"})
+		if _, err := r.Task(ctx, r.ID); err != nil {
+			return ToolResult{}, err
+		}
+		return ToolResult{Content: "seen"}, nil
+	})
+	model := taskModelFunc(func(_ context.Context, req ModelRequest, _ func(string) error) (ModelResponse, error) {
+		if req.Messages[len(req.Messages)-1].Role == "tool" {
+			return ModelResponse{Content: "done"}, nil
+		}
+		return ModelResponse{ToolCalls: []ToolCall{{ID: "c1", Name: "look", Arguments: json.RawMessage(`{}`)}}}, nil
+	})
+	h := taskTestHarness(t, HarnessOptions{Model: model, Registry: registry})
+	root, err := h.Root(context.Background(), ConversationOptions{Agent: Agent{Model: ModelRef{Provider: "fake", ID: "m"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitSettled(t, h, submit(t, root, SubmissionRequest{Content: "go"}))
+	if len(resolved.Tools) != 1 || resolved.Tools[0].Name != "look" || len(resolved.Callable) != 1 {
+		t.Fatalf("resolved=%+v", resolved)
+	}
+	if retained != "partial" {
+		t.Fatalf("retained=%q", retained)
+	}
+	if got := toolResultEntry(t, h, root.ID()).Message.Content; !strings.Contains(got, "[info] looked") {
+		t.Fatalf("result=%q", got)
 	}
 }

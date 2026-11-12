@@ -22,6 +22,9 @@ type ToolRuntime struct {
 	executed           atomic.Bool  // Execute returned: no more nested calls
 	sequence           atomic.Int64 // default nested call keys of this attempt
 	output             outputThrottle
+	// diagnostics are added through Diagnostic while the call runs.
+	diagnosticsMu sync.Mutex
+	diagnostics   []ToolDiagnostic
 }
 
 // maxToolOutputBytes bounds a running tool's committed output, keeping the tail.

@@ -296,6 +296,8 @@ func runTool(ctx context.Context, r *TaskRuntime, task TaskRecord) error {
 		status = "failed"
 		result = ToolResult{Content: diagnostic(executeErr.Error()), IsError: true}
 	}
+	// Diagnostics the tool added while it ran follow its result's own.
+	result.Diagnostics = append(result.Diagnostics, runtime.takeDiagnostics()...)
 	result = call.checkStructuredOutput(result)
 	result.DurationMs = &durationMs
 	result = call.afterTool(ctx, result)
