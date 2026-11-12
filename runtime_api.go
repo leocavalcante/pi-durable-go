@@ -3,6 +3,7 @@ package durable
 import (
 	"context"
 	"encoding/json"
+	"time"
 )
 
 // ResolvedAgent is a conversation's agent resolved against the phase's
@@ -118,11 +119,33 @@ func (r *TaskRuntime) Entry(ctx context.Context, id EntryID) (Entry, error) {
 }
 
 // Diagnostic adds a diagnostic to the result of this call (upstream
-// api.diagnostic): it follows the result's own diagnostics.
+// api.diagnostic): diagnostics reported while the call runs come before the
+// result's own. They are stored in the call's pi.live slot with its throttled
+// output, so a result built from the slot after an interruption keeps them.
 func (r *ToolRuntime) Diagnostic(diagnostic ToolDiagnostic) {
 	r.diagnosticsMu.Lock()
-	defer r.diagnosticsMu.Unlock()
 	r.diagnostics = append(r.diagnostics, diagnostic)
+	r.diagnosticsMu.Unlock()
+	if r.check() != nil {
+		return
+	}
+	interval := 100 * time.Millisecond
+	if ms := r.h.settings().Progress.OutputIntervalMs; ms != nil && *ms >= 0 {
+		interval = time.Duration(*ms * float64(time.Millisecond))
+	}
+	if interval == 0 {
+		if err := r.commitOutput(context.Background(), "", diagnostic); err != nil && r.check() == nil {
+			r.Report(err)
+		}
+		return
+	}
+	r.output.mu.Lock()
+	defer r.output.mu.Unlock()
+	r.output.diagnostics = append(r.output.diagnostics, diagnostic)
+	if !r.output.armed && !r.output.stopped {
+		r.output.armed = true
+		r.output.disarm = r.SetTimer(r.flushOutput, interval)
+	}
 }
 
 // takeDiagnostics returns and clears the diagnostics added so far.

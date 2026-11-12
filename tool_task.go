@@ -55,7 +55,7 @@ type toolTaskResult struct {
 // finishSlot marks a slot done and clears its running output.
 func finishSlot(slot *ToolSlot) {
 	slot.Status = "done"
-	slot.Output, slot.Details, slot.DroppedBytes, slot.DroppedLines = "", nil, 0, 0
+	slot.Output, slot.Details, slot.DroppedBytes, slot.DroppedLines, slot.Diagnostics = "", nil, 0, 0, nil
 }
 
 func toolTaskDefinition() TaskDefinition {
@@ -148,6 +148,8 @@ func (call *toolCall) fromSlot(ctx context.Context, r *TaskRuntime, task TaskRec
 					result.Content = slot.Output
 				}
 				result.Details = slot.Details
+				// What the tool reported while it ran comes before the error.
+				result.Diagnostics = append(append([]ToolDiagnostic{}, slot.Diagnostics...), result.Diagnostics...)
 				if slot.DroppedBytes > 0 {
 					result.Diagnostics = append(result.Diagnostics, ToolDiagnostic{Severity: "warn", Code: "truncated",
 						Message: fmt.Sprintf("Output truncated: %d lines, %d bytes dropped", slot.DroppedLines, slot.DroppedBytes)})
@@ -296,8 +298,8 @@ func runTool(ctx context.Context, r *TaskRuntime, task TaskRecord) error {
 		status = "failed"
 		result = ToolResult{Content: diagnostic(executeErr.Error()), IsError: true}
 	}
-	// Diagnostics the tool added while it ran follow its result's own.
-	result.Diagnostics = append(result.Diagnostics, runtime.takeDiagnostics()...)
+	// Diagnostics the tool reported while it ran come before its result's own.
+	result.Diagnostics = append(runtime.takeDiagnostics(), result.Diagnostics...)
 	result = call.checkStructuredOutput(result)
 	result.DurationMs = &durationMs
 	result = call.afterTool(ctx, result)

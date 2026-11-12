@@ -59,21 +59,23 @@ func (r *ToolRuntime) Output(ctx context.Context, text string) error {
 
 // outputThrottle buffers running output between throttled commits.
 type outputThrottle struct {
-	mu       sync.Mutex
-	pending  strings.Builder
-	armed    bool
-	stopped  bool
-	disarm   func()
-	inFlight sync.WaitGroup
+	mu          sync.Mutex
+	pending     strings.Builder
+	diagnostics []ToolDiagnostic // reported, not yet in the slot
+	armed       bool
+	stopped     bool
+	disarm      func()
+	inFlight    sync.WaitGroup
 }
 
-func (r *ToolRuntime) commitOutput(ctx context.Context, text string) error {
+func (r *ToolRuntime) commitOutput(ctx context.Context, text string, diagnostics ...ToolDiagnostic) error {
 	return r.Commit(ctx, func(tx *Tx) (TaskTransition, error) {
 		task, err := tx.Task(r.ID)
 		if err != nil {
 			return TaskTransition{}, err
 		}
 		if err := r.updateLive(tx, func(slot *ToolSlot) {
+			slot.Diagnostics = append(slot.Diagnostics, diagnostics...)
 			combined := slot.Output + text
 			kept := tailBytes(combined, maxToolOutputBytes)
 			if dropped := combined[:len(combined)-len(kept)]; dropped != "" {
@@ -91,15 +93,17 @@ func (r *ToolRuntime) commitOutput(ctx context.Context, text string) error {
 func (r *ToolRuntime) flushOutput() {
 	r.output.mu.Lock()
 	text := r.output.pending.String()
+	diagnostics := r.output.diagnostics
 	r.output.pending.Reset()
+	r.output.diagnostics = nil
 	r.output.armed = false
-	if text == "" || r.output.stopped {
+	if text == "" && len(diagnostics) == 0 || r.output.stopped {
 		r.output.mu.Unlock()
 		return
 	}
 	r.output.inFlight.Add(1)
 	r.output.mu.Unlock()
-	if err := r.commitOutput(context.Background(), text); err != nil && r.check() == nil {
+	if err := r.commitOutput(context.Background(), text, diagnostics...); err != nil && r.check() == nil {
 		r.Report(err)
 	}
 	r.output.inFlight.Done()
@@ -118,12 +122,14 @@ func (r *ToolRuntime) stopOutput(ctx context.Context) error {
 	r.output.inFlight.Wait()
 	r.output.mu.Lock()
 	text := r.output.pending.String()
+	diagnostics := r.output.diagnostics
 	r.output.pending.Reset()
+	r.output.diagnostics = nil
 	r.output.mu.Unlock()
-	if text == "" {
+	if text == "" && len(diagnostics) == 0 {
 		return nil
 	}
-	return r.commitOutput(ctx, text)
+	return r.commitOutput(ctx, text, diagnostics...)
 }
 
 // tailBytes keeps at most max trailing bytes of s, starting at a rune boundary.
@@ -142,7 +148,7 @@ func tailBytes(s string, max int) string {
 // safe rerun reports from scratch, and shows the slot running again.
 func (r *ToolRuntime) clearProgress(tx *Tx) error {
 	return r.updateLive(tx, func(slot *ToolSlot) {
-		slot.Output, slot.Details, slot.DroppedBytes, slot.DroppedLines = "", nil, 0, 0
+		slot.Output, slot.Details, slot.DroppedBytes, slot.DroppedLines, slot.Diagnostics = "", nil, 0, 0, nil
 		slot.Status = "running"
 	})
 }
@@ -178,9 +184,11 @@ func (r *ToolRuntime) updateLive(tx *Tx, update func(*ToolSlot)) error {
 		return updateLive(tx, r.ConversationID, func(live *LiveState) error {
 			for i := range live.NestedTools {
 				if slot := &live.NestedTools[i]; slot.TaskID == r.ID {
-					view := ToolSlot{Status: slot.Status, Output: slot.Output, Details: slot.Details}
+					view := ToolSlot{Status: slot.Status, Output: slot.Output, Details: slot.Details,
+						DroppedBytes: slot.DroppedBytes, DroppedLines: slot.DroppedLines, Diagnostics: slot.Diagnostics}
 					update(&view)
 					slot.Status, slot.Output, slot.Details = view.Status, view.Output, view.Details
+					slot.DroppedBytes, slot.DroppedLines, slot.Diagnostics = view.DroppedBytes, view.DroppedLines, view.Diagnostics
 				}
 			}
 			return nil

@@ -53,6 +53,10 @@ type NestedToolSlot struct {
 	Arguments    json.RawMessage `json:"arguments"`
 	Output       string          `json:"output,omitempty"`
 	Details      json.RawMessage `json:"details,omitempty"`
+	DroppedBytes int             `json:"droppedBytes,omitempty"`
+	DroppedLines int             `json:"droppedLines,omitempty"`
+	// Diagnostics the call reported while it ran.
+	Diagnostics []ToolDiagnostic `json:"diagnostics,omitempty"`
 	// Summary says how the call ended, once done.
 	Summary *NestedToolSummary `json:"summary,omitempty"`
 }

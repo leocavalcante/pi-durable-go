@@ -348,3 +348,30 @@ func TestToolOutputCountsWhatItsBoundDrops(t *testing.T) {
 	close(release)
 	waitSettled(t, h, sub)
 }
+
+func TestToolDiagnosticsLiveInTheSlotAndLeadTheResult(t *testing.T) {
+	reported := make(chan struct{})
+	release := make(chan struct{})
+	registry := toolExtension("noisy", true, func(ctx context.Context, _ json.RawMessage, r *ToolRuntime) (ToolResult, error) {
+		r.Diagnostic(ToolDiagnostic{Severity: "info", Code: "progress", Message: "halfway"})
+		close(reported)
+		<-release
+		return ToolResult{Content: "done", Diagnostics: []ToolDiagnostic{{Severity: "warn", Message: "own"}}}, nil
+	})
+	h := taskTestHarness(t, HarnessOptions{Model: &toolCallingModel{name: "noisy"}, Registry: registry,
+		Settings: Settings{Progress: ProgressSettings{OutputIntervalMs: ptr(0.0)}}})
+	root, err := h.Root(context.Background(), ConversationOptions{Agent: Agent{Model: ModelRef{Provider: "fake", ID: "m"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sub := submit(t, root, SubmissionRequest{Content: "go"})
+	<-reported
+	if slot := toolSlot(t, h, root.ID(), toolTask(t, h).ID); len(slot.Diagnostics) != 1 || slot.Diagnostics[0].Message != "halfway" {
+		t.Fatalf("slot=%+v", slot)
+	}
+	close(release)
+	waitSettled(t, h, sub)
+	if got := toolResultEntry(t, h, root.ID()).Message.Content; !strings.Contains(got, "[info] halfway\n[warn] own") {
+		t.Fatalf("result=%q", got)
+	}
+}

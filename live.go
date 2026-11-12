@@ -91,6 +91,8 @@ type ToolSlot struct {
 	// dropped from its beginning.
 	DroppedBytes int `json:"droppedBytes,omitempty"`
 	DroppedLines int `json:"droppedLines,omitempty"`
+	// Diagnostics the tool reported while it ran (ToolRuntime.Diagnostic).
+	Diagnostics []ToolDiagnostic `json:"diagnostics,omitempty"`
 	// Entry is the result entry once done; absent when the tool task faulted
 	// or was orphaned.
 	Entry EntryID `json:"entry,omitempty"`
