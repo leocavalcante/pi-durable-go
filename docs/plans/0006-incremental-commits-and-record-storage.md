@@ -82,3 +82,9 @@ Each milestone passes `make check` before it is pushed.
 - **A write that bypasses copy-on-write** corrupts the committed State and survives a rollback. Mitigation: the test-only invariant check over the whole suite, and record mutation only through `Tx` accessors.
 - **Internal readers that mutate a shared snapshot.** Same check; public APIs keep detached copies.
 - **SQLite conversion of existing files.** One transaction; the old table is dropped only after the records are written.
+
+### Later measurements (after plans 0007 and 0008)
+
+- With bounded memory, group commit, and revision records, `BenchmarkCommitWithHistory` had grown to about 1.6 ms/op. `removedSince` now skips the scan for removed keys when the table sizes show none, which brings it back to 1.16–1.33 ms/op. `BenchmarkSQLiteCommitWithHistory` measures 4.3–4.9 ms/op on the same machine, with large run-to-run variance (4.1–7.4 ms in one series).
+- Most of the SQLite time is statement compilation: the modernc driver prepares and finalizes the SQL on every execution, and its `stmt.exec` has no statement cache. Statements prepared through `database/sql` therefore do not help, and the record indexes add to each compilation. The rest is fsync (`synchronous=FULL`) and JSON encoding.
+- A transaction still clones each table map and scans the candidate tables for changed records, which is O(resident records) per commit. Dirty-key tracking would remove that scan, but it needs every write site (about 56) covered or a write is silently lost, so it is not done.

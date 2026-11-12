@@ -176,36 +176,37 @@ func detachChanges(base, candidate *State, compare bool) (bool, *StateDelta, err
 	changed := base.Version != candidate.Version || base.NextID != candidate.NextID || base.Root != candidate.Root
 	var err error
 	var c bool
-	if delta.Conversations, c, err = detachTable(base.Conversations, candidate.Conversations, compare); err != nil {
+	var added [6]int
+	if delta.Conversations, c, added[0], err = detachTable(base.Conversations, candidate.Conversations, compare); err != nil {
 		return false, nil, err
 	}
 	changed = changed || c
-	if delta.Entries, c, err = detachTable(base.Entries, candidate.Entries, compare); err != nil {
+	if delta.Entries, c, added[1], err = detachTable(base.Entries, candidate.Entries, compare); err != nil {
 		return false, nil, err
 	}
 	changed = changed || c
-	if delta.Tasks, c, err = detachTable(base.Tasks, candidate.Tasks, compare); err != nil {
+	if delta.Tasks, c, added[2], err = detachTable(base.Tasks, candidate.Tasks, compare); err != nil {
 		return false, nil, err
 	}
 	changed = changed || c
-	if delta.Submissions, c, err = detachTable(base.Submissions, candidate.Submissions, compare); err != nil {
+	if delta.Submissions, c, added[3], err = detachTable(base.Submissions, candidate.Submissions, compare); err != nil {
 		return false, nil, err
 	}
 	changed = changed || c
-	if delta.Documents, c, err = detachTable(base.Documents, candidate.Documents, compare); err != nil {
+	if delta.Documents, c, added[4], err = detachTable(base.Documents, candidate.Documents, compare); err != nil {
 		return false, nil, err
 	}
 	changed = changed || c
-	if delta.Revisions, c, err = detachTable(base.Revisions, candidate.Revisions, compare); err != nil {
+	if delta.Revisions, c, added[5], err = detachTable(base.Revisions, candidate.Revisions, compare); err != nil {
 		return false, nil, err
 	}
 	changed = changed || c
 	delta.Removed = RemovedKeys{
-		Conversations: removedKeys(base.Conversations, candidate.Conversations),
-		Entries:       removedKeys(base.Entries, candidate.Entries),
-		Tasks:         removedKeys(base.Tasks, candidate.Tasks),
-		Submissions:   removedKeys(base.Submissions, candidate.Submissions),
-		Documents:     removedKeys(base.Documents, candidate.Documents),
+		Conversations: removedSince(base.Conversations, candidate.Conversations, added[0]),
+		Entries:       removedSince(base.Entries, candidate.Entries, added[1]),
+		Tasks:         removedSince(base.Tasks, candidate.Tasks, added[2]),
+		Submissions:   removedSince(base.Submissions, candidate.Submissions, added[3]),
+		Documents:     removedSince(base.Documents, candidate.Documents, added[4]),
 	}
 	// Documents a bounded Session retired without holding them.
 	if len(candidate.removedDocuments) > 0 {
@@ -223,20 +224,24 @@ func detachChanges(base, candidate *State, compare bool) (bool, *StateDelta, err
 }
 
 // detachTable detaches the table's added or cloned records and returns them.
-func detachTable[K comparable, V any](base, candidate map[K]*V, compare bool) (map[K]*V, bool, error) {
+func detachTable[K comparable, V any](base, candidate map[K]*V, compare bool) (map[K]*V, bool, int, error) {
 	var touched map[K]*V
 	changed := false
+	added := 0
 	for key, v := range candidate {
 		committed, existed := base[key]
 		if existed && committed == v {
 			continue
 		}
+		if !existed {
+			added++
+		}
 		if v == nil {
-			return nil, false, fmt.Errorf("%w: nil record", ErrInvalid)
+			return nil, false, 0, fmt.Errorf("%w: nil record", ErrInvalid)
 		}
 		detached, err := strictClone(v)
 		if err != nil {
-			return nil, false, err
+			return nil, false, 0, err
 		}
 		candidate[key] = detached
 		if touched == nil {
@@ -252,15 +257,25 @@ func detachTable[K comparable, V any](base, candidate map[K]*V, compare bool) (m
 		}
 		before, err := json.Marshal(committed)
 		if err != nil {
-			return nil, false, err
+			return nil, false, 0, err
 		}
 		after, err := json.Marshal(detached)
 		if err != nil {
-			return nil, false, err
+			return nil, false, 0, err
 		}
 		changed = !bytes.Equal(before, after)
 	}
-	return touched, changed, nil
+	return touched, changed, added, nil
+}
+
+// removedSince is removedKeys without scanning base when the counts show
+// nothing left: of candidate's keys, added are new, so base lost
+// len(base)-(len(candidate)-added) of its own.
+func removedSince[K interface{ ~uint64 | ~string }, V any](base, candidate map[K]*V, added int) []K {
+	if len(base) == len(candidate)-added {
+		return nil
+	}
+	return removedKeys(base, candidate)
 }
 
 // Detached copies of shared records, for values that leave a read of the
