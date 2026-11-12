@@ -481,11 +481,42 @@ type StreamOptions struct {
 	Metadata json.RawMessage `json:"metadata,omitempty"`
 	// CacheRetention is pi-ai's prompt cache retention: none, short, or long.
 	CacheRetention string `json:"cacheRetention,omitempty"`
+	// Deferred asks a capable provider for a deferred answer: it returns a
+	// handle at once and computes the answer asynchronously, which the
+	// generation polls (pi-ai deferred; Window is 15m, 1h, or 24h).
+	Deferred *DeferredOptions `json:"deferred,omitempty"`
+}
+
+// DeferredOptions are pi-ai's deferred request options.
+type DeferredOptions struct {
+	Window string `json:"window,omitempty"`
+}
+
+// DeferredHandle is pi-ai's DeferredHandle: a provider's token for an answer
+// it computes asynchronously.
+type DeferredHandle struct {
+	Provider    string          `json:"provider"`
+	ModelID     string          `json:"modelId"`
+	API         string          `json:"api"`
+	ID          string          `json:"id"`
+	ExpiresAt   int64           `json:"expiresAt,omitempty"`
+	PollAfterMs int64           `json:"pollAfterMs,omitempty"`
+	Data        json.RawMessage `json:"data,omitempty"`
+}
+
+// DeferredModel fetches and cancels deferred answers (pi-ai fetchDeferred
+// and cancelDeferred). FetchDeferred returns the answer, an error, or another
+// deferred response when it is not ready yet.
+type DeferredModel interface {
+	Model
+	FetchDeferred(ctx context.Context, model ModelRef, handle DeferredHandle) (ModelResponse, error)
+	CancelDeferred(ctx context.Context, model ModelRef, handle DeferredHandle) error
 }
 
 func (s StreamOptions) isZero() bool {
 	return s.Transport == "" && s.TimeoutMs == 0 && s.WebsocketConnectTimeoutMs == 0 && len(s.ThinkingBudgets) == 0 &&
-		s.MaxRetries == nil && s.MaxRetryDelayMs == 0 && len(s.Headers) == 0 && len(s.Metadata) == 0 && s.CacheRetention == ""
+		s.MaxRetries == nil && s.MaxRetryDelayMs == 0 && len(s.Headers) == 0 && len(s.Metadata) == 0 && s.CacheRetention == "" &&
+		s.Deferred == nil
 }
 
 // ClientIdentity is pi-ai's ClientIdentity: how model requests identify the
@@ -510,6 +541,9 @@ type ModelResponse struct {
 	// a failed attempt as error, with ErrorMessage.
 	StopReason   string `json:"stopReason,omitempty"`
 	ErrorMessage string `json:"errorMessage,omitempty"`
+	// Deferred is the handle of a deferred answer (StopReason deferred),
+	// which the generation polls with DeferredModel.FetchDeferred.
+	Deferred *DeferredHandle `json:"deferred,omitempty"`
 	// ProviderData is copied to the committed assistant Message for later replay.
 	ProviderData json.RawMessage `json:"providerData,omitempty"`
 }

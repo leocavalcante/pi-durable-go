@@ -40,7 +40,17 @@ type generationCheckpoint struct {
 	Compacted TaskID `json:"compacted,omitempty"`
 	Overflow  string `json:"overflow,omitempty"`
 	Threshold bool   `json:"threshold,omitempty"`
+	// Handle and PollAt are the deferred answer the poll phase fetches, and
+	// when (Unix milliseconds on the Harness clock). Poll is the handle a
+	// retry polls again after its backoff.
+	Handle *DeferredHandle `json:"handle,omitempty"`
+	PollAt int64           `json:"pollAt,omitempty"`
+	Poll   *DeferredHandle `json:"poll,omitempty"`
 }
+
+// defaultPollAfterMs is how long a deferred answer waits before its first
+// poll when its handle does not say (upstream DEFAULT_POLL_AFTER_MS).
+const defaultPollAfterMs = 5000
 
 func (cp generationCheckpoint) attempt() int {
 	if cp.Attempt < 1 {
@@ -108,7 +118,7 @@ func runGeneration(ctx context.Context, r *TaskRuntime, task TaskRecord) error {
 	// Each phase first checks whether crashes cut the generation off too
 	// often, which ends its run instead of running the phase again (§5.4).
 	switch cp.Phase {
-	case "prepare", "request", "retry", "tools":
+	case "prepare", "request", "retry", "poll", "tools":
 		if limit := r.h.restartLimit(); cutOffTooOften(task.Restarts, limit) {
 			return endGenerationCutOff(ctx, r, task, cp, limit)
 		}
@@ -122,6 +132,8 @@ func runGeneration(ctx context.Context, r *TaskRuntime, task TaskRecord) error {
 		return prepareGeneration(ctx, r, task, cp)
 	case "request":
 		return requestGeneration(ctx, r, task, cp)
+	case "poll":
+		return pollGeneration(ctx, r, task, cp)
 	case "retry":
 		// After the backoff. A phase that runs before until, after an early
 		// wake or a clock that moved backward, sleeps again unchanged.
@@ -133,6 +145,19 @@ func runGeneration(ctx context.Context, r *TaskRuntime, task TaskRecord) error {
 		}
 		return r.Commit(ctx, func(tx *Tx) (TaskTransition, error) {
 			attempt := cp.attempt() + 1
+			// A poll the host died during polls its answer again, as the
+			// next attempt.
+			if cp.Poll != nil {
+				pollAt := r.h.now().UnixMilli()
+				if err := updateLive(tx, task.Conversation, func(live *LiveState) error {
+					live.Generation = &LiveGeneration{Attempt: attempt, Deferred: &LiveDeferred{PollAt: pollAt}}
+					return nil
+				}); err != nil {
+					return TaskTransition{}, err
+				}
+				next, err := json.Marshal(generationCheckpoint{Phase: "poll", Attempt: attempt, Compacted: cp.Compacted, Request: cp.Request, Handle: cp.Poll, PollAt: pollAt})
+				return TaskTransition{Status: "running", Checkpoint: next}, err
+			}
 			if err := updateLive(tx, task.Conversation, func(live *LiveState) error {
 				live.Generation = &LiveGeneration{Attempt: attempt}
 				return nil
@@ -298,6 +323,17 @@ func requestGeneration(ctx context.Context, r *TaskRuntime, task TaskRecord, cp 
 	stream.stop()
 	partial := stream.message()
 	responseDurationMs := time.Since(started).Milliseconds()
+	return classifyAttempt(ctx, r, task, cp, response, err, partial, &responseDurationMs)
+}
+
+// classifyAttempt decides what an attempt's response leads to (upstream
+// classify): a deferred answer is polled later, a failed attempt retries,
+// compacts, or ends the run, and an answer starts a tool round or answers.
+// partial is what the attempt streamed (nil for a fetched deferred answer).
+func classifyAttempt(ctx context.Context, r *TaskRuntime, task TaskRecord, cp generationCheckpoint, response ModelResponse, err error, partial *Message, responseDurationMs *int64) error {
+	if partial == nil {
+		partial = &Message{}
+	}
 	if err != nil {
 		if ctx.Err() != nil {
 			return ctx.Err()
@@ -342,6 +378,10 @@ func requestGeneration(ctx context.Context, r *TaskRuntime, task TaskRecord, cp 
 			return failRunTx(tx, r.h, task, runEnd{reason: RunModelError, detail: text}, text, false)
 		})
 	}
+	// A deferred answer is polled later; hooks see the answer then.
+	if response.StopReason == "deferred" && response.Deferred != nil {
+		return deferAttempt(ctx, r, task, cp, *response.Deferred)
+	}
 	if e := afterResponse(ctx, r, task, &response); e != nil {
 		return e
 	}
@@ -354,7 +394,7 @@ func requestGeneration(ctx context.Context, r *TaskRuntime, task TaskRecord, cp 
 	}
 	// Record the requested level, as pi-agent-core's agent loop does.
 	message := Message{Role: "assistant", Content: response.Content, Thinking: response.Thinking, ToolCalls: response.ToolCalls, Usage: response.Usage,
-		DurationMs: &responseDurationMs, ProviderData: response.ProviderData, StopReason: stopReason, ThinkingLevel: cp.Request.ThinkingLevel}
+		DurationMs: responseDurationMs, ProviderData: response.ProviderData, StopReason: stopReason, ThinkingLevel: cp.Request.ThinkingLevel}
 	// A tool round needs tool calls the model meant to make; an answer cut off
 	// at its output limit is an answer, and calls it was cut off in never run.
 	if stopReason == "toolUse" && len(response.ToolCalls) > 0 {
@@ -391,6 +431,115 @@ func requestGeneration(ctx context.Context, r *TaskRuntime, task TaskRecord, cp 
 		}
 	}
 	return answer(ctx, r, task, cp, message, continuation)
+}
+
+// deferAttempt sleeps until a deferred answer's poll: after its handle's
+// pollAfterMs (default 5000), and never at or before the previous poll.
+func deferAttempt(ctx context.Context, r *TaskRuntime, task TaskRecord, cp generationCheckpoint, handle DeferredHandle) error {
+	pollAfter := handle.PollAfterMs
+	if pollAfter <= 0 {
+		pollAfter = defaultPollAfterMs
+	}
+	pollAt := r.h.now().UnixMilli() + pollAfter
+	if cp.PollAt != 0 && cp.PollAt+1 > pollAt {
+		pollAt = cp.PollAt + 1
+	}
+	attempt := cp.attempt()
+	return r.Commit(ctx, func(tx *Tx) (TaskTransition, error) {
+		if err := updateLive(tx, task.Conversation, func(live *LiveState) error {
+			live.Generation = &LiveGeneration{Attempt: attempt, Deferred: &LiveDeferred{PollAt: pollAt}}
+			return nil
+		}); err != nil {
+			return TaskTransition{}, err
+		}
+		next, err := json.Marshal(generationCheckpoint{Phase: "poll", Attempt: attempt, Compacted: cp.Compacted, Request: cp.Request, Handle: &handle, PollAt: pollAt})
+		wake := time.UnixMilli(pollAt).UTC()
+		return TaskTransition{Status: "sleeping", Checkpoint: next, WakeAt: &wake}, err
+	})
+}
+
+// pollGeneration fetches a deferred answer at its poll time and classifies
+// it like a response: not ready yet, it is polled again later.
+func pollGeneration(ctx context.Context, r *TaskRuntime, task TaskRecord, cp generationCheckpoint) error {
+	if cp.Handle == nil {
+		return fmt.Errorf("%w: a poll without a deferred handle", ErrInvalid)
+	}
+	// The host stopped while the fetch was in flight: a failed attempt, as
+	// for a request. Checked before the time, which may have moved backward
+	// on a replacement host; a sleeping poll is never cut off.
+	if task.Restarts > 0 {
+		return chargeInterruptedPoll(ctx, r, task, cp)
+	}
+	if cp.PollAt > r.h.now().UnixMilli() {
+		wake := time.UnixMilli(cp.PollAt).UTC()
+		return r.Commit(ctx, func(*Tx) (TaskTransition, error) {
+			return TaskTransition{Status: "sleeping", Checkpoint: task.Checkpoint, WakeAt: &wake}, nil
+		})
+	}
+	model, ok := r.h.model().(DeferredModel)
+	if !ok {
+		const text = "The model cannot fetch deferred answers"
+		return failRun(ctx, r, task, runEnd{reason: RunModelError, detail: text}, text, true)
+	}
+	response, err := model.FetchDeferred(ctx, cp.Request.Model, *cp.Handle)
+	return classifyAttempt(ctx, r, task, cp, response, err, nil, nil)
+}
+
+// chargeInterruptedPoll charges a poll a crash cut off as a failed attempt:
+// with a retry left the generation polls again after the backoff; otherwise
+// the provider's job is cancelled and the run ends interrupted.
+func chargeInterruptedPoll(ctx context.Context, r *TaskRuntime, task TaskRecord, cp generationCheckpoint) error {
+	attempt := cp.attempt()
+	policy := r.h.settings().Retry.resolve()
+	retry := policy.allows(attempt)
+	until := retryDeadline(r.h.now(), retryDelayMs(policy, attempt))
+	text := fmt.Sprintf("The host stopped while the deferred answer was fetched, on attempt %d", attempt)
+	if !retry {
+		// A run that ends does not leave the provider's job running.
+		cancelDeferred(ctx, r, cp.Request.Model, cp.Handle)
+		return failRun(ctx, r, task, runEnd{reason: RunInterrupted, detail: text}, text, true)
+	}
+	return r.Commit(ctx, func(tx *Tx) (TaskTransition, error) {
+		if err := convertPartial(tx, task); err != nil {
+			return TaskTransition{}, err
+		}
+		if err := updateLive(tx, task.Conversation, func(live *LiveState) error {
+			live.Generation = &LiveGeneration{Attempt: attempt, Retry: &LiveRetry{At: until.UnixMilli(), Error: text}}
+			return nil
+		}); err != nil {
+			return TaskTransition{}, err
+		}
+		next, err := json.Marshal(generationCheckpoint{Phase: "retry", Attempt: attempt, Until: until.UnixMilli(), Compacted: cp.Compacted, Request: cp.Request, Poll: cp.Handle})
+		wake := time.UnixMilli(until.UnixMilli()).UTC()
+		return TaskTransition{Status: "sleeping", Checkpoint: next, WakeAt: &wake}, err
+	})
+}
+
+// deferredOf is the deferred answer a checkpoint polls, or polls again
+// after a retry's backoff.
+func deferredOf(cp generationCheckpoint) *DeferredHandle {
+	if cp.Phase == "poll" {
+		return cp.Handle
+	}
+	if cp.Phase == "retry" {
+		return cp.Poll
+	}
+	return nil
+}
+
+// cancelDeferred cancels a deferred answer no attempt will poll again; a
+// failure is reported, never returned.
+func cancelDeferred(ctx context.Context, r *TaskRuntime, model ModelRef, handle *DeferredHandle) {
+	if handle == nil {
+		return
+	}
+	deferred, ok := r.h.model().(DeferredModel)
+	if !ok {
+		return
+	}
+	if err := containPanic(func() error { return deferred.CancelDeferred(ctx, model, *handle) }); err != nil && ctx.Err() == nil {
+		r.ReportHost(err, "cancelDeferred")
+	}
 }
 
 // appendAssistant appends a provider result and its usage in one commit.
@@ -959,7 +1108,13 @@ func failNoModel(ctx context.Context, r *TaskRuntime, task TaskRecord) error {
 // aborted entry; past it, that conversion may be what keeps failing.
 func endGenerationCutOff(ctx context.Context, r *TaskRuntime, task TaskRecord, cp generationCheckpoint, limit float64) error {
 	text := fmt.Sprintf("The generation was interrupted %s in its %s phase", cutOffCount(task.Restarts), cp.Phase)
-	return failRun(ctx, r, task, runEnd{reason: RunRestartLimit, detail: text}, text, salvageable(task.Restarts, limit))
+	salvage := salvageable(task.Restarts, limit)
+	if salvage {
+		// At the limit it still cancels a deferred answer it polled; past
+		// it, that cleanup may be what keeps failing.
+		cancelDeferred(ctx, r, cp.Request.Model, deferredOf(cp))
+	}
+	return failRun(ctx, r, task, runEnd{reason: RunRestartLimit, detail: text}, text, salvage)
 }
 
 // chargeInterruptedRequest charges a request a crash cut off as a failed
@@ -990,6 +1145,7 @@ func chargeInterruptedRequest(ctx context.Context, r *TaskRuntime, task TaskReco
 func settleGenerationAbort(ctx context.Context, r *TaskRuntime, task TaskRecord) error {
 	var cp generationCheckpoint
 	_ = json.Unmarshal(task.Checkpoint, &cp)
+	cancelDeferred(ctx, r, cp.Request.Model, deferredOf(cp))
 	return r.Commit(ctx, func(tx *Tx) (TaskTransition, error) {
 		cid := task.Conversation
 		live, err := readRunLive(tx, task)

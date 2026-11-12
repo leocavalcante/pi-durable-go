@@ -14,6 +14,21 @@ export class ModelRuntime {
     return new ModelRuntime(options);
   }
   constructor(options) { this.options = options; }
+  // Deferred answers: "job-ready" answers on the first fetch, "job-later"
+  // stays deferred once, "job-fail" fails.
+  async fetchDeferred(model, handle, options) {
+    if (!options?.signal) throw new Error("no signal");
+    const message = { role: "assistant", api: model.api, provider: model.provider, model: model.id, content: [], usage,
+      stopReason: "stop", timestamp: 1000 };
+    if (handle.id === "job-fail") return { ...message, stopReason: "error", errorMessage: "503 overloaded; super-secret-provider-error" };
+    if (handle.id === "job-later") return { ...message, stopReason: "deferred", deferred: { ...handle, id: "job-ready", pollAfterMs: 1, secret: "dropped" } };
+    if (handle.id !== "job-ready") throw new Error("super-secret unknown job");
+    return { ...message, content: [{ type: "text", text: "deferred answer" }] };
+  }
+  async cancelDeferred(model, handle, options) {
+    if (!options?.signal) throw new Error("no signal");
+    if (process.env.PI_DURABLE_TEST_CANCELLED) await writeFile(process.env.PI_DURABLE_TEST_CANCELLED, handle.id);
+  }
   getError() { return undefined; }
   getModel(provider, id) {
     return id === "unknown" ? undefined : { provider, id, api: "fake-api", contextWindow: id === "small-window" ? 4096 : 128000,
@@ -49,6 +64,11 @@ export class ModelRuntime {
       result.content = [{ type: "text", text: "summary" }];
     } else if (model.id === "inspect") {
       result.content = [{ type: "text", text: JSON.stringify({ create: this.options, model, context, options }) }];
+    } else if (model.id === "deferred") {
+      if (options.deferred !== true && options.deferred?.window !== "1h") throw new Error("deferred option missing");
+      yield { type: "done", reason: "deferred", message: { ...result, stopReason: "deferred",
+        deferred: { provider: model.provider, modelId: model.id, api: model.api, id: "job-later", pollAfterMs: 10, data: { row: 1 } } } };
+      return;
     } else if (model.id === "events") {
       yield { type: "thinking_delta", contentIndex: 0, delta: "plan" };
       yield { type: "text_delta", contentIndex: 1, delta: "reading" };

@@ -63,7 +63,35 @@ function streamOptions(stream) {
     "maxRetryDelayMs", "headers", "metadata", "cacheRetention"]) {
     if (stream[key] !== undefined && stream[key] !== null) options[key] = stream[key];
   }
+  // pi-ai deferred: true, or a window.
+  if (stream.deferred && typeof stream.deferred === "object") {
+    options.deferred = typeof stream.deferred.window === "string" && stream.deferred.window ? { window: stream.deferred.window } : true;
+  }
   return options;
+}
+
+// A deferred answer's handle, with pi-ai's DeferredHandle fields only.
+function deferredHandle(handle) {
+  if (!handle || typeof handle !== "object" || typeof handle.id !== "string") return undefined;
+  const out = {};
+  for (const key of ["provider", "modelId", "api", "id", "expiresAt", "pollAfterMs", "data"]) {
+    if (handle[key] !== undefined && handle[key] !== null) out[key] = handle[key];
+  }
+  return out;
+}
+
+// The result record of a final or deferred assistant message.
+function resultOf(message) {
+  if (message.stopReason === "deferred") {
+    const deferred = deferredHandle(message.deferred);
+    if (!deferred) return { type: "error", code: "provider" };
+    return { type: "result", response: { content: "", stopReason: "deferred", deferred,
+      usage: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, cost: 0 } } };
+  }
+  // A length stop is an answer cut off at its output limit, as upstream
+  // Durable treats it; its tool calls never run.
+  if (!["stop", "toolUse", "length"].includes(message.stopReason)) return { type: "error", code: "provider" };
+  return { type: "result", response: toResponse(message) };
 }
 
 // A system message with its positional prompt sections and tool changes
@@ -219,6 +247,23 @@ async function main() {
       return { type: "model", contextWindow: window, images,
         imageLimits: { maxWidth: limit(resize.maxWidth), maxHeight: limit(resize.maxHeight), maxBytes: limit(resize.maxBytes) } };
     }
+    // Deferred answers: fetch one (it may still be deferred) or cancel it.
+    if (config.fetchDeferred) {
+      const handle = deferredHandle(config.fetchDeferred);
+      if (!handle) return { type: "error", code: "request" };
+      const message = await runtime.fetchDeferred(model, handle, { signal: controller.signal });
+      if (controller.signal.aborted) return { type: "error", code: "provider" };
+      if (message?.stopReason === "error" || message?.stopReason === "aborted") {
+        return { type: "error", code: "provider", ...classify(await loadClassifiers(entry), message) };
+      }
+      return resultOf(message ?? {});
+    }
+    if (config.cancelDeferred) {
+      const handle = deferredHandle(config.cancelDeferred);
+      if (!handle) return { type: "error", code: "request" };
+      await runtime.cancelDeferred(model, handle, { signal: controller.signal });
+      return { type: "cancelled" };
+    }
     let context;
     try {
       const reasoning = request.thinkingLevel;
@@ -262,10 +307,7 @@ async function main() {
       }
     }
     if (!result || controller.signal.aborted) return { type: "error", code: "provider" };
-    // A length stop is an answer cut off at its output limit, as upstream
-    // Durable treats it; its tool calls never run.
-    if (!["stop", "toolUse", "length"].includes(result.stopReason)) return { type: "error", code: "provider" };
-    return { type: "result", response: toResponse(result) };
+    return resultOf(result);
   } catch {
     // Upstream errors can quote secrets, URLs, command output, or response bodies.
     return { type: "error", code: "provider" };

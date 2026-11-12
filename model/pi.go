@@ -147,11 +147,42 @@ func (p Pi) GenerateEvents(ctx context.Context, req durable.ModelRequest, onEven
 	if req.Model.Provider == "" || req.Model.ID == "" {
 		return durable.ModelResponse{}, sanitizedError("pi: model provider and ID are required", false)
 	}
-	body, err := json.Marshal(struct {
-		Request    durable.ModelRequest `json:"request"`
-		PackageDir string               `json:"packageDir,omitempty"`
-		AgentDir   string               `json:"agentDir,omitempty"`
-	}{req, p.packageDir(), p.AgentDir})
+	return p.call(ctx, piCall{Request: req}, onEvent)
+}
+
+// FetchDeferred fetches a deferred answer through Pi's ModelRuntime
+// (durable.DeferredModel): the answer, a provider error, or another deferred
+// response when it is not ready yet.
+func (p Pi) FetchDeferred(ctx context.Context, ref durable.ModelRef, handle durable.DeferredHandle) (durable.ModelResponse, error) {
+	if err := ctx.Err(); err != nil {
+		return durable.ModelResponse{}, err
+	}
+	return p.call(ctx, piCall{Request: durable.ModelRequest{Model: ref}, FetchDeferred: &handle}, nil)
+}
+
+// CancelDeferred asks the provider to stop computing a deferred answer,
+// best effort.
+func (p Pi) CancelDeferred(ctx context.Context, ref durable.ModelRef, handle durable.DeferredHandle) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	_, err := p.call(ctx, piCall{Request: durable.ModelRequest{Model: ref}, CancelDeferred: &handle}, nil)
+	return err
+}
+
+// piCall is one bridge request: a generation, or a deferred fetch or cancel.
+type piCall struct {
+	Request        durable.ModelRequest    `json:"request"`
+	PackageDir     string                  `json:"packageDir,omitempty"`
+	AgentDir       string                  `json:"agentDir,omitempty"`
+	FetchDeferred  *durable.DeferredHandle `json:"fetchDeferred,omitempty"`
+	CancelDeferred *durable.DeferredHandle `json:"cancelDeferred,omitempty"`
+}
+
+// call runs one bridge request in a Node process.
+func (p Pi) call(ctx context.Context, call piCall, onEvent func(durable.StreamEvent) error) (durable.ModelResponse, error) {
+	call.PackageDir, call.AgentDir = p.packageDir(), p.AgentDir
+	body, err := json.Marshal(call)
 	if err != nil {
 		return durable.ModelResponse{}, sanitizedError("pi: cannot encode model request", false)
 	}
@@ -266,6 +297,8 @@ func readPiOutput(r io.Reader, onEvent func(durable.StreamEvent) error) (durable
 				return durable.ModelResponse{}, sanitizedError("pi: invalid SDK result", false)
 			}
 			response = event.Response
+		case "cancelled":
+			response = &durable.ModelResponse{}
 		case "error":
 			return durable.ModelResponse{}, piBridgeError(event.Code, event.Retryable, event.Overflow)
 		default:

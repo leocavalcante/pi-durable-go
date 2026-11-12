@@ -67,6 +67,14 @@ type LiveGeneration struct {
 	Message *Message `json:"message,omitempty"`
 	// Retry is the durable backoff before the next attempt.
 	Retry *LiveRetry `json:"retry,omitempty"`
+	// Deferred is a deferred answer the generation polls, at PollAt (Unix
+	// milliseconds on the Harness clock).
+	Deferred *LiveDeferred `json:"deferred,omitempty"`
+}
+
+// LiveDeferred is a deferred answer being polled.
+type LiveDeferred struct {
+	PollAt int64 `json:"pollAt"`
 }
 
 // LiveRetry is a backoff: At in Unix milliseconds on the Harness clock, and

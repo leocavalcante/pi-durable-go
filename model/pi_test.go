@@ -346,3 +346,35 @@ func TestPiStreamsThinkingAndToolCallEvents(t *testing.T) {
 		t.Fatalf("deltas=%v error=%v", deltas, err)
 	}
 }
+
+func TestPiDeferredAnswers(t *testing.T) {
+	p := fakePi(t)
+	ref := durable.ModelRef{Provider: "fake", ID: "deferred"}
+	response, err := p.Generate(context.Background(), durable.ModelRequest{Model: ref, Stream: &durable.StreamOptions{Deferred: &durable.DeferredOptions{}}}, nil)
+	if err != nil || response.StopReason != "deferred" || response.Deferred == nil || response.Deferred.ID != "job-later" ||
+		response.Deferred.PollAfterMs != 10 || string(response.Deferred.Data) != `{"row":1}` {
+		t.Fatalf("response=%+v deferred=%+v error=%v", response, response.Deferred, err)
+	}
+	// Not ready yet: deferred again, with only pi-ai's handle fields.
+	later, err := p.FetchDeferred(context.Background(), ref, *response.Deferred)
+	if err != nil || later.StopReason != "deferred" || later.Deferred == nil || later.Deferred.ID != "job-ready" {
+		t.Fatalf("later=%+v error=%v", later, err)
+	}
+	answer, err := p.FetchDeferred(context.Background(), ref, *later.Deferred)
+	if err != nil || answer.Content != "deferred answer" || answer.StopReason != "stop" {
+		t.Fatalf("answer=%+v error=%v", answer, err)
+	}
+	// A failed fetch is a sanitized, classified provider error.
+	_, err = p.FetchDeferred(context.Background(), ref, durable.DeferredHandle{ID: "job-fail"})
+	if err == nil || strings.Contains(err.Error(), "secret") || !durable.IsRetryableModelError(err) {
+		t.Fatalf("failed fetch error=%v", err)
+	}
+	cancelled := filepath.Join(t.TempDir(), "cancelled")
+	t.Setenv("PI_DURABLE_TEST_CANCELLED", cancelled)
+	if err := p.CancelDeferred(context.Background(), ref, durable.DeferredHandle{ID: "job-ready"}); err != nil {
+		t.Fatal(err)
+	}
+	if data, err := os.ReadFile(cancelled); err != nil || string(data) != "job-ready" {
+		t.Fatalf("cancelled=%q error=%v", data, err)
+	}
+}
