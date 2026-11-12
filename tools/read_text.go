@@ -8,6 +8,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
+	"math/big"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 
@@ -84,10 +87,37 @@ func formatSize(n int) string {
 	case n < 1024:
 		return fmt.Sprintf("%dB", n)
 	case n < 1024*1024:
-		return fmt.Sprintf("%.1fKB", float64(n)/1024)
+		return jsToFixed(float64(n)/1024, 1) + "KB"
 	default:
-		return fmt.Sprintf("%.1fMB", float64(n)/(1024*1024))
+		return jsToFixed(float64(n)/(1024*1024), 1) + "MB"
 	}
+}
+
+// jsToFixed is Number.prototype.toFixed for a finite number: the decimal
+// with digits fraction digits nearest its exact value, the larger on a tie
+// (fmt rounds ties to even).
+func jsToFixed(x float64, digits int) string {
+	negative := x < 0
+	exact := new(big.Rat).SetFloat64(math.Abs(x))
+	if exact == nil {
+		return strconv.FormatFloat(x, 'f', digits, 64)
+	}
+	scaled := new(big.Rat).Mul(exact, new(big.Rat).SetInt(new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(digits)), nil)))
+	// floor(scaled + 1/2): the nearest integer, the larger on a tie.
+	twice := new(big.Int).Mul(scaled.Num(), big.NewInt(2))
+	twice.Add(twice, scaled.Denom())
+	n := new(big.Int).Quo(twice, new(big.Int).Mul(scaled.Denom(), big.NewInt(2)))
+	text := n.String()
+	if digits > 0 {
+		if len(text) <= digits {
+			text = strings.Repeat("0", digits-len(text)+1) + text
+		}
+		text = text[:len(text)-digits] + "." + text[len(text)-digits:]
+	}
+	if negative && strings.Trim(text, "0.") != "" {
+		text = "-" + text
+	}
+	return text
 }
 
 // characterEnd is the largest end at most limit that does not split a

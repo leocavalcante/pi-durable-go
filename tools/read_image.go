@@ -209,8 +209,8 @@ func readImage(r io.Reader, size int64, path, mimeType string, vision bool, limi
 			notes = append(notes, fmt.Sprintf("Converted from %s to %s.", prepared.ConvertedFrom, prepared.MimeType))
 		}
 		if r := prepared.Resized; r != nil {
-			notes = append(notes, fmt.Sprintf("Resized from %dx%d to %dx%d. Multiply coordinates by %.2f to map them to the original.",
-				r.FromWidth, r.FromHeight, r.ToWidth, r.ToHeight, float64(r.FromWidth)/float64(r.ToWidth)))
+			notes = append(notes, fmt.Sprintf("Resized from %dx%d to %dx%d. Multiply coordinates by %s to map them to the original.",
+				r.FromWidth, r.FromHeight, r.ToWidth, r.ToHeight, jsToFixed(float64(r.FromWidth)/float64(r.ToWidth), 2)))
 		}
 		return imageResult(durable.ImageContent{MimeType: prepared.MimeType, Data: prepared.Data}, vision, notes)
 	}
