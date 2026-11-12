@@ -5,11 +5,12 @@ import (
 	"sort"
 )
 
-// ScanCursor continues a scan of records ordered by ID; it carries the
-// scan's order.
+// ScanCursor continues a scan of records ordered by ID (After) or, for
+// documents, by storage key (AfterKey); it carries the scan's order.
 type ScanCursor struct {
-	After uint64
-	Order string
+	After    uint64
+	AfterKey string
+	Order    string
 }
 
 // ScanPage is one page of a scan; Next is nil after the last page. Its
@@ -45,16 +46,7 @@ func (tx *Tx) ScanConversations(query ConversationQuery, limit int, cursor *Scan
 	if err := tx.check(); err != nil {
 		return ScanPage[ConversationRecord]{}, err
 	}
-	return scanRecords(tx.state.Conversations, query.Order, limit, cursor, func(c *ConversationRecord) bool {
-		if query.OwnerTask != 0 && c.Owner.Task != query.OwnerTask {
-			return false
-		}
-		if query.OwnerConversation != 0 {
-			owner := tx.state.Tasks[c.Owner.Task]
-			return c.Owner.Task != 0 && owner != nil && owner.Conversation == query.OwnerConversation
-		}
-		return true
-	})
+	return scanRecords(tx.state.Conversations, query.Order, limit, cursor, conversationFilter(tx.state, query))
 }
 
 // ScanTasks pages through task records matching every filter, by ID, inside
@@ -63,13 +55,7 @@ func (tx *Tx) ScanTasks(query TaskQuery, limit int, cursor *ScanCursor) (ScanPag
 	if err := tx.check(); err != nil {
 		return ScanPage[TaskRecord]{}, err
 	}
-	return scanRecords(tx.state.Tasks, query.Order, limit, cursor, func(t *TaskRecord) bool {
-		return (query.Conversation == 0 || t.Conversation == query.Conversation) &&
-			(query.Kind == "" || t.Kind == query.Kind) &&
-			(query.Status == "" || t.Status == query.Status) &&
-			(query.AbortRequested == nil || t.AbortRequested == *query.AbortRequested) &&
-			(query.Background == nil || t.Background == *query.Background)
-	})
+	return scanRecords(tx.state.Tasks, query.Order, limit, cursor, taskFilter(query))
 }
 
 // ScanEntries pages through a conversation's fork-aware history inside a

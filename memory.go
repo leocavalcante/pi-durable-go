@@ -95,3 +95,127 @@ func (m *MemoryStorage) CommitDeltas(ctx context.Context, expected uint64, delta
 	}
 	return len(deltas), nil
 }
+
+// MemoryStorage reads records from its copy (RecordStorage).
+func (m *MemoryStorage) records(ctx context.Context) (StateRecords, func(), error) {
+	m.mu.Lock()
+	if err := ctx.Err(); err != nil {
+		m.mu.Unlock()
+		return StateRecords{}, nil, err
+	}
+	if m.closed {
+		m.mu.Unlock()
+		return StateRecords{}, nil, ErrClosed
+	}
+	return StateRecords{State: m.state}, m.mu.Unlock, nil
+}
+
+func (m *MemoryStorage) LoadResident(ctx context.Context) (*State, error) {
+	r, unlock, err := m.records(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer unlock()
+	return r.Resident()
+}
+
+func (m *MemoryStorage) Conversation(ctx context.Context, id ConversationID) (*ConversationRecord, error) {
+	r, unlock, err := m.records(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer unlock()
+	return r.Conversation(id), nil
+}
+
+func (m *MemoryStorage) ScanConversations(ctx context.Context, query ConversationQuery, limit int, cursor *ScanCursor) (ScanPage[ConversationRecord], error) {
+	r, unlock, err := m.records(ctx)
+	if err != nil {
+		return ScanPage[ConversationRecord]{}, err
+	}
+	defer unlock()
+	return r.ScanConversations(query, limit, cursor)
+}
+
+func (m *MemoryStorage) Entry(ctx context.Context, id EntryID) (*Entry, error) {
+	r, unlock, err := m.records(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer unlock()
+	return r.Entry(id), nil
+}
+
+func (m *MemoryStorage) ScanEntries(ctx context.Context, cid ConversationID, query EntryQuery, limit int, cursor *EntryCursor) (EntryPage, error) {
+	r, unlock, err := m.records(ctx)
+	if err != nil {
+		return EntryPage{}, err
+	}
+	defer unlock()
+	return r.ScanEntries(cid, query, limit, cursor)
+}
+
+func (m *MemoryStorage) Task(ctx context.Context, id TaskID) (*TaskRecord, error) {
+	r, unlock, err := m.records(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer unlock()
+	return r.Task(id), nil
+}
+
+func (m *MemoryStorage) ScanTasks(ctx context.Context, query TaskQuery, limit int, cursor *ScanCursor) (ScanPage[TaskRecord], error) {
+	r, unlock, err := m.records(ctx)
+	if err != nil {
+		return ScanPage[TaskRecord]{}, err
+	}
+	defer unlock()
+	return r.ScanTasks(query, limit, cursor)
+}
+
+func (m *MemoryStorage) Submission(ctx context.Context, id SubmissionID) (*SubmissionRecord, error) {
+	r, unlock, err := m.records(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer unlock()
+	return r.Submission(id), nil
+}
+
+func (m *MemoryStorage) SubmissionByRequest(ctx context.Context, cid ConversationID, requestID string) (*SubmissionRecord, error) {
+	r, unlock, err := m.records(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer unlock()
+	return r.SubmissionByRequest(cid, requestID), nil
+}
+
+func (m *MemoryStorage) ScanSubmissions(ctx context.Context, query SubmissionQuery, limit int, cursor *ScanCursor) (ScanPage[SubmissionRecord], error) {
+	r, unlock, err := m.records(ctx)
+	if err != nil {
+		return ScanPage[SubmissionRecord]{}, err
+	}
+	defer unlock()
+	return r.ScanSubmissions(query, limit, cursor)
+}
+
+func (m *MemoryStorage) Document(ctx context.Context, key string) (*DocumentRecord, error) {
+	r, unlock, err := m.records(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer unlock()
+	return r.Document(key), nil
+}
+
+func (m *MemoryStorage) ScanDocuments(ctx context.Context, query DocumentQuery, limit int, cursor *ScanCursor) (ScanPage[DocumentRecord], error) {
+	r, unlock, err := m.records(ctx)
+	if err != nil {
+		return ScanPage[DocumentRecord]{}, err
+	}
+	defer unlock()
+	return r.ScanDocuments(query, limit, cursor)
+}
+
+var _ RecordStorage = (*MemoryStorage)(nil)

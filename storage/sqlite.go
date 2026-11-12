@@ -54,6 +54,13 @@ func OpenSQLite(ctx context.Context, file string) (durable.Storage, error) {
 			return nil, err
 		}
 	}
+	// Record reads (durable.RecordStorage) look records up by these.
+	for _, q := range recordIndexes {
+		if _, err = db.ExecContext(ctx, q); err != nil {
+			db.Close()
+			return nil, err
+		}
+	}
 	return &sqliteStorage{db: db}, nil
 }
 
@@ -63,6 +70,9 @@ type sqliteStorage struct {
 	closed bool
 	// readOnly storage reads what another process writes and writes nothing.
 	readOnly bool
+	// recordTables is set once a header row was seen: record reads query
+	// durable_records from then on.
+	recordTables bool
 }
 
 // OpenSQLiteReadOnly opens a database as a viewer of one another process
