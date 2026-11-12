@@ -716,6 +716,11 @@ type Settings struct {
 	// none (settings.extensions); nil selects every installed extension, in
 	// install order.
 	Extensions []string
+	// ContextRetentionMs is how long an idle conversation keeps its context
+	// range in a bounded Session's memory (settings.contextRetentionMs,
+	// default ten minutes); 0 drops it once idle, math.Inf(1) keeps it. Busy
+	// conversations always keep theirs; a dropped range is read from storage.
+	ContextRetentionMs *float64
 	// SteeringMode and FollowUpMode select how many queued steers or
 	// follow-ups a boundary places: QueueOneAtATime (default) or QueueAll.
 	SteeringMode string

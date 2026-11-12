@@ -131,11 +131,11 @@ func newSession(ctx context.Context, storage Storage, now func() time.Time, boun
 	// full mode once.
 	if bounded && !upgraded {
 		s.cold = newColdRecords(records, func(err error) { go s.fail(err) })
+		s.cold.sweep = s.sweepContexts
 		st.cold = s.cold
 		s.cold.evict(st)
-		if err := s.cold.keepEntries(st, nil, true); err != nil {
-			return nil, err
-		}
+		// Context ranges load as conversations are used.
+		s.cold.evictEntries(st)
 	}
 	// The upgrade changed records no delta would carry: the first commit
 	// stores the whole State.
@@ -454,6 +454,11 @@ func (s *Session) storeHeld(wait bool) {
 // Session's failure.
 func (s *Session) writeLoop() {
 	for {
+		// The context retention may be host code: read it off the line.
+		retention := time.Duration(0)
+		if s.cold != nil {
+			retention = s.cold.contextRetention()
+		}
 		s.mu.Lock()
 		batch := s.pending
 		s.pending = nil
@@ -520,7 +525,7 @@ func (s *Session) writeLoop() {
 				s.cold.evict(item.state)
 				// A read error already failed the Session; keeping every
 				// entry is safe meanwhile.
-				_ = s.cold.keepEntries(item.state, item.delta, false)
+				_ = s.cold.keepEntries(item.state, s.head, item.delta, time.Now(), retention)
 			}
 			s.state = item.state
 			s.fullWrite = false
@@ -580,6 +585,30 @@ func (s *Session) store(batch []*pendingCommit, full bool) (int, error) {
 		}
 	}
 	return len(batch), nil
+}
+
+// sweepContexts unloads the context ranges of conversations idle for the
+// context retention while nothing is published: a copy of the State without
+// them replaces it (readers keep theirs). With commits underway, their
+// publication does it.
+func (s *Session) sweepContexts() {
+	if s.cold == nil {
+		return
+	}
+	retention := s.cold.contextRetention()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.failure.Load() != nil || s.writing || s.Err() != nil {
+		return
+	}
+	next := shallowState(s.state)
+	next.base = nil
+	before := len(next.Entries)
+	_ = s.cold.keepEntries(next, nil, nil, time.Now(), retention)
+	if len(next.Entries) != before {
+		s.state, s.head = next, next
+		s.recordCommitted(false)
+	}
 }
 
 // drainWriter waits until the writer stored and published every admitted

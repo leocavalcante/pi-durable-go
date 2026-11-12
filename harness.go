@@ -58,6 +58,9 @@ func Open(ctx context.Context, storage Storage, options HarnessOptions) (*Harnes
 		h.stopRegistry()
 		h.countActive(nil) // a closed Harness holds no tasks
 	}
+	if session.cold != nil {
+		session.cold.contextRetention = h.contextRetention
+	}
 	if options.ReadOnly {
 		session.readOnly = true
 		return h, nil // recovers nothing, schedules nothing
@@ -297,4 +300,16 @@ func (h *Harness) Task(ctx context.Context, id TaskID) (TaskRecord, error) {
 // listener_error and the observer stays attached. detach stops it.
 func (h *Harness) ObserveCommits(observe func(*StateDelta)) (detach func()) {
 	return h.session.observeCommits(observe)
+}
+
+// contextRetention is Settings.ContextRetentionMs as a duration.
+func (h *Harness) contextRetention() time.Duration {
+	ms := h.settings().ContextRetentionMs
+	switch {
+	case ms == nil || *ms < 0 || math.IsNaN(*ms):
+		return defaultContextRetention
+	case *ms >= float64(maxRetention/time.Millisecond):
+		return maxRetention
+	}
+	return time.Duration(*ms * float64(time.Millisecond))
 }

@@ -262,3 +262,44 @@ func TestBoundedOpenLoadsOnlyWhatItKeeps(t *testing.T) {
 		t.Fatalf("write=%+v error=%v", record, err)
 	}
 }
+
+func TestIdleConversationsDropTheirContextRanges(t *testing.T) {
+	ctx := context.Background()
+	h, root := runHarness(t, echoModel{}, Settings{ContextRetentionMs: ptr(0.0)})
+	waitSettled(t, h, submit(t, root, SubmissionRequest{Content: "one"}))
+	// Idle with no retention: the range leaves memory, by the next
+	// publication or the sweep.
+	deadline := time.Now().Add(5 * time.Second)
+	for residentEntries(h, root.ID()) > 0 {
+		if time.Now().After(deadline) {
+			t.Fatalf("%d entries kept by an idle conversation", residentEntries(h, root.ID()))
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	// The next run reads its context back and answers with all of it.
+	record := waitSettled(t, h, submit(t, root, SubmissionRequest{Content: "two"}))
+	if record.Status != "done" {
+		t.Fatalf("second run=%+v", record)
+	}
+	messages, err := root.Context(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	users := 0
+	for _, m := range messages {
+		if m.Role == "user" {
+			users++
+		}
+	}
+	if users != 2 {
+		t.Fatalf("context has %d user messages, want 2: %+v", users, messages)
+	}
+}
+
+func TestBusyAndRetainedConversationsKeepTheirRanges(t *testing.T) {
+	h, root := runHarness(t, echoModel{}, Settings{})
+	waitSettled(t, h, submit(t, root, SubmissionRequest{Content: "one"}))
+	if residentEntries(h, root.ID()) == 0 {
+		t.Fatal("a conversation dropped its range within the retention")
+	}
+}

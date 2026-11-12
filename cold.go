@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 )
 
 // Bounded Session memory (plan 0008 M2). Over a RecordStorage the Session
@@ -18,6 +19,8 @@ import (
 const (
 	coldTaskCapacity       = 256
 	coldSubmissionCapacity = 256
+	// defaultContextRetention is upstream's settings.contextRetentionMs.
+	defaultContextRetention = 10 * time.Minute
 )
 
 // coldRecords reads records a bounded Session no longer keeps. Cached records
@@ -29,8 +32,15 @@ type coldRecords struct {
 	tasks       *lru[TaskID, *TaskRecord]
 	submissions *lru[SubmissionID, *SubmissionRecord]
 	entries     *lru[EntryID, *Entry]
-	// starts are where each conversation's context range starts (entries.go).
+	// starts are where each loaded conversation's context range starts, and
+	// loaded when a published commit last touched it (entries.go).
 	starts map[ConversationID]EntryID
+	loaded map[ConversationID]time.Time
+	// contextRetention is how long an idle conversation keeps its range;
+	// sweep unloads expired ones while nothing is published, at expiry.
+	contextRetention func() time.Duration
+	sweep            func()
+	expiry           *time.Timer
 	// fail fails the Session on a storage read error, which upstream treats
 	// as fatal like any storage error.
 	fail func(error)
@@ -39,7 +49,8 @@ type coldRecords struct {
 func newColdRecords(storage RecordStorage, fail func(error)) *coldRecords {
 	return &coldRecords{storage: storage, tasks: newLRU[TaskID, *TaskRecord](coldTaskCapacity),
 		submissions: newLRU[SubmissionID, *SubmissionRecord](coldSubmissionCapacity),
-		entries:     newLRU[EntryID, *Entry](coldEntryCapacity), starts: map[ConversationID]EntryID{}, fail: fail}
+		entries:     newLRU[EntryID, *Entry](coldEntryCapacity), starts: map[ConversationID]EntryID{}, loaded: map[ConversationID]time.Time{},
+		contextRetention: func() time.Duration { return defaultContextRetention }, fail: fail}
 }
 
 func (c *coldRecords) task(id TaskID) (*TaskRecord, error) {

@@ -3,6 +3,7 @@ package durable
 import (
 	"context"
 	"fmt"
+	"time"
 )
 
 // Bounded entries (plan 0008 M3). A bounded Session keeps each
@@ -171,44 +172,91 @@ func reverseEntries(entries []Entry) {
 	}
 }
 
-// keepEntries recomputes the range starts a published State changed (head
-// markers appended, conversations created) and evicts each conversation's
-// entries below the smallest start among itself and the conversations whose
-// lineage passes through it. The caller holds the line; the State is not
-// shared yet.
-func (c *coldRecords) keepEntries(st *State, delta *StateDelta, all bool) error {
-	changed := all
-	if all {
-		c.starts = map[ConversationID]EntryID{}
-		for id := range st.Conversations {
-			start, err := rangeStart(st, id)
-			if err != nil {
-				return err
-			}
-			c.starts[id] = start
-		}
-	}
+// keepEntries keeps the context ranges of the conversations a bounded
+// Session has loaded, as upstream's scheduler keeps context ranges: a
+// conversation a published commit touches is loaded (its range read in, into
+// head too when that is a later State), its range start follows the head
+// markers appended to it, and once it has been idle (not busy) for the
+// context retention it is unloaded. Each conversation keeps its own entries
+// from the smallest start among the loaded conversations whose lineage
+// passes through it; the others leave st. Reads of what is not kept fall
+// back to storage. The caller holds the line; st is not shared yet.
+func (c *coldRecords) keepEntries(st, head *State, delta *StateDelta, now time.Time, retention time.Duration) error {
+	changed := false
 	if delta != nil {
+		touched := map[ConversationID]bool{}
 		for id := range delta.Conversations {
-			if _, known := c.starts[id]; !known && st.Conversations[id] != nil {
-				start, err := rangeStart(st, id)
-				if err != nil {
+			touched[id] = true
+		}
+		markers := map[ConversationID]EntryID{}
+		for _, e := range delta.Entries {
+			touched[e.Conversation] = true
+			if isHeadMarker(*e) && e.ID >= markers[e.Conversation] {
+				markers[e.Conversation] = e.ID
+			}
+		}
+		for id := range touched {
+			if st.Conversations[id] == nil {
+				continue
+			}
+			if _, loaded := c.loaded[id]; !loaded {
+				if err := c.load(st, head, id); err != nil {
 					return err
 				}
-				c.starts[id], changed = start, true
+				changed = true
+			} else if marker, ok := markers[id]; ok {
+				c.starts[id] = markerBound(*st.Entries[marker])
+				changed = true
 			}
-		}
-		for _, e := range delta.Entries {
-			if isHeadMarker(*e) {
-				c.starts[e.Conversation], changed = markerBound(*e), true
-			}
+			c.loaded[id] = now
 		}
 	}
-	if !changed {
-		return nil
+	for id, touched := range c.loaded {
+		conversation := st.Conversations[id]
+		if conversation == nil || conversation.Busy == 0 && now.Sub(touched) >= retention {
+			delete(c.loaded, id)
+			delete(c.starts, id)
+			changed = true
+		}
 	}
+	if changed {
+		c.evictEntries(st)
+	}
+	c.scheduleExpiry(st, now, retention)
+	return nil
+}
+
+// load reads a conversation's context range into st (and head) and notes
+// where it starts.
+func (c *coldRecords) load(st, head *State, id ConversationID) error {
+	entries, err := rangeEntries(st, id)
+	if err != nil {
+		return err
+	}
+	start := EntryID(0)
+	for i := len(entries) - 1; i >= 0; i-- {
+		if isHeadMarker(entries[i]) {
+			start = markerBound(entries[i])
+			break
+		}
+	}
+	for i := range entries {
+		entry := entries[i]
+		if st.Entries[entry.ID] == nil {
+			st.Entries[entry.ID] = &entry
+		}
+		if head != nil && head != st && head.Entries[entry.ID] == nil {
+			head.Entries[entry.ID] = &entry
+		}
+	}
+	c.starts[id] = start
+	return nil
+}
+
+// evictEntries removes from st the entries no loaded conversation keeps.
+func (c *coldRecords) evictEntries(st *State) {
 	keep := map[ConversationID]EntryID{}
-	for id := range st.Conversations {
+	for id := range c.loaded {
 		start := c.starts[id]
 		seen := map[ConversationID]bool{}
 		for at := id; at != 0 && !seen[at]; {
@@ -216,26 +264,48 @@ func (c *coldRecords) keepEntries(st *State, delta *StateDelta, all bool) error 
 			if current, ok := keep[at]; !ok || start < current {
 				keep[at] = start
 			}
-			parent := st.Conversations[at]
-			if parent == nil {
+			conversation := st.Conversations[at]
+			if conversation == nil {
 				break
 			}
-			at = parent.Parent
+			at = conversation.Parent
 		}
 	}
 	for id, e := range st.Entries {
-		if from, ok := keep[e.Conversation]; ok && e.ID < from {
+		if from, ok := keep[e.Conversation]; !ok || e.ID < from {
 			delete(st.Entries, id)
 		}
 	}
-	return nil
 }
+
+// scheduleExpiry arms the sweep that unloads the next idle conversation, for
+// a Session that publishes nothing meanwhile.
+func (c *coldRecords) scheduleExpiry(st *State, now time.Time, retention time.Duration) {
+	var next time.Time
+	for id, touched := range c.loaded {
+		if conversation := st.Conversations[id]; conversation != nil && conversation.Busy == 0 {
+			if at := touched.Add(retention); next.IsZero() || at.Before(next) {
+				next = at
+			}
+		}
+	}
+	if c.expiry != nil {
+		c.expiry.Stop()
+		c.expiry = nil
+	}
+	if !next.IsZero() && c.sweep != nil && retention < maxRetention {
+		c.expiry = time.AfterFunc(next.Sub(now), c.sweep)
+	}
+}
+
+// maxRetention stands for an unlimited retention (math.Inf(1)).
+const maxRetention = time.Duration(1<<63 - 1)
 
 // loadResidentState loads what a bounded Session keeps at open (plan 0008):
 // the header, live tasks, and open submissions (LoadResident), every
-// conversation, the documents of the session, of each conversation, and of
-// each live task (an ended task's documents are retired with it), and each
-// conversation's context range. ok is false for a store an older version
+// conversation, and the documents of the session, of each conversation, and
+// of each live task (an ended task's documents are retired with it). Context
+// ranges load as conversations are used. ok is false for a store an older version
 // wrote, which must be loaded whole to be upgraded; nil for an empty store.
 func loadResidentState(ctx context.Context, records RecordStorage) (st *State, ok bool, err error) {
 	st, err = records.LoadResident(ctx)
@@ -290,18 +360,6 @@ func loadResidentState(ctx context.Context, records RecordStorage) (st *State, o
 				break
 			}
 			cursor = page.Next
-		}
-	}
-	// Each conversation's context range, read from storage.
-	view := &State{Conversations: st.Conversations, cold: &coldRecords{storage: records, fail: func(error) {}}}
-	for id := range st.Conversations {
-		entries, err := rangeEntries(view, id)
-		if err != nil {
-			return nil, false, err
-		}
-		for i := range entries {
-			entry := entries[i]
-			st.Entries[entry.ID] = &entry
 		}
 	}
 	return st, true, nil
