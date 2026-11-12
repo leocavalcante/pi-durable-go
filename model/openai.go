@@ -47,6 +47,15 @@ type OpenAI struct {
 	// as max_completion_tokens (or max_tokens where pi-ai sends that),
 	// clamped to fit Window with pi-ai's safety margins; zero sends none.
 	MaxTokens int
+	// Reasoning marks a reasoning model (pi-ai model.reasoning): the
+	// request's thinking level, clamped to the levels it supports, is sent
+	// as reasoning_effort (pi-ai's OpenAI-style format).
+	Reasoning bool
+	// ThinkingLevelMap is pi-ai's model.thinkingLevelMap: the value sent
+	// for a level, nil for a level the model does not support; a level it
+	// does not name is sent as it is, except xhigh and max, which a model
+	// supports only when they are named.
+	ThinkingLevelMap map[string]*string
 }
 
 var (
@@ -300,6 +309,7 @@ type openAIRequest struct {
 	PromptCacheRetention string          `json:"prompt_cache_retention,omitempty"`
 	StreamOptions        *streamOptions  `json:"stream_options,omitempty"`
 	Store                *bool           `json:"store,omitempty"`
+	ReasoningEffort      string          `json:"reasoning_effort,omitempty"`
 	MaxCompletionTokens  int             `json:"max_completion_tokens,omitempty"`
 	MaxTokens            int             `json:"max_tokens,omitempty"`
 	Tools                []openAITool    `json:"tools,omitempty"`
@@ -666,6 +676,18 @@ func (o OpenAI) compatFields(payload *openAIRequest, req durable.ModelRequest) {
 	if retention == "long" && longSupported {
 		payload.PromptCacheRetention = "24h"
 	}
+	// OpenAI-style reasoning_effort (pi-ai's default thinking format).
+	supportsEffort := !(has("api.x.ai") || zai || moonshot || together || cloudflareGateway || nvidia || antLing)
+	if o.Reasoning && supportsEffort {
+		if level := o.clampThinkingLevel(req.ThinkingLevel); level != "off" {
+			payload.ReasoningEffort = level
+			if mapped, ok := o.ThinkingLevelMap[level]; ok && mapped != nil {
+				payload.ReasoningEffort = *mapped
+			}
+		} else if off, ok := o.ThinkingLevelMap["off"]; ok && off != nil {
+			payload.ReasoningEffort = *off
+		}
+	}
 	if n := o.outputLimit(req.Messages); n > 0 {
 		if deepSeek || has("chutes.ai") || moonshot || cloudflareGateway || together || nvidia || antLing || zai {
 			payload.MaxTokens = n
@@ -692,4 +714,58 @@ func (o OpenAI) outputLimit(messages []durable.Message) int {
 		room = min(minWithRatio, o.Window-input-safetyTokens)
 	}
 	return min(o.MaxTokens, max(1, room))
+}
+
+// thinkingLevels are pi-ai's extended thinking levels, in order.
+var thinkingLevels = []string{"off", "minimal", "low", "medium", "high", "xhigh", "max"}
+
+// clampThinkingLevel is pi-ai's clampThinkingLevel: a supported level stays;
+// another becomes the nearest supported one above it, else below it.
+func (o OpenAI) clampThinkingLevel(level string) string {
+	if level == "" {
+		level = "off"
+	}
+	supported := func(candidate string) bool {
+		if !o.Reasoning {
+			return candidate == "off"
+		}
+		mapped, named := o.ThinkingLevelMap[candidate]
+		if named && mapped == nil {
+			return false
+		}
+		if candidate == "xhigh" || candidate == "max" {
+			return named
+		}
+		return true
+	}
+	first := "off"
+	for _, candidate := range thinkingLevels {
+		if supported(candidate) {
+			first = candidate
+			break
+		}
+	}
+	if supported(level) {
+		return level
+	}
+	index := -1
+	for i, candidate := range thinkingLevels {
+		if candidate == level {
+			index = i
+		}
+	}
+	if index < 0 {
+		return first
+	}
+	for i := index; i < len(thinkingLevels); i++ {
+		if supported(thinkingLevels[i]) {
+			return thinkingLevels[i]
+		}
+	}
+	for i := index - 1; i >= 0; i-- {
+		if supported(thinkingLevels[i]) {
+			return thinkingLevels[i]
+		}
+	}
+	return first
 }

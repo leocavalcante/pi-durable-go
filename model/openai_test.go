@@ -3,6 +3,7 @@ package model
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -174,5 +175,37 @@ func TestOpenAISendsThePayloadItsHookReturns(t *testing.T) {
 	}
 	if api != "openai-completions" || got["user"] != "hooked" || got["model"] != "gpt-test" {
 		t.Fatalf("api=%q body=%v", api, got)
+	}
+}
+
+// Expectations are pi-ai 1.5.2's openai-completions reasoning_effort for the
+// same models and levels.
+func TestOpenAIReasoningEffortIsPiAis(t *testing.T) {
+	str := func(s string) *string { return &s }
+	models := []OpenAI{
+		{BaseURL: "https://api.openai.com/v1", Reasoning: true},
+		{BaseURL: "https://api.openai.com/v1", Reasoning: true, ThinkingLevelMap: map[string]*string{"off": str("none"), "minimal": nil}},
+		{BaseURL: "https://api.openai.com/v1", Reasoning: true, ThinkingLevelMap: map[string]*string{"xhigh": str("xhigh")}},
+		{BaseURL: "https://api.openai.com/v1"},
+	}
+	want := []string{"", "", "minimal", "high", "high", "high", "none", "none", "low", "high", "high", "high", "", "", "minimal", "high", "xhigh", "xhigh", "", "", "", "", "", ""}
+	i := 0
+	for _, m := range models {
+		for _, level := range []string{"", "off", "minimal", "high", "xhigh", "max"} {
+			var effort string
+			_, _ = m.Generate(context.Background(), durable.ModelRequest{Model: durable.ModelRef{ID: "o"}, ThinkingLevel: level, Messages: []durable.Message{{Role: "user", Content: "hi"}},
+				OnPayload: func(_ context.Context, _ string, payload json.RawMessage) (json.RawMessage, error) {
+					var body struct {
+						Effort string `json:"reasoning_effort"`
+					}
+					_ = json.Unmarshal(payload, &body)
+					effort = body.Effort
+					return nil, errors.New("captured")
+				}}, nil)
+			if effort != want[i] {
+				t.Errorf("model %d level %q: %q, want %q", i/6, level, effort, want[i])
+			}
+			i++
+		}
 	}
 }

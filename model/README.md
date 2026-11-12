@@ -69,7 +69,7 @@ These tests use temporary auth/model files and block non-local fetches. They do 
 OPENAI_API_KEY=... go run ./examples/chat -adapter openai -model YOUR_MODEL_ID -prompt 'Hello'
 ```
 
-This adapter has no auth resolution/OAuth, provider catalog, provider-specific conversions, reasoning mapping, or cost accounting. It sends the fields pi-ai's `openai-completions` adapter derives from the base URL (its `detectCompat`):
+This adapter has no auth resolution/OAuth, provider catalog, provider-specific conversions, or cost accounting. For a reasoning model (`Reasoning`, with pi-ai's `ThinkingLevelMap`), it sends the request's thinking level as `reasoning_effort`, clamped and mapped as pi-ai's OpenAI-style format does. Provider thinking formats such as DeepSeek's, OpenRouter's, Z.ai's, Qwen's, and Together's are not ported. It sends the fields pi-ai's `openai-completions` adapter derives from the base URL (its `detectCompat`):
 - `store: false` except on the endpoints pi-ai treats as non-standard;
 - the session ID as `prompt_cache_key` on OpenAI's endpoint, or with long cache retention where supported, which also sends `prompt_cache_retention: "24h"`;
 - with `MaxTokens` (pi-ai's `model.maxTokens`), the output limit as `max_completion_tokens`, or `max_tokens` where pi-ai sends that. It is clamped to fit `Window` with pi-ai's margins.
