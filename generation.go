@@ -918,7 +918,9 @@ func buildRequest(ctx context.Context, r *TaskRuntime, state *State, c Conversat
 	shown := replaySections(view.messages)
 	registry := r.Registry()
 	var desired orderedText
-	sections := registry.sections(c.Agent)
+	// A wrap that panics is reported, as upstream's resolveAgent does.
+	reportWrap := func(err error, extension string) { r.reportExtension(err, extension) }
+	sections := registry.sections(c.Agent, reportWrap)
 	var input PromptInput
 	if len(sections) > 0 {
 		input = PromptInput{ConversationID: c.ID, Conversation: *cloneRecord(&c), Agent: resolveAgent(registry, c.Agent), Shown: map[string]string{}, Read: r.h}
@@ -961,7 +963,7 @@ func buildRequest(ctx context.Context, r *TaskRuntime, state *State, c Conversat
 		desired.set("instructions", "<instructions>\n"+*c.Agent.Instructions+"\n</instructions>")
 	}
 	var tools []ToolSpec
-	for _, tool := range offeredTools(registry.Tools(c.Agent), c.Agent.ModelTools) {
+	for _, tool := range offeredTools(registry.tools(c.Agent, reportWrap), c.Agent.ModelTools) {
 		tools = append(tools, tool.ToolSpec)
 	}
 	planned := planSystemEntries(view, desired, tools)

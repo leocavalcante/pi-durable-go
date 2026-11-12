@@ -3,6 +3,7 @@ package durable
 import (
 	"fmt"
 	"regexp"
+	"sort"
 	"sync"
 )
 
@@ -204,6 +205,16 @@ func validateExtension(ext Extension) error {
 		}
 		sections[section.Name] = true
 	}
+	for name, wrap := range ext.WrapTools {
+		if name == "" || wrap == nil {
+			return fmt.Errorf("%w: a tool wrap needs a name and a function", ErrInvalid)
+		}
+	}
+	for name, wrap := range ext.WrapSections {
+		if name == "" || wrap == nil {
+			return fmt.Errorf("%w: a section wrap needs a name and a function", ErrInvalid)
+		}
+	}
 	return nil
 }
 
@@ -233,6 +244,12 @@ func (s *RegistrySnapshot) resolved(kind string) (resolvedTask, bool) {
 	return task, ok
 }
 func (s *RegistrySnapshot) Tools(agent Agent) []ToolDefinition {
+	return s.tools(agent, nil)
+}
+
+// tools resolves an agent's enabled tools; report gets a wrap's panic with
+// the wrapping extension's name.
+func (s *RegistrySnapshot) tools(agent Agent, report func(error, string)) []ToolDefinition {
 	if s == nil {
 		return nil
 	}
@@ -251,18 +268,24 @@ func (s *RegistrySnapshot) Tools(agent Agent) []ToolDefinition {
 		}
 	}
 	for _, ext := range selected {
-		for name, wrap := range ext.WrapTools {
-			if i, ok := positions[name]; ok {
-				if wrapped := wrap(tools[i]); wrapped.Name == name {
-					tools[i] = wrapped
-				} else {
-					tools = append(tools[:i], tools[i+1:]...)
-					delete(positions, name)
-					for k, p := range positions {
-						if p > i {
-							positions[k] = p - 1
-						}
-					}
+		for _, name := range sortedKeys(ext.WrapTools) {
+			i, ok := positions[name]
+			if !ok {
+				continue
+			}
+			wrapped, err := applyWrap(ext.WrapTools[name], tools[i])
+			if err != nil && report != nil {
+				report(err, ext.Name)
+			}
+			if err == nil && wrapped.Name == name {
+				tools[i] = wrapped
+				continue
+			}
+			tools = append(tools[:i], tools[i+1:]...)
+			delete(positions, name)
+			for k, p := range positions {
+				if p > i {
+					positions[k] = p - 1
 				}
 			}
 		}
@@ -294,20 +317,12 @@ func (s *RegistrySnapshot) Tools(agent Agent) []ToolDefinition {
 	return tools
 }
 func (s *RegistrySnapshot) Sections(agent Agent) []Section {
-	if s == nil {
-		return nil
+	var out []Section
+	for _, section := range s.sections(agent, nil) {
+		out = append(out, section.Section)
 	}
-	out := []Section{}
-	positions := map[string]int{}
-	for _, ext := range selectedExtensions(s.extensions, s.selection(agent)) {
-		for _, sec := range ext.Sections {
-			if i, ok := positions[sec.Name]; ok {
-				out[i] = sec
-			} else {
-				positions[sec.Name] = len(out)
-				out = append(out, sec)
-			}
-		}
+	if out == nil && s != nil {
+		out = []Section{}
 	}
 	return out
 }
@@ -324,14 +339,17 @@ type namedHooks struct {
 	extension string
 }
 
-// sections returns Sections with the extension that installed each.
-func (s *RegistrySnapshot) sections(agent Agent) []namedSection {
+// sections returns Sections with the extension whose code each runs: the
+// last selected one that provides or wraps it (upstream sectionExtension).
+// report gets a wrap's panic with the wrapping extension's name.
+func (s *RegistrySnapshot) sections(agent Agent, report func(error, string)) []namedSection {
 	if s == nil {
 		return nil
 	}
+	selected := selectedExtensions(s.extensions, s.selection(agent))
 	out := []namedSection{}
 	positions := map[string]int{}
-	for _, ext := range selectedExtensions(s.extensions, s.selection(agent)) {
+	for _, ext := range selected {
 		for _, sec := range ext.Sections {
 			named := namedSection{Section: sec, extension: ext.Name}
 			if i, ok := positions[sec.Name]; ok {
@@ -342,7 +360,50 @@ func (s *RegistrySnapshot) sections(agent Agent) []namedSection {
 			}
 		}
 	}
+	for _, ext := range selected {
+		for _, name := range sortedKeys(ext.WrapSections) {
+			i, ok := positions[name]
+			if !ok {
+				continue
+			}
+			wrapped, err := applyWrap(ext.WrapSections[name], out[i].Section)
+			if err != nil && report != nil {
+				report(err, ext.Name)
+			}
+			if err == nil && wrapped.Name == name {
+				out[i] = namedSection{Section: wrapped, extension: ext.Name}
+				continue
+			}
+			out = append(out[:i], out[i+1:]...)
+			delete(positions, name)
+			for k, p := range positions {
+				if p > i {
+					positions[k] = p - 1
+				}
+			}
+		}
+	}
 	return out
+}
+
+// applyWrap runs a wrap, turning a panic into an error.
+func applyWrap[T any](wrap func(T) T, target T) (out T, err error) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			err = fmt.Errorf("wrap panicked: %v", recovered)
+		}
+	}()
+	return wrap(target), nil
+}
+
+// sortedKeys orders a wrap map's names, so wraps apply deterministically.
+func sortedKeys[V any](m map[string]V) []string {
+	keys := make([]string, 0, len(m))
+	for key := range m {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 // hooks returns Hooks with the extension that installed each.
@@ -384,6 +445,13 @@ func cloneExtension(ext Extension) Extension {
 			wraps[key] = fn
 		}
 		ext.WrapTools = wraps
+	}
+	if ext.WrapSections != nil {
+		wraps := make(map[string]func(Section) Section, len(ext.WrapSections))
+		for key, fn := range ext.WrapSections {
+			wraps[key] = fn
+		}
+		ext.WrapSections = wraps
 	}
 	return ext
 }

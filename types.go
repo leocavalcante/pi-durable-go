@@ -683,13 +683,20 @@ type RunEndTask struct {
 	Kind  string
 	Input json.RawMessage
 }
+
+// Extension is a named set of tools, prompt sections, hooks, and tasks.
+// WrapTools and WrapSections wrap a selected tool or section by name, in
+// extension order (upstream wrapTool and wrapSection): a wrap that returns
+// another name, or panics, drops its target; one without a target does
+// nothing.
 type Extension struct {
-	Name      string
-	Tools     []ToolDefinition
-	Sections  []Section
-	Hooks     Hooks
-	Tasks     []TaskDefinition
-	WrapTools map[string]func(ToolDefinition) ToolDefinition
+	Name         string
+	Tools        []ToolDefinition
+	Sections     []Section
+	Hooks        Hooks
+	Tasks        []TaskDefinition
+	WrapTools    map[string]func(ToolDefinition) ToolDefinition
+	WrapSections map[string]func(Section) Section
 }
 type Settings struct {
 	// Retry is Pi Durable's settings.retry policy for generation and
