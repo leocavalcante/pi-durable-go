@@ -63,6 +63,9 @@ type State struct {
 	// transaction loaded to change: their values before it (cold.go).
 	preDocuments     map[string]*DocumentRecord
 	preConversations map[ConversationID]*ConversationRecord
+	// readDocuments are the documents a transaction read: a commit stores
+	// the held documents it read or wrote (upstream).
+	readDocuments map[string]bool
 }
 
 // Storage is owned by one Session. Commit must atomically publish next only if

@@ -132,6 +132,7 @@ func (s *State) mutDocument(key string) *DocumentRecord {
 	if s.base == nil {
 		return s.Documents[key]
 	}
+	s.noteRead(key)
 	return mutable(s.Documents, s.base.Documents, key)
 }
 

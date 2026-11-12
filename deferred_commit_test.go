@@ -64,7 +64,7 @@ func shownProgress(t *testing.T, h *Harness, cid ConversationID) string {
 
 func deferredWithin(ms float64) CommitOptions { return CommitOptions{Deferred: true, WithinMs: &ms} }
 
-func TestDeferredCommitIsShownAtOnceAndStoredWithTheNextStoredCommit(t *testing.T) {
+func TestDeferredCommitIsShownAtOnceAndStoredWithACommitThatReadsIt(t *testing.T) {
 	store := NewMemoryStorage()
 	h, cid := deferredHarness(t, store)
 	sequence := func() uint64 {
@@ -84,12 +84,24 @@ func TestDeferredCommitIsShownAtOnceAndStoredWithTheNextStoredCommit(t *testing.
 	if after := sequence(); after != before {
 		t.Fatalf("a held commit took sequence %d (was %d)", after, before)
 	}
-	// Any commit that reaches storage carries the held document with it.
+	// A stored commit that neither reads nor writes it leaves it held.
 	if err := h.Commit(context.Background(), touchStorage); err != nil {
 		t.Fatal(err)
 	}
+	if got := storedProgress(t, store, cid); got != `{"n":0}` {
+		t.Fatalf("stored with an unrelated commit=%s", got)
+	}
+	// One that reads it stores it with itself (upstream).
+	if err := h.Commit(context.Background(), func(tx *Tx) error {
+		if _, err := tx.Document(progressDocument, uint64(cid)); err != nil {
+			return err
+		}
+		return touchStorage(tx)
+	}); err != nil {
+		t.Fatal(err)
+	}
 	if got := storedProgress(t, store, cid); got != `{"n":1}` {
-		t.Fatalf("stored after a stored commit=%s", got)
+		t.Fatalf("stored with a commit that read it=%s", got)
 	}
 }
 

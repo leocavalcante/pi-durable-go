@@ -288,6 +288,7 @@ func (s *Session) admitLocked(ctx context.Context, fn func(*Tx) error, internal,
 		return nil, nil
 	}
 	if options.Deferred && !s.fullWrite && holdable(base, candidate, delta) {
+		candidate.readDocuments = nil
 		return s.holdLocked(candidate, delta, publish, within), nil
 	}
 	if base.Sequence == ^uint64(0) {
@@ -297,8 +298,9 @@ func (s *Session) admitLocked(ctx context.Context, fn func(*Tx) error, internal,
 	candidate.Sequence = base.Sequence + 1
 	candidate.base = nil
 	delta.Sequence = candidate.Sequence
-	// Documents deferred commits changed are stored in front of this one.
-	s.foldHeldLocked(candidate, delta)
+	// Held documents this commit read or wrote are stored with it.
+	s.foldHeldLocked(candidate, delta, false)
+	candidate.readDocuments = nil
 	admitted = s.admitStoredLocked(candidate, delta, publish)
 	admitted.pre = pre
 	return admitted, nil
@@ -406,24 +408,30 @@ func (s *Session) publishMemoryLocked(item *pendingCommit) {
 
 // foldHeldLocked adds the held documents' current values to a commit being
 // stored, which stores them in front of its own changes.
-func (s *Session) foldHeldLocked(candidate *State, delta *StateDelta) {
+func (s *Session) foldHeldLocked(candidate *State, delta *StateDelta, all bool) {
 	if len(s.held) == 0 {
 		return
 	}
+	// A commit stores the held documents it read or wrote, so what it
+	// derived from them is never stored without them (upstream); a deadline
+	// or close stores all of them.
+	folded := false
 	for key := range s.held {
-		if doc := candidate.Documents[key]; doc != nil {
-			if _, own := delta.Documents[key]; !own {
-				if delta.Documents == nil {
-					delta.Documents = map[string]*DocumentRecord{}
-				}
-				delta.Documents[key] = doc
-			}
+		_, written := delta.Documents[key]
+		if !all && !written && !candidate.readDocuments[key] {
+			continue
 		}
+		if doc := candidate.Documents[key]; doc != nil && !written {
+			if delta.Documents == nil {
+				delta.Documents = map[string]*DocumentRecord{}
+			}
+			delta.Documents[key] = doc
+		}
+		delete(s.held, key)
+		folded = true
 	}
-	s.held = nil
-	if s.heldTimer != nil {
-		s.heldTimer()
-		s.heldTimer = nil
+	if folded {
+		s.armHeldLocked()
 	}
 }
 
@@ -457,7 +465,7 @@ func (s *Session) storeHeld(wait bool) {
 	candidate.base = nil
 	candidate.Sequence = s.head.Sequence + 1
 	delta := &StateDelta{Version: candidate.Version, Sequence: candidate.Sequence, NextID: candidate.NextID, Root: candidate.Root}
-	s.foldHeldLocked(candidate, delta)
+	s.foldHeldLocked(candidate, delta, true)
 	admitted := s.admitStoredLocked(candidate, delta, false)
 	s.mu.Unlock()
 	if wait {
@@ -829,10 +837,31 @@ func (s *Session) recordCommitted(storeCaughtUp ...bool) {
 		if held != nil && s.cold != nil {
 			held = s.residentJSON(held)
 		}
+		if held != nil && len(s.held) > 0 {
+			// Documents still held are stored later (with a commit that
+			// reads or writes them, at their deadline, or at close).
+			held, data = s.withoutHeld(held), s.withoutHeld(data)
+		}
 		if held != nil && !bytes.Equal(held, data) {
 			panic(fmt.Sprintf("durable: storage diverged from the committed state: %s", firstDifference(data, held)))
 		}
 	}
+}
+
+// withoutHeld is a State's JSON without the documents still held.
+func (s *Session) withoutHeld(data []byte) []byte {
+	var st State
+	if err := json.Unmarshal(data, &st); err != nil {
+		panic(fmt.Sprintf("durable: state is not JSON: %v", err))
+	}
+	for key := range s.held {
+		delete(st.Documents, key)
+	}
+	out, err := json.Marshal(st)
+	if err != nil {
+		panic(fmt.Sprintf("durable: state is not JSON: %v", err))
+	}
+	return out
 }
 
 // residentJSON is a stored State's JSON with only the tasks and submissions

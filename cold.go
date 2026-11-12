@@ -309,10 +309,23 @@ func (c *coldRecords) forgetDocuments(delta *StateDelta) {
 // does not keep, read through the cold cache. Never mutate the result. Nil
 // when none exists.
 func (s *State) document(key string) (*DocumentRecord, error) {
+	s.noteRead(key)
 	if d := s.Documents[key]; d != nil || s.cold == nil || s.removedDocuments[key] {
 		return d, nil
 	}
 	return s.cold.document(key)
+}
+
+// noteRead records a document a transaction reads (a candidate State has a
+// base); published States record nothing.
+func (s *State) noteRead(key string) {
+	if s.base == nil {
+		return
+	}
+	if s.readDocuments == nil {
+		s.readDocuments = map[string]bool{}
+	}
+	s.readDocuments[key] = true
 }
 
 // conversationDocuments are a conversation's documents: the State's own
@@ -364,7 +377,8 @@ func (s *State) conversationDocuments(cid ConversationID) ([]*DocumentRecord, er
 		s.cold.mu.Unlock()
 	}
 	out := make([]*DocumentRecord, 0, len(own))
-	for _, doc := range own {
+	for key, doc := range own {
+		s.noteRead(key)
 		out = append(out, doc)
 	}
 	return out, nil
