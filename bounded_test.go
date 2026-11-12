@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -469,4 +470,60 @@ func TestIdleConversationRecordsLeaveMemory(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = root
+}
+
+// aheadStorage applies an armed commit, then holds its call open: storage is
+// ahead of the published State meanwhile.
+type aheadStorage struct {
+	*MemoryStorage
+	armed   atomic.Bool
+	stored  chan struct{}
+	release chan struct{}
+}
+
+func (s *aheadStorage) CommitDelta(ctx context.Context, expected uint64, delta *StateDelta) error {
+	err := s.MemoryStorage.CommitDelta(ctx, expected, delta)
+	if s.armed.CompareAndSwap(true, false) {
+		close(s.stored)
+		<-s.release
+	}
+	return err
+}
+
+func (s *aheadStorage) CommitDeltas(ctx context.Context, expected uint64, deltas []*StateDelta) (int, error) {
+	return commitEach(ctx, s, expected, deltas)
+}
+
+func TestSnapshotWaitsForStoredCommitsToPublish(t *testing.T) {
+	ctx := context.Background()
+	store := &aheadStorage{MemoryStorage: NewMemoryStorage(), stored: make(chan struct{}), release: make(chan struct{})}
+	h, err := Open(ctx, store, HarnessOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer h.Close(ctx)
+	store.armed.Store(true)
+	committed := make(chan error, 1)
+	go func() { committed <- h.Commit(ctx, touchStorage) }()
+	<-store.stored
+	snapshots := make(chan *State, 1)
+	go func() {
+		state, err := h.Snapshot(ctx)
+		if err != nil {
+			t.Error(err)
+		}
+		snapshots <- state
+	}()
+	select {
+	case <-snapshots:
+		t.Fatal("a snapshot read storage ahead of the published State")
+	case <-time.After(50 * time.Millisecond):
+	}
+	close(store.release)
+	if err := <-committed; err != nil {
+		t.Fatal(err)
+	}
+	if state := <-snapshots; state == nil || state.Documents[documentKey(touchDocument, 0)] == nil {
+		t.Fatalf("snapshot after publication=%+v", state)
+	}
 }

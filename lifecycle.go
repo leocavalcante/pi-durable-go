@@ -96,6 +96,9 @@ func (s *Session) failLocked(cause error) {
 	first := s.failure.CompareAndSwap(nil, &SessionFailedError{cause: cause})
 	s.sealAdmission()
 	s.closeWatchersLocked()
+	if s.published != nil {
+		s.published.Broadcast()
+	}
 	if first {
 		s.endObserversLocked(WatchEnd{Kind: "failed", Err: cause})
 	}

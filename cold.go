@@ -38,6 +38,9 @@ type coldRecords struct {
 	// conversations holds conversation records a bounded Session evicted or
 	// read; dropped when a commit changes one (forgetConversations).
 	conversations *lru[ConversationID, *ConversationRecord]
+	// invalidations counts the forgets of mutable cached records: a read
+	// caches its result only if none happened while it read storage.
+	invalidations uint64
 	// starts are where each loaded conversation's context range starts, and
 	// loaded when a published commit last touched it (entries.go).
 	starts map[ConversationID]EntryID
@@ -238,6 +241,7 @@ func (c *coldRecords) document(key string) (*DocumentRecord, error) {
 		c.mu.Unlock()
 		return d, nil
 	}
+	invalidations := c.invalidations
 	c.mu.Unlock()
 	d, err := c.storage.Document(context.Background(), key)
 	if err != nil {
@@ -247,7 +251,9 @@ func (c *coldRecords) document(key string) (*DocumentRecord, error) {
 	}
 	if d != nil {
 		c.mu.Lock()
-		c.documents.put(key, d)
+		if c.invalidations == invalidations {
+			c.documents.put(key, d)
+		}
 		c.mu.Unlock()
 	}
 	return d, nil
@@ -260,6 +266,7 @@ func (c *coldRecords) forgetDocuments(delta *StateDelta) {
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	c.invalidations++
 	for key := range delta.Documents {
 		c.documents.remove(key)
 	}
@@ -341,6 +348,7 @@ func (c *coldRecords) conversation(id ConversationID) (*ConversationRecord, erro
 		c.mu.Unlock()
 		return conversation, nil
 	}
+	invalidations := c.invalidations
 	c.mu.Unlock()
 	conversation, err := c.storage.Conversation(context.Background(), id)
 	if err != nil {
@@ -350,7 +358,9 @@ func (c *coldRecords) conversation(id ConversationID) (*ConversationRecord, erro
 	}
 	if conversation != nil {
 		c.mu.Lock()
-		c.conversations.put(id, conversation)
+		if c.invalidations == invalidations {
+			c.conversations.put(id, conversation)
+		}
 		c.mu.Unlock()
 	}
 	return conversation, nil
@@ -364,6 +374,7 @@ func (c *coldRecords) forgetConversations(delta *StateDelta) {
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	c.invalidations++
 	for id := range delta.Conversations {
 		c.conversations.remove(id)
 	}

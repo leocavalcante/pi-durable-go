@@ -53,6 +53,8 @@ type Session struct {
 	pending []*pendingCommit
 	writing bool
 	idle    *sync.Cond
+	// published signals each batch the writer published, and failure.
+	published *sync.Cond
 	// held are documents deferred commits changed and no store has carried
 	// yet, with the time each must be stored by; heldTimer stores them then.
 	held      map[string]time.Time
@@ -126,6 +128,7 @@ func newSession(ctx context.Context, storage Storage, now func() time.Time, boun
 	}
 	s := &Session{storage: storage, state: st, head: st, now: now, watchers: map[*stateWatcher]struct{}{}, closing: make(chan struct{}), closeDone: make(chan struct{})}
 	s.idle = sync.NewCond(&s.mu)
+	s.published = sync.NewCond(&s.mu)
 	// Bounded memory needs record reads and no whole-State write: an
 	// upgraded State is written whole by its first commit, so it opens in
 	// full mode once.
@@ -553,6 +556,7 @@ func (s *Session) writeLoop() {
 		if err != nil {
 			failure()
 		}
+		s.published.Broadcast()
 		s.mu.Unlock()
 	}
 }
@@ -659,37 +663,49 @@ func (s *Session) Snapshot(ctx context.Context) (*State, error) {
 		return nil, err
 	}
 	s.verifyCommitted("a snapshot")
-	return s.wholeStateLocked()
+	for {
+		state, ahead, err := s.wholeStateLocked()
+		if err != nil || !ahead {
+			return state, err
+		}
+		// Storage holds commits not published yet: wait for them.
+		s.published.Wait()
+		if err := s.Err(); err != nil {
+			return nil, err
+		}
+	}
 }
 
 // wholeStateLocked is a detached copy of the whole committed State. A
-// bounded Session adds the ended tasks and settled submissions it no longer
-// keeps from storage, which reads every stored record. When storage is ahead
-// of the published State (a batch stored, not all published yet), records
-// created by those commits (IDs from NextID on) are left out. The caller
-// holds s.mu.
-func (s *Session) wholeStateLocked() (*State, error) {
+// bounded Session adds the records it no longer keeps from storage, which
+// reads every stored record; ahead reports storage holding commits not
+// published yet, whose records could be newer, and no State is returned
+// then. The caller holds s.mu.
+func (s *Session) wholeStateLocked() (*State, bool, error) {
 	out, err := cloneState(s.state)
 	if err != nil || s.cold == nil {
-		return out, err
+		return out, false, err
 	}
 	stored, err := s.storage.Load(context.Background())
 	if err != nil || stored == nil {
-		return out, err
+		return out, false, err
 	}
-	published := func(id uint64) bool { return stored.Sequence <= out.Sequence || id < out.NextID }
+	if stored.Sequence > out.Sequence {
+		// Records storage holds may be newer than the published ones.
+		return nil, true, nil
+	}
 	for id, task := range stored.Tasks {
-		if out.Tasks[id] == nil && published(uint64(id)) && task.Status == "terminal" {
+		if out.Tasks[id] == nil && task.Status == "terminal" {
 			out.Tasks[id] = task
 		}
 	}
 	for id, sub := range stored.Submissions {
-		if out.Submissions[id] == nil && published(uint64(id)) && !residentSubmission(sub) {
+		if out.Submissions[id] == nil && !residentSubmission(sub) {
 			out.Submissions[id] = sub
 		}
 	}
 	for id, e := range stored.Entries {
-		if out.Entries[id] == nil && published(uint64(id)) {
+		if out.Entries[id] == nil {
 			out.Entries[id] = e
 		}
 	}
@@ -699,11 +715,11 @@ func (s *Session) wholeStateLocked() (*State, error) {
 		}
 	}
 	for id, conversation := range stored.Conversations {
-		if out.Conversations[id] == nil && published(uint64(id)) {
+		if out.Conversations[id] == nil {
 			out.Conversations[id] = conversation
 		}
 	}
-	return out, nil
+	return out, false, nil
 }
 
 // view returns the committed State for internal reading (see Harness.read):
@@ -863,10 +879,21 @@ func (s *Session) watch(ctx context.Context, shared bool) (<-chan *State, func()
 	}
 	initial := s.state
 	if !shared {
-		var err error
-		if initial, err = s.wholeStateLocked(); err != nil {
-			s.mu.Unlock()
-			return nil, nil, err
+		for {
+			whole, ahead, err := s.wholeStateLocked()
+			if err != nil {
+				s.mu.Unlock()
+				return nil, nil, err
+			}
+			if !ahead {
+				initial = whole
+				break
+			}
+			s.published.Wait()
+			if err := s.Err(); err != nil {
+				s.mu.Unlock()
+				return nil, nil, err
+			}
 		}
 	}
 	w := &stateWatcher{ch: make(chan *State, 1), done: make(chan struct{}), shared: shared}
@@ -931,7 +958,12 @@ func (s *Session) offer(w *stateWatcher, state *State) {
 	if !w.shared {
 		var err error
 		if s.cold != nil && state == s.state {
-			v, err = s.wholeStateLocked()
+			var ahead bool
+			// Storage ahead of this publication: a later one offers the
+			// newest State (watches are coalescing).
+			if v, ahead, err = s.wholeStateLocked(); ahead {
+				return
+			}
 		} else {
 			v, err = cloneState(state)
 		}
