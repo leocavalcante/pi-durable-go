@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"testing"
 	"time"
 )
@@ -301,5 +302,118 @@ func TestBusyAndRetainedConversationsKeepTheirRanges(t *testing.T) {
 	waitSettled(t, h, submit(t, root, SubmissionRequest{Content: "one"}))
 	if residentEntries(h, root.ID()) == 0 {
 		t.Fatal("a conversation dropped its range within the retention")
+	}
+}
+
+func residentDocuments(h *Harness, cid ConversationID) int {
+	h.session.mu.Lock()
+	defer h.session.mu.Unlock()
+	n := 0
+	for _, doc := range h.session.state.Documents {
+		if doc.Scope == "conversation" && ConversationID(doc.ScopeID) == cid {
+			n++
+		}
+	}
+	return n
+}
+
+// idleDocuments opens a Harness without context retention over memory
+// storage, with a conversation holding two documents, and waits until they
+// left memory.
+func idleDocuments(t *testing.T, store Storage) (*Harness, *Conversation, DocumentDefinition, DocumentDefinition) {
+	t.Helper()
+	h, err := Open(context.Background(), store, HarnessOptions{Settings: Settings{ContextRetentionMs: ptr(0.0)}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = h.Close(context.Background()) })
+	root := testRoot(t, h)
+	notes := DocumentDefinition{Kind: "test.notes", Version: 1, Scope: "conversation", History: "rewindable", Fork: "current"}
+	gone := DocumentDefinition{Kind: "test.gone", Version: 1, Scope: "conversation"}
+	if err := h.Commit(context.Background(), func(tx *Tx) error {
+		if err := tx.PutDocument(notes, uint64(root.ID()), json.RawMessage(`{"n":1}`)); err != nil {
+			return err
+		}
+		return tx.PutDocument(gone, uint64(root.ID()), json.RawMessage(`{}`))
+	}); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for residentDocuments(h, root.ID()) > 0 {
+		if time.Now().After(deadline) {
+			t.Fatalf("%d documents kept by an idle conversation", residentDocuments(h, root.ID()))
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	return h, root, notes, gone
+}
+
+func TestIdleConversationsDropTheirDocuments(t *testing.T) {
+	ctx := context.Background()
+	h, root, notes, gone := idleDocuments(t, NewMemoryStorage())
+	type doc struct{ N int }
+	if got, err := ReadDocument[doc](ctx, h, notes, uint64(root.ID())); err != nil || got.N != 1 {
+		t.Fatalf("read of an unloaded document=%+v error=%v", got, err)
+	}
+	// Updating it keeps its stored history; retiring the other removes it.
+	if err := h.Commit(ctx, func(tx *Tx) error {
+		if err := tx.PutDocument(notes, uint64(root.ID()), json.RawMessage(`{"n":2}`)); err != nil {
+			return err
+		}
+		return tx.RetireDocument(gone, uint64(root.ID()))
+	}); err != nil {
+		t.Fatal(err)
+	}
+	state, err := h.Snapshot(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	record := state.Documents[documentKey(notes, uint64(root.ID()))]
+	if record == nil || len(record.Revisions) != 2 || string(record.Value) != `{"n":2}` {
+		t.Fatalf("notes after an update=%+v", record)
+	}
+	if state.Documents[documentKey(gone, uint64(root.ID()))] != nil {
+		t.Fatal("a retired document survived")
+	}
+	// Views and forks see the stored documents.
+	view, err := root.View(ctx)
+	if err != nil || string(view.Documents["test.notes"]) != `{"n":2}` {
+		t.Fatalf("view documents=%v error=%v", view.Documents, err)
+	}
+	entries, _ := root.Entries(ctx)
+	fork, err := root.Fork(ctx, entries[len(entries)-1].ID, ConversationOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := ReadDocument[doc](ctx, h, notes, uint64(fork.ID())); err != nil || got.N != 2 {
+		t.Fatalf("forked notes=%+v error=%v", got, err)
+	}
+}
+
+func TestHeldDocumentsStayUntilStored(t *testing.T) {
+	ctx := context.Background()
+	store := NewMemoryStorage()
+	h, root, notes, _ := idleDocuments(t, store)
+	// Load the conversation, hold a change, and let it idle again.
+	if err := h.Commit(ctx, func(tx *Tx) error { return tx.PutDocument(notes, uint64(root.ID()), json.RawMessage(`{"n":5}`)) }); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.CommitWith(ctx, deferredWithin(math.Inf(1)), func(tx *Tx) error {
+		return tx.PutDocument(notes, uint64(root.ID()), json.RawMessage(`{"n":6}`))
+	}); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(50 * time.Millisecond) // sweeps run meanwhile
+	type doc struct{ N int }
+	if got, err := ReadDocument[doc](ctx, h, notes, uint64(root.ID())); err != nil || got.N != 6 {
+		t.Fatalf("held value=%+v error=%v", got, err)
+	}
+	if err := h.Close(ctx); err != nil {
+		t.Fatal(err)
+	}
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	if value := string(store.state.Documents[documentKey(notes, uint64(root.ID()))].Value); value != `{"n":6}` {
+		t.Fatalf("stored at close=%s", value)
 	}
 }

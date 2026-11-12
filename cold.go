@@ -19,6 +19,7 @@ import (
 const (
 	coldTaskCapacity       = 256
 	coldSubmissionCapacity = 256
+	coldDocumentCapacity   = 256
 	// defaultContextRetention is upstream's settings.contextRetentionMs.
 	defaultContextRetention = 10 * time.Minute
 )
@@ -32,10 +33,13 @@ type coldRecords struct {
 	tasks       *lru[TaskID, *TaskRecord]
 	submissions *lru[SubmissionID, *SubmissionRecord]
 	entries     *lru[EntryID, *Entry]
+	documents   *lru[string, *DocumentRecord]
 	// starts are where each loaded conversation's context range starts, and
 	// loaded when a published commit last touched it (entries.go).
 	starts map[ConversationID]EntryID
 	loaded map[ConversationID]time.Time
+	// snapshot is loaded as published States carry it: immutable once set.
+	snapshot map[ConversationID]bool
 	// contextRetention is how long an idle conversation keeps its range;
 	// sweep unloads expired ones while nothing is published, at expiry.
 	contextRetention func() time.Duration
@@ -47,10 +51,17 @@ type coldRecords struct {
 }
 
 func newColdRecords(storage RecordStorage, fail func(error)) *coldRecords {
-	return &coldRecords{storage: storage, tasks: newLRU[TaskID, *TaskRecord](coldTaskCapacity),
-		submissions: newLRU[SubmissionID, *SubmissionRecord](coldSubmissionCapacity),
-		entries:     newLRU[EntryID, *Entry](coldEntryCapacity), starts: map[ConversationID]EntryID{}, loaded: map[ConversationID]time.Time{},
-		contextRetention: func() time.Duration { return defaultContextRetention }, fail: fail}
+	return &coldRecords{
+		storage:          storage,
+		tasks:            newLRU[TaskID, *TaskRecord](coldTaskCapacity),
+		submissions:      newLRU[SubmissionID, *SubmissionRecord](coldSubmissionCapacity),
+		entries:          newLRU[EntryID, *Entry](coldEntryCapacity),
+		documents:        newLRU[string, *DocumentRecord](coldDocumentCapacity),
+		starts:           map[ConversationID]EntryID{},
+		loaded:           map[ConversationID]time.Time{},
+		contextRetention: func() time.Duration { return defaultContextRetention },
+		fail:             fail,
+	}
 }
 
 func (c *coldRecords) task(id TaskID) (*TaskRecord, error) {
@@ -213,3 +224,107 @@ func (l *lru[K, V]) put(key K, value V) {
 }
 
 func (l *lru[K, V]) len() int { return l.order.Len() }
+
+// document reads a document a bounded Session does not keep; the cache
+// holds it until a commit writes or retires it (forgetDocuments).
+func (c *coldRecords) document(key string) (*DocumentRecord, error) {
+	c.mu.Lock()
+	if d, ok := c.documents.get(key); ok {
+		c.mu.Unlock()
+		return d, nil
+	}
+	c.mu.Unlock()
+	d, err := c.storage.Document(context.Background(), key)
+	if err != nil {
+		err = fmt.Errorf("durable: reading document %s: %w", key, err)
+		c.fail(err)
+		return nil, err
+	}
+	if d != nil {
+		c.mu.Lock()
+		c.documents.put(key, d)
+		c.mu.Unlock()
+	}
+	return d, nil
+}
+
+// forgetDocuments drops cached documents a published commit changed.
+func (c *coldRecords) forgetDocuments(delta *StateDelta) {
+	if len(delta.Documents) == 0 && len(delta.Removed.Documents) == 0 {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for key := range delta.Documents {
+		c.documents.remove(key)
+	}
+	for _, key := range delta.Removed.Documents {
+		c.documents.remove(key)
+	}
+}
+
+// document is a document record: the State's own, or one a bounded Session
+// does not keep, read through the cold cache. Never mutate the result. Nil
+// when none exists.
+func (s *State) document(key string) (*DocumentRecord, error) {
+	if d := s.Documents[key]; d != nil || s.cold == nil || s.removedDocuments[key] {
+		return d, nil
+	}
+	return s.cold.document(key)
+}
+
+// conversationDocuments are a conversation's documents: the State's own
+// when it keeps them all (a loaded conversation), else merged with storage's,
+// the State's own record of a document deciding. Never mutate the results.
+func (s *State) conversationDocuments(cid ConversationID) ([]*DocumentRecord, error) {
+	query := DocumentQuery{Scope: "conversation", ScopeID: uint64(cid)}
+	own := map[string]*DocumentRecord{}
+	for key, doc := range s.Documents {
+		if DocumentMatches(doc, query) {
+			own[key] = doc
+		}
+	}
+	if s.cold != nil && !s.loaded[cid] {
+		var cursor *ScanCursor
+		for {
+			page, err := s.cold.storage.ScanDocuments(context.Background(), query, 256, cursor)
+			if err != nil {
+				err = fmt.Errorf("durable: reading documents of conversation %d: %w", cid, err)
+				s.cold.fail(err)
+				return nil, err
+			}
+			for i := range page.Items {
+				doc := page.Items[i]
+				key := keyOfRecord(&doc)
+				if _, kept := own[key]; !kept && !s.removedDocuments[key] {
+					own[key] = &doc
+				}
+			}
+			if page.Next == nil {
+				break
+			}
+			cursor = page.Next
+		}
+	}
+	out := make([]*DocumentRecord, 0, len(own))
+	for _, doc := range own {
+		out = append(out, doc)
+	}
+	return out, nil
+}
+
+// keyOfRecord is a document record's storage key.
+func keyOfRecord(doc *DocumentRecord) string {
+	key := documentKey(DocumentDefinition{Kind: doc.Kind, Scope: doc.Scope}, doc.ScopeID)
+	if doc.Member != "" {
+		key += "/" + doc.Member
+	}
+	return key
+}
+
+func (l *lru[K, V]) remove(key K) {
+	if element, ok := l.items[key]; ok {
+		l.order.Remove(element)
+		delete(l.items, key)
+	}
+}

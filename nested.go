@@ -189,11 +189,19 @@ func (r *ToolRuntime) ExecuteTool(ctx context.Context, name string, args json.Ra
 // its entry in the single document earlier versions kept.
 func readNestedCall(state *State, caller TaskID, key string) (nestedCallState, error) {
 	var call nestedCallState
-	if doc := state.Documents[memberKey(nestedCallDocument, uint64(caller), key)]; doc != nil {
-		err := json.Unmarshal(doc.Value, &call)
+	member, err := state.document(memberKey(nestedCallDocument, uint64(caller), key))
+	if err != nil {
 		return call, err
 	}
-	if doc := state.Documents[documentKey(nestedCallsDocument, uint64(caller))]; doc != nil {
+	if member != nil {
+		err := json.Unmarshal(member.Value, &call)
+		return call, err
+	}
+	legacy, err := state.document(documentKey(nestedCallsDocument, uint64(caller)))
+	if err != nil {
+		return call, err
+	}
+	if doc := legacy; doc != nil {
 		var calls map[string]nestedCallState
 		if err := json.Unmarshal(doc.Value, &calls); err != nil {
 			return call, err

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"maps"
+	"sort"
 )
 
 // Copy-on-write transactions (plan 0006 M1). The committed State is never
@@ -111,6 +112,23 @@ func (s *State) mutDocument(key string) *DocumentRecord {
 	return mutable(s.Documents, s.base.Documents, key)
 }
 
+// mutStoredDocument is mutDocument that first loads into the candidate a
+// document a bounded Session does not keep, so the commit changes the
+// stored record.
+func (s *State) mutStoredDocument(key string) (*DocumentRecord, error) {
+	if s.Documents[key] == nil && s.cold != nil && s.base != nil && !s.removedDocuments[key] {
+		stored, err := s.cold.document(key)
+		if err != nil {
+			return nil, err
+		}
+		if stored != nil {
+			s.Documents[key] = cloneRecord(stored)
+			return s.Documents[key], nil
+		}
+	}
+	return s.mutDocument(key), nil
+}
+
 // detachChanges validates and detaches every record the candidate added or
 // cloned, collects them with the removed keys as the commit's delta, and
 // reports whether the candidate differs from base at all. With compare (a
@@ -147,6 +165,16 @@ func detachChanges(base, candidate *State, compare bool) (bool, *StateDelta, err
 		Tasks:         removedKeys(base.Tasks, candidate.Tasks),
 		Submissions:   removedKeys(base.Submissions, candidate.Submissions),
 		Documents:     removedKeys(base.Documents, candidate.Documents),
+	}
+	// Documents a bounded Session retired without holding them.
+	if len(candidate.removedDocuments) > 0 {
+		for key := range candidate.removedDocuments {
+			if candidate.Documents[key] == nil {
+				delta.Removed.Documents = append(delta.Removed.Documents, key)
+			}
+		}
+		sort.Strings(delta.Removed.Documents)
+		candidate.removedDocuments = nil
 	}
 	changed = changed || len(delta.Removed.Conversations)+len(delta.Removed.Entries)+len(delta.Removed.Tasks)+
 		len(delta.Removed.Submissions)+len(delta.Removed.Documents) > 0

@@ -146,7 +146,7 @@ func (call *toolCall) fromSlot(ctx context.Context, r *TaskRuntime, task TaskRec
 	if err != nil {
 		return ToolResult{}, err
 	}
-	if doc := state.Documents[documentKey(liveDocument, uint64(task.Conversation))]; doc != nil {
+	if doc, _ := state.document(documentKey(liveDocument, uint64(task.Conversation))); doc != nil {
 		var live LiveState
 		if value, err := migratedDocument(liveDocument, doc); err == nil && json.Unmarshal(value, &live) == nil {
 			if slot := live.toolSlot(task.ID); slot != nil {

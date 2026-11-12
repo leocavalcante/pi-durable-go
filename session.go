@@ -134,8 +134,11 @@ func newSession(ctx context.Context, storage Storage, now func() time.Time, boun
 		s.cold.sweep = s.sweepContexts
 		st.cold = s.cold
 		s.cold.evict(st)
-		// Context ranges load as conversations are used.
-		s.cold.evictEntries(st)
+		// Context ranges and conversation documents load as conversations
+		// are used.
+		s.cold.snapshot = map[ConversationID]bool{}
+		s.cold.evictEntries(st, nil)
+		st.loaded = s.cold.snapshot
 	}
 	// The upgrade changed records no delta would carry: the first commit
 	// stores the whole State.
@@ -525,7 +528,8 @@ func (s *Session) writeLoop() {
 				s.cold.evict(item.state)
 				// A read error already failed the Session; keeping every
 				// entry is safe meanwhile.
-				_ = s.cold.keepEntries(item.state, s.head, item.delta, time.Now(), retention)
+				s.cold.forgetDocuments(item.delta)
+				_ = s.cold.keepEntries(item.state, s.head, item.delta, time.Now(), retention, s.held)
 			}
 			s.state = item.state
 			s.fullWrite = false
@@ -604,8 +608,9 @@ func (s *Session) sweepContexts() {
 	next := shallowState(s.state)
 	next.base = nil
 	before := len(next.Entries)
-	_ = s.cold.keepEntries(next, nil, nil, time.Now(), retention)
-	if len(next.Entries) != before {
+	documents := len(next.Documents)
+	_ = s.cold.keepEntries(next, nil, nil, time.Now(), retention, s.held)
+	if len(next.Entries) != before || len(next.Documents) != documents {
 		s.state, s.head = next, next
 		s.recordCommitted(false)
 	}
@@ -666,6 +671,11 @@ func (s *Session) wholeStateLocked() (*State, error) {
 	for id, e := range stored.Entries {
 		if out.Entries[id] == nil && published(uint64(id)) {
 			out.Entries[id] = e
+		}
+	}
+	for key, doc := range stored.Documents {
+		if out.Documents[key] == nil {
+			out.Documents[key] = doc
 		}
 	}
 	return out, nil
@@ -745,6 +755,11 @@ func (s *Session) residentJSON(storedJSON []byte) []byte {
 	for id := range stored.Entries {
 		if s.state.Entries[id] == nil {
 			delete(stored.Entries, id)
+		}
+	}
+	for key := range stored.Documents {
+		if s.state.Documents[key] == nil {
+			delete(stored.Documents, key)
 		}
 	}
 	data, err := json.Marshal(stored)

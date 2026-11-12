@@ -126,10 +126,18 @@ func syncInboxes(tx *Tx) error {
 	for cid := range queued {
 		conversations[cid] = true
 	}
-	for key, doc := range tx.state.Documents {
+	for _, doc := range tx.state.Documents {
 		if doc.Kind == inboxDocument.Kind && doc.Scope == "conversation" {
-			_ = key
 			conversations[ConversationID(doc.ScopeID)] = true
+		}
+	}
+	// A bounded Session may not hold the inbox of a conversation whose
+	// queue this commit changed: include those conversations too.
+	if base := tx.state.base; base != nil {
+		for id, sub := range tx.state.Submissions {
+			if base.Submissions[id] != sub {
+				conversations[sub.Conversation] = true
+			}
 		}
 	}
 	for cid := range conversations {
@@ -156,7 +164,10 @@ func syncInboxes(tx *Tx) error {
 		if err != nil {
 			return err
 		}
-		doc := tx.state.Documents[documentKey(inboxDocument, uint64(cid))]
+		doc, err := tx.state.document(documentKey(inboxDocument, uint64(cid)))
+		if err != nil {
+			return err
+		}
 		if doc == nil && len(items) == 0 {
 			continue
 		}

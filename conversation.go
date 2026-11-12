@@ -255,12 +255,11 @@ func (tx *Tx) Fork(parentID ConversationID, at EntryID, opts ConversationOptions
 			return err
 		}
 		// Copy only conversation documents; task/session documents never fork.
-		var docs []*DocumentRecord
-		for _, doc := range tx.state.Documents {
-			if doc.Scope == "conversation" && doc.ScopeID == uint64(parentID) {
-				docs = append(docs, doc)
-			}
+		docs, err := tx.state.conversationDocuments(parentID)
+		if err != nil {
+			return err
 		}
+		sort.Slice(docs, func(i, j int) bool { return keyOfRecord(docs[i]) < keyOfRecord(docs[j]) })
 		for _, doc := range docs {
 			if doc.Kind == "pi.live" || doc.Kind == "pi.inbox" || doc.Kind == "pi.usage" || doc.Kind == "pi.provider" || doc.Kind == "pi.agent" {
 				continue
@@ -540,14 +539,16 @@ func viewFromState(state *State, id ConversationID) (View, error) {
 			view.Inbox = append(view.Inbox, *cloneRecord(s))
 		}
 	}
-	for _, d := range state.Documents {
-		if d.Scope == "conversation" && d.ScopeID == uint64(id) {
-			name := d.Kind
-			if d.Member != "" {
-				name += "/" + d.Member
-			}
-			view.Documents[name] = cloneRaw(d.Value)
+	docs, err := state.conversationDocuments(id)
+	if err != nil {
+		return View{}, err
+	}
+	for _, d := range docs {
+		name := d.Kind
+		if d.Member != "" {
+			name += "/" + d.Member
 		}
+		view.Documents[name] = cloneRaw(d.Value)
 	}
 	sort.Slice(view.Tasks, func(i, j int) bool { return view.Tasks[i].ID < view.Tasks[j].ID })
 	sort.Slice(view.Inbox, func(i, j int) bool { return view.Inbox[i].ID < view.Inbox[j].ID })

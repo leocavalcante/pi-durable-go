@@ -181,7 +181,7 @@ func reverseEntries(entries []Entry) {
 // from the smallest start among the loaded conversations whose lineage
 // passes through it; the others leave st. Reads of what is not kept fall
 // back to storage. The caller holds the line; st is not shared yet.
-func (c *coldRecords) keepEntries(st, head *State, delta *StateDelta, now time.Time, retention time.Duration) error {
+func (c *coldRecords) keepEntries(st, head *State, delta *StateDelta, now time.Time, retention time.Duration, held map[string]time.Time) error {
 	changed := false
 	if delta != nil {
 		touched := map[ConversationID]bool{}
@@ -219,19 +219,37 @@ func (c *coldRecords) keepEntries(st, head *State, delta *StateDelta, now time.T
 			changed = true
 		}
 	}
-	if changed {
-		c.evictEntries(st)
+	if changed || c.snapshot == nil {
+		c.snapshot = map[ConversationID]bool{}
+		for id := range c.loaded {
+			c.snapshot[id] = true
+		}
+		c.evictEntries(st, held)
 	}
+	st.loaded = c.snapshot
 	c.scheduleExpiry(st, now, retention)
 	return nil
 }
 
-// load reads a conversation's context range into st (and head) and notes
-// where it starts.
+// load reads a conversation's context range and documents into st (and
+// head) and notes where the range starts.
 func (c *coldRecords) load(st, head *State, id ConversationID) error {
 	entries, err := rangeEntries(st, id)
 	if err != nil {
 		return err
+	}
+	docs, err := st.conversationDocuments(id)
+	if err != nil {
+		return err
+	}
+	for _, doc := range docs {
+		key := keyOfRecord(doc)
+		if st.Documents[key] == nil {
+			st.Documents[key] = doc
+		}
+		if head != nil && head != st && head.Documents[key] == nil {
+			head.Documents[key] = doc
+		}
 	}
 	start := EntryID(0)
 	for i := len(entries) - 1; i >= 0; i-- {
@@ -253,8 +271,17 @@ func (c *coldRecords) load(st, head *State, id ConversationID) error {
 	return nil
 }
 
-// evictEntries removes from st the entries no loaded conversation keeps.
-func (c *coldRecords) evictEntries(st *State) {
+// evictEntries removes from st the entries no loaded conversation keeps,
+// and the documents of conversations not loaded, except held ones (their
+// changes are not stored yet).
+func (c *coldRecords) evictEntries(st *State, held map[string]time.Time) {
+	for key, doc := range st.Documents {
+		if doc.Scope == "conversation" && c.loaded[ConversationID(doc.ScopeID)].IsZero() {
+			if _, pinned := held[key]; !pinned {
+				delete(st.Documents, key)
+			}
+		}
+	}
 	keep := map[ConversationID]EntryID{}
 	for id := range c.loaded {
 		start := c.starts[id]
@@ -303,9 +330,9 @@ const maxRetention = time.Duration(1<<63 - 1)
 
 // loadResidentState loads what a bounded Session keeps at open (plan 0008):
 // the header, live tasks, and open submissions (LoadResident), every
-// conversation, and the documents of the session, of each conversation, and
-// of each live task (an ended task's documents are retired with it). Context
-// ranges load as conversations are used. ok is false for a store an older version
+// conversation, and the documents of the session and of each live task (an
+// ended task's documents are retired with it). Context ranges and
+// conversation documents load as conversations are used. ok is false for a store an older version
 // wrote, which must be loaded whole to be upgraded; nil for an empty store.
 func loadResidentState(ctx context.Context, records RecordStorage) (st *State, ok bool, err error) {
 	st, err = records.LoadResident(ctx)
@@ -334,10 +361,8 @@ func loadResidentState(ctx context.Context, records RecordStorage) (st *State, o
 		}
 		cursor = page.Next
 	}
+	// Conversation documents load with their conversations.
 	scopes := []DocumentQuery{{Scope: "session"}}
-	for id := range st.Conversations {
-		scopes = append(scopes, DocumentQuery{Scope: "conversation", ScopeID: uint64(id)})
-	}
 	for id := range st.Tasks {
 		scopes = append(scopes, DocumentQuery{Scope: "task", ScopeID: uint64(id)})
 	}

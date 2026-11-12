@@ -221,7 +221,7 @@ func observeDocument(h *Harness, def DocumentDefinition, id uint64, member strin
 		return nil, nil, err
 	}
 	valueOf := func(state *State) json.RawMessage {
-		if doc := state.Documents[key]; doc != nil {
+		if doc, _ := state.document(key); doc != nil {
 			return doc.Value
 		}
 		return nil

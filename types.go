@@ -51,6 +51,12 @@ type State struct {
 	// cold reads the tasks and submissions a bounded Session's State no
 	// longer keeps (cold.go); nil when the State holds every record.
 	cold *coldRecords
+	// loaded is the set of conversations whose entries and documents a
+	// bounded Session's State keeps, as of its publication; immutable.
+	loaded map[ConversationID]bool
+	// removedDocuments are documents a transaction retired that its
+	// candidate never held (stored only); its delta removes them.
+	removedDocuments map[string]bool
 }
 
 // Storage is owned by one Session. Commit must atomically publish next only if

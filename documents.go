@@ -87,7 +87,10 @@ func (tx *Tx) Document(def DocumentDefinition, id uint64) (json.RawMessage, erro
 		return nil, err
 	}
 	key := documentKey(def, id)
-	doc := tx.state.Documents[key]
+	doc, err := tx.state.document(key)
+	if err != nil {
+		return nil, err
+	}
 	if doc == nil {
 		var value any = map[string]any{}
 		if def.Initial != nil {
@@ -157,7 +160,10 @@ func (tx *Tx) FamilyDocument(def DocumentDefinition, id uint64, member string, s
 	if def.Scope == "session" {
 		id = 0
 	}
-	doc := tx.state.Documents[key]
+	doc, err := tx.state.document(key)
+	if err != nil {
+		return nil, err
+	}
 	if doc == nil {
 		var value any = map[string]any{}
 		switch {
@@ -209,7 +215,19 @@ func (tx *Tx) retireDocument(def DocumentDefinition, id uint64, member string) e
 	if err != nil {
 		return err
 	}
-	delete(tx.state.Documents, key)
+	if _, kept := tx.state.Documents[key]; kept || tx.state.cold == nil {
+		delete(tx.state.Documents, key)
+		return nil
+	}
+	// A document a bounded Session does not keep: the delta removes it.
+	stored, err := tx.state.document(key)
+	if err != nil || stored == nil {
+		return err
+	}
+	if tx.state.removedDocuments == nil {
+		tx.state.removedDocuments = map[string]bool{}
+	}
+	tx.state.removedDocuments[key] = true
 	return nil
 }
 
@@ -243,11 +261,15 @@ func (tx *Tx) putDocument(def DocumentDefinition, id uint64, member string, valu
 	if err != nil {
 		return err
 	}
-	doc := tx.state.mutDocument(key)
+	doc, err := tx.state.mutStoredDocument(key)
+	if err != nil {
+		return err
+	}
 	if doc == nil {
 		doc = &DocumentRecord{Kind: def.Kind, Version: def.Version, Scope: def.Scope, ScopeID: id, History: normalizeHistory(def.History), Fork: normalizeFork(def.Scope, def.Fork), Member: member}
 		tx.state.Documents[key] = doc
 	}
+	delete(tx.state.removedDocuments, key)
 	if doc.Scope != def.Scope || doc.History != normalizeHistory(def.History) || doc.Fork != normalizeFork(def.Scope, def.Fork) {
 		return fmt.Errorf("%w: changed document policy", ErrInvalid)
 	}
@@ -301,7 +323,10 @@ func ReadDocument[T any](ctx context.Context, h *Harness, def DocumentDefinition
 	if err != nil {
 		return value, err
 	}
-	doc := s.Documents[documentKey(def, id)]
+	doc, err := s.document(documentKey(def, id))
+	if err != nil {
+		return value, err
+	}
 	if doc == nil {
 		return value, ErrNotFound
 	}
@@ -337,7 +362,7 @@ func WatchDocument(ctx context.Context, h *Harness, def DocumentDefinition, id u
 					return
 				}
 				var value json.RawMessage
-				if doc := s.Documents[documentKey(def, id)]; doc != nil {
+				if doc, _ := s.document(documentKey(def, id)); doc != nil {
 					value = append(json.RawMessage(nil), doc.Value...)
 				}
 				select {
@@ -374,7 +399,10 @@ func ReadFamilyDocument[T any](ctx context.Context, h *Harness, def DocumentDefi
 	if err != nil {
 		return value, err
 	}
-	doc := s.Documents[key]
+	doc, err := s.document(key)
+	if err != nil {
+		return value, err
+	}
 	if doc == nil {
 		return value, ErrNotFound
 	}
@@ -437,7 +465,10 @@ func readDocumentAsOf[T any](ctx context.Context, h *Harness, def DocumentDefini
 	if err != nil {
 		return value, err
 	}
-	doc := s.Documents[key]
+	doc, err := s.document(key)
+	if err != nil {
+		return value, err
+	}
 	if doc == nil {
 		return value, ErrNotFound
 	}

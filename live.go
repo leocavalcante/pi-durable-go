@@ -197,7 +197,10 @@ func liveFromVersion1(value json.RawMessage) (json.RawMessage, error) {
 // readLive reads pi.live in a transaction without creating it.
 func readLive(tx *Tx, cid ConversationID) (*LiveState, error) {
 	live := &LiveState{}
-	doc := tx.state.Documents[documentKey(liveDocument, uint64(cid))]
+	doc, err := tx.state.document(documentKey(liveDocument, uint64(cid)))
+	if err != nil {
+		return nil, err
+	}
 	if doc == nil {
 		return live, nil
 	}

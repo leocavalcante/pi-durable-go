@@ -176,8 +176,12 @@ func (c *Conversation) advanceView(state *State, previous *ConversationView, win
 		}
 	}
 	view := &ConversationView{Conversation: *cloneRecord(record), Entries: entries, Before: before, Docs: map[string]json.RawMessage{}}
-	for _, doc := range state.Documents {
-		if doc.Scope == "conversation" && ConversationID(doc.ScopeID) == c.id && strings.HasPrefix(doc.Kind, "pi.") {
+	docs, err := state.conversationDocuments(c.id)
+	if err != nil {
+		return nil, err
+	}
+	for _, doc := range docs {
+		if strings.HasPrefix(doc.Kind, "pi.") {
 			view.Docs[doc.Kind] = append(json.RawMessage(nil), doc.Value...)
 		}
 	}

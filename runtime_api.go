@@ -168,7 +168,7 @@ func (r *ToolRuntime) RetainedOutput(ctx context.Context) (string, bool) {
 	var text string
 	var dropped bool
 	if state, err := r.h.read(ctx); err == nil {
-		if doc := state.Documents[documentKey(liveDocument, uint64(r.ConversationID))]; doc != nil {
+		if doc, _ := state.document(documentKey(liveDocument, uint64(r.ConversationID))); doc != nil {
 			var live LiveState
 			if value, err := migratedDocument(liveDocument, doc); err == nil && json.Unmarshal(value, &live) == nil {
 				if slot := live.toolSlot(r.ID); slot != nil {

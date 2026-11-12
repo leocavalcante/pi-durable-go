@@ -38,7 +38,10 @@ func (h *Harness) Usage(ctx context.Context) (UsageState, error) {
 	}
 	total := UsageState{Models: map[string]Usage{}, Tools: map[string]Usage{}}
 	for cid := range state.Conversations {
-		doc := state.Documents[documentKey(usageDocument, uint64(cid))]
+		doc, err := state.document(documentKey(usageDocument, uint64(cid)))
+		if err != nil {
+			return UsageState{}, err
+		}
 		if doc == nil {
 			continue
 		}
