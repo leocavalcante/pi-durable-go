@@ -54,6 +54,18 @@ function project(message) {
   return { content, thinking, toolCalls };
 }
 
+// Settings.Stream as pi-ai request options; absent fields keep the bridge
+// defaults (SSE, no provider retries).
+function streamOptions(stream) {
+  if (!stream || typeof stream !== "object") return {};
+  const options = {};
+  for (const key of ["transport", "timeoutMs", "websocketConnectTimeoutMs", "thinkingBudgets", "maxRetries",
+    "maxRetryDelayMs", "headers", "metadata", "cacheRetention"]) {
+    if (stream[key] !== undefined && stream[key] !== null) options[key] = stream[key];
+  }
+  return options;
+}
+
 // A system message with its positional prompt sections and tool changes
 // (pi-ai SystemMessage); pi-ai sends it in place to a provider that takes
 // system messages mid-conversation and folds it otherwise.
@@ -228,6 +240,7 @@ async function main() {
       // in provider SDK retries (OAuth refresh remains Pi's responsibility).
       maxRetries: 0,
       transport: "sse",
+      ...streamOptions(request.stream),
       ...(request.identity ? { identity: request.identity } : {}),
     });
     let result;

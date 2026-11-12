@@ -109,3 +109,19 @@ func TestOpenAIFoldsPositionalSystemMessages(t *testing.T) {
 		t.Fatalf("tools=%v", body.Tools)
 	}
 }
+
+func TestOpenAISendsStreamHeaders(t *testing.T) {
+	var got string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = r.Header.Get("X-Test")
+		_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"ok\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n"))
+	}))
+	defer server.Close()
+	req := durable.ModelRequest{Model: durable.ModelRef{ID: "m"}, Stream: &durable.StreamOptions{Headers: map[string]string{"X-Test": "yes"}, TimeoutMs: 5000}}
+	if _, err := (OpenAI{BaseURL: server.URL}).Generate(context.Background(), req, nil); err != nil {
+		t.Fatal(err)
+	}
+	if got != "yes" {
+		t.Fatalf("header=%q", got)
+	}
+}

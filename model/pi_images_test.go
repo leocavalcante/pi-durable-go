@@ -102,3 +102,28 @@ func TestPiBridgeSendsSystemMessagesInPlace(t *testing.T) {
 		t.Fatalf("update=%v", messages[2])
 	}
 }
+
+func TestPiBridgePassesStreamOptions(t *testing.T) {
+	p := fakePi(t)
+	retries := 2
+	req := piRequest("inspect")
+	req.Stream = &durable.StreamOptions{Transport: "websocket", TimeoutMs: 5000, MaxRetries: &retries, CacheRetention: "long",
+		Headers: map[string]string{"x-test": "1"}, ThinkingBudgets: map[string]int{"low": 1024}}
+	response, err := p.Generate(context.Background(), req, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var inspect struct {
+		Options map[string]any `json:"options"`
+	}
+	if err := json.Unmarshal([]byte(response.Content), &inspect); err != nil {
+		t.Fatal(err)
+	}
+	o := inspect.Options
+	if o["transport"] != "websocket" || o["timeoutMs"] != float64(5000) || o["maxRetries"] != float64(2) || o["cacheRetention"] != "long" {
+		t.Fatalf("options=%v", o)
+	}
+	if headers, _ := o["headers"].(map[string]any); headers["x-test"] != "1" {
+		t.Fatalf("headers=%v", o["headers"])
+	}
+}

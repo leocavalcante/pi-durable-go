@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"runtime"
 	"strings"
+	"time"
 
 	durable "github.com/leocavalcante/pi-durable-go"
 )
@@ -165,6 +166,11 @@ func (o OpenAI) Generate(ctx context.Context, req durable.ModelRequest, onDelta 
 	if err != nil {
 		return durable.ModelResponse{}, sanitizedError("cannot encode model request", false)
 	}
+	if req.Stream != nil && req.Stream.TimeoutMs > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, time.Duration(req.Stream.TimeoutMs)*time.Millisecond)
+		defer cancel()
+	}
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
 	if err != nil {
 		return durable.ModelResponse{}, sanitizedError("cannot create model request", false)
@@ -173,6 +179,11 @@ func (o OpenAI) Generate(ctx context.Context, req durable.ModelRequest, onDelta 
 	httpReq.Header.Set("Accept", "text/event-stream")
 	if ua := userAgent(req.Identity); ua != "" {
 		httpReq.Header.Set("User-Agent", ua)
+	}
+	if req.Stream != nil {
+		for name, value := range req.Stream.Headers {
+			httpReq.Header.Set(name, value)
+		}
 	}
 	if o.APIKey != "" {
 		httpReq.Header.Set("Authorization", "Bearer "+o.APIKey)

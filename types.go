@@ -430,6 +430,37 @@ type ModelRequest struct {
 	Tools         []ToolSpec `json:"tools,omitempty"`
 	// Identity is HarnessOptions.Identity, set as the request is sent.
 	Identity *ClientIdentity `json:"identity,omitempty"`
+	// Stream is Settings.Stream, set as the request is sent.
+	Stream *StreamOptions `json:"stream,omitempty"`
+}
+
+// StreamOptions are curated pi-ai request options (upstream
+// ConversationStreamOptions); zero fields keep the adapter defaults.
+type StreamOptions struct {
+	// Transport is the preferred transport where a provider has several;
+	// the Pi bridge defaults to sse.
+	Transport string `json:"transport,omitempty"`
+	// TimeoutMs is the HTTP request timeout of providers that support one.
+	TimeoutMs int64 `json:"timeoutMs,omitempty"`
+	// WebsocketConnectTimeoutMs bounds a WebSocket handshake.
+	WebsocketConnectTimeoutMs int64 `json:"websocketConnectTimeoutMs,omitempty"`
+	// ThinkingBudgets are token budgets per thinking level.
+	ThinkingBudgets map[string]int `json:"thinkingBudgets,omitempty"`
+	// MaxRetries and MaxRetryDelayMs are provider retries inside one
+	// attempt (default none: Durable retries attempts itself).
+	MaxRetries      *int  `json:"maxRetries,omitempty"`
+	MaxRetryDelayMs int64 `json:"maxRetryDelayMs,omitempty"`
+	// Headers are extra request headers.
+	Headers map[string]string `json:"headers,omitempty"`
+	// Metadata is provider request metadata.
+	Metadata json.RawMessage `json:"metadata,omitempty"`
+	// CacheRetention is pi-ai's prompt cache retention: none, short, or long.
+	CacheRetention string `json:"cacheRetention,omitempty"`
+}
+
+func (s StreamOptions) isZero() bool {
+	return s.Transport == "" && s.TimeoutMs == 0 && s.WebsocketConnectTimeoutMs == 0 && len(s.ThinkingBudgets) == 0 &&
+		s.MaxRetries == nil && s.MaxRetryDelayMs == 0 && len(s.Headers) == 0 && len(s.Metadata) == 0 && s.CacheRetention == ""
 }
 
 // ClientIdentity is pi-ai's ClientIdentity: how model requests identify the
@@ -535,6 +566,9 @@ type Settings struct {
 	// Retry is Pi Durable's settings.retry policy for generation and
 	// compaction model attempts, merged field by field over its default.
 	Retry RetrySettings
+	// Stream holds the pi-ai request options of every model request
+	// (settings.stream); zero fields keep the adapter defaults.
+	Stream StreamOptions
 	// SteeringMode and FollowUpMode select how many queued steers or
 	// follow-ups a boundary places: QueueOneAtATime (default) or QueueAll.
 	SteeringMode string

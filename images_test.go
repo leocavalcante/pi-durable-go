@@ -146,3 +146,25 @@ func TestTxConfigureChangesTheAgentInTheCallersCommit(t *testing.T) {
 		t.Fatal("a negative MaxTurns was configured")
 	}
 }
+
+func TestSettingsStreamReachesRequests(t *testing.T) {
+	var mu sync.Mutex
+	var seen []*StreamOptions
+	model := taskModelFunc(func(_ context.Context, req ModelRequest, _ func(string) error) (ModelResponse, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		seen = append(seen, req.Stream)
+		return ModelResponse{Content: "ok"}, nil
+	})
+	h := taskTestHarness(t, HarnessOptions{Model: model, Settings: Settings{Stream: StreamOptions{CacheRetention: "long"}}})
+	root, err := h.Root(context.Background(), ConversationOptions{Agent: Agent{Model: ModelRef{Provider: "fake", ID: "m"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitSettled(t, h, submit(t, root, SubmissionRequest{Content: "go"}))
+	mu.Lock()
+	defer mu.Unlock()
+	if len(seen) != 1 || seen[0] == nil || seen[0].CacheRetention != "long" {
+		t.Fatalf("stream=%+v", seen)
+	}
+}

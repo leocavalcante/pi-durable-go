@@ -169,6 +169,9 @@ func (h *Harness) generate(ctx context.Context, req ModelRequest, onDelta func(s
 	if req.Identity == nil {
 		req.Identity = h.options.Identity
 	}
+	if stream := h.settings().Stream; req.Stream == nil && !stream.isZero() {
+		req.Stream = &stream
+	}
 	return h.options.Model.Generate(ctx, req, onDelta)
 }
 
