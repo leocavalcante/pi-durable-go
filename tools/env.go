@@ -246,27 +246,50 @@ func (t *tailBuffer) String() string {
 	return string(bytes.Clone(t.b))
 }
 
+// mutations is the tail of each file's mutation chain (upstream's
+// withFileMutationQueue): a call waits for the one before it, so calls on
+// one file run in arrival order; a file's entry leaves with its last call.
 var mutations = struct {
 	sync.Mutex
-	locks map[string]*sync.Mutex
-}{locks: make(map[string]*sync.Mutex)}
+	tails map[string]chan struct{}
+}{tails: make(map[string]chan struct{})}
 
-func mutationLock(env *LocalEnv, path string) *sync.Mutex {
+// mutationKey is a file's canonical path; for a file that does not exist
+// yet, its canonical parent joined with its name, so a write that creates a
+// file and a later edit share one key even under a symlinked directory.
+func mutationKey(env *LocalEnv, path string) string {
 	canonical := env.resolve(path)
 	if resolved, err := filepath.EvalSymlinks(canonical); err == nil {
 		canonical = resolved
 	} else if parent, err := filepath.EvalSymlinks(filepath.Dir(canonical)); err == nil {
 		canonical = filepath.Join(parent, filepath.Base(canonical))
 	}
-	key := filepath.Clean(canonical)
+	return filepath.Clean(canonical)
+}
+
+// queueMutation waits for the earlier mutations of the file and returns the
+// release that lets the next one run.
+func queueMutation(env *LocalEnv, path string) func() {
+	key := mutationKey(env, path)
+	done := make(chan struct{})
 	mutations.Lock()
-	defer mutations.Unlock()
-	if lock := mutations.locks[key]; lock != nil {
-		return lock
+	previous := mutations.tails[key]
+	mutations.tails[key] = done
+	mutations.Unlock()
+	if previous != nil {
+		<-previous
 	}
-	lock := new(sync.Mutex)
-	mutations.locks[key] = lock
-	return lock
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			mutations.Lock()
+			if mutations.tails[key] == done {
+				delete(mutations.tails, key)
+			}
+			mutations.Unlock()
+			close(done)
+		})
+	}
 }
 
 var _ io.Writer = writerFunc(nil)

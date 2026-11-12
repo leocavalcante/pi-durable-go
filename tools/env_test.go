@@ -82,3 +82,56 @@ func TestLocalEnvExecCancellationKillsProcessGroup(t *testing.T) {
 		t.Fatal("process did not terminate")
 	}
 }
+
+func TestFileMutationsRunInArrivalOrder(t *testing.T) {
+	env, err := NewLocalEnv(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	key := mutationKey(env, "a.txt")
+	tail := func() chan struct{} {
+		mutations.Lock()
+		defer mutations.Unlock()
+		return mutations.tails[key]
+	}
+	// queued waits until a call after the tail before is queued.
+	queued := func(before chan struct{}) chan struct{} {
+		deadline := time.Now().Add(5 * time.Second)
+		for time.Now().Before(deadline) {
+			if now := tail(); now != before {
+				return now
+			}
+			time.Sleep(time.Millisecond)
+		}
+		t.Fatal("a mutation never queued")
+		return nil
+	}
+	first := queueMutation(env, "a.txt")
+	order := make(chan int, 3)
+	after := func(n int, path string) {
+		release := queueMutation(env, path)
+		order <- n
+		release()
+	}
+	second := tail()
+	go after(2, "./a.txt") // the same file by another path
+	third := queued(second)
+	go after(3, "a.txt")
+	queued(third)
+	// Other files never wait.
+	other := queueMutation(env, "b.txt")
+	other()
+	order <- 1
+	first()
+	got := []int{<-order, <-order, <-order}
+	if got[0] != 1 || got[1] != 2 || got[2] != 3 {
+		t.Fatalf("order=%v", got)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for tail() != nil && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	if tail() != nil {
+		t.Fatal("the file's mutation queue was left behind")
+	}
+}

@@ -128,9 +128,7 @@ func lockMutation(e durable.ExecutionEnv, path string) func() {
 	if !ok {
 		return func() {}
 	}
-	lock := mutationLock(local, path)
-	lock.Lock()
-	return lock.Unlock
+	return queueMutation(local, path)
 }
 func result(content string) (durable.ToolResult, error) {
 	return durable.ToolResult{Content: content}, nil
