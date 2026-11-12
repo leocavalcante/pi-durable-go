@@ -209,3 +209,32 @@ func TestOpenAIReasoningEffortIsPiAis(t *testing.T) {
 		}
 	}
 }
+
+// Usage and stop reasons are read as pi-ai's openai-completions reads them.
+func TestOpenAIUsageAndStopReasonsArePiAis(t *testing.T) {
+	stream := ""
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte(stream))
+	}))
+	defer server.Close()
+	run := func(body string) (durable.ModelResponse, error) {
+		stream = body
+		return (&OpenAI{BaseURL: server.URL + "/v1"}).Generate(context.Background(), durable.ModelRequest{Model: durable.ModelRef{ID: "m"}, Messages: []durable.Message{{Role: "user", Content: "hi"}}}, nil)
+	}
+	response, err := run("data: {\"choices\":[{\"delta\":{\"content\":\"Hello\"},\"finish_reason\":\"stop\"}]}\n\n" +
+		"data: {\"choices\":[],\"usage\":{\"prompt_tokens\":100,\"completion_tokens\":20,\"prompt_tokens_details\":{\"cached_tokens\":40,\"cache_write_tokens\":10}}}\n\ndata: [DONE]\n\n")
+	if err != nil || response.Usage.InputTokens != 50 || response.Usage.CacheReadTokens != 40 || response.Usage.CacheWriteTokens != 10 || response.Usage.OutputTokens != 20 {
+		t.Fatalf("usage=%+v error=%v", response.Usage, err)
+	}
+	response, err = run("data: {\"choices\":[{\"delta\":{\"content\":\"x\"},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":30,\"completion_tokens\":2,\"prompt_cache_hit_tokens\":12}}\n\ndata: [DONE]\n\n")
+	if err != nil || response.Usage.InputTokens != 18 || response.Usage.CacheReadTokens != 12 {
+		t.Fatalf("DeepSeek usage=%+v error=%v", response.Usage, err)
+	}
+	if _, err := run("data: {\"choices\":[{\"delta\":{\"content\":\"x\"},\"finish_reason\":\"content_filter\"}]}\n\ndata: [DONE]\n\n"); err == nil || err.Error() != "Provider finish_reason: content_filter" {
+		t.Fatalf("content filter: error=%v", err)
+	}
+	if response, err := run("data: {\"choices\":[{\"delta\":{\"content\":\"x\"},\"finish_reason\":\"end\"}]}\n\ndata: [DONE]\n\n"); err != nil || response.StopReason != "stop" {
+		t.Fatalf("end: %+v error=%v", response, err)
+	}
+}

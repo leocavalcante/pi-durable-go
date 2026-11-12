@@ -378,6 +378,15 @@ type streamChunk struct {
 	Usage *struct {
 		PromptTokens     int64 `json:"prompt_tokens"`
 		CompletionTokens int64 `json:"completion_tokens"`
+		// Cache reads, wherever a provider puts them (pi-ai
+		// parseChunkUsage): OpenAI and OpenRouter in the details, DeepSeek
+		// as prompt_cache_hit_tokens, Kimi at the top.
+		CachedTokens         *int64 `json:"cached_tokens"`
+		PromptCacheHitTokens *int64 `json:"prompt_cache_hit_tokens"`
+		PromptTokensDetails  *struct {
+			CachedTokens     *int64 `json:"cached_tokens"`
+			CacheWriteTokens int64  `json:"cache_write_tokens"`
+		} `json:"prompt_tokens_details"`
 	} `json:"usage"`
 }
 
@@ -426,6 +435,7 @@ func parseSSE(ctx context.Context, r io.Reader, onEvent func(durable.StreamEvent
 	scanner.Buffer(make([]byte, 4096), maxSSELineBytes)
 	var data []string
 	gotDone := false
+	finishError := ""
 	process := func() error {
 		if len(data) == 0 {
 			return nil
@@ -444,19 +454,37 @@ func parseSSE(ctx context.Context, r io.Reader, onEvent func(durable.StreamEvent
 		if len(chunk.Error) > 0 && json.Unmarshal(chunk.Error, &streamError) == nil && truthyJSON(streamError) {
 			return classifiedError("model stream reported an error", streamErrorText(chunk.Error), provider)
 		}
-		if chunk.Usage != nil {
-			response.Usage.InputTokens = chunk.Usage.PromptTokens
-			response.Usage.OutputTokens = chunk.Usage.CompletionTokens
+		if usage := chunk.Usage; usage != nil {
+			var read, write int64
+			switch {
+			case usage.PromptTokensDetails != nil && usage.PromptTokensDetails.CachedTokens != nil:
+				read = *usage.PromptTokensDetails.CachedTokens
+			case usage.PromptCacheHitTokens != nil:
+				read = *usage.PromptCacheHitTokens
+			case usage.CachedTokens != nil:
+				read = *usage.CachedTokens
+			}
+			if usage.PromptTokensDetails != nil {
+				write = usage.PromptTokensDetails.CacheWriteTokens
+			}
+			response.Usage.InputTokens = max(0, usage.PromptTokens-read-write)
+			response.Usage.OutputTokens = usage.CompletionTokens
+			response.Usage.CacheReadTokens, response.Usage.CacheWriteTokens = read, write
 		}
 		for _, choice := range chunk.Choices {
 			if choice.FinishReason != nil {
+				// pi-ai mapStopReason: other reasons end the answer as an
+				// error.
+				finishError = ""
 				switch *choice.FinishReason {
 				case "length":
 					response.StopReason = "length"
 				case "tool_calls", "function_call":
 					response.StopReason = "toolUse"
-				case "stop":
+				case "stop", "end":
 					response.StopReason = "stop"
+				default:
+					finishError = "Provider finish_reason: " + *choice.FinishReason
 				}
 			}
 			// Reasoning before content: a proxy can send both in one delta,
@@ -586,6 +614,9 @@ func parseSSE(ctx context.Context, r io.Reader, onEvent func(durable.StreamEvent
 			return durable.ModelResponse{}, sanitizedError(fmt.Sprintf("tool call %q has invalid JSON arguments", t.name), false)
 		}
 		response.ToolCalls = append(response.ToolCalls, durable.ToolCall{ID: t.id, Name: t.name, Arguments: json.RawMessage(args)})
+	}
+	if finishError != "" {
+		return response, classifiedError(finishError, finishError, provider)
 	}
 	return response, nil
 }
