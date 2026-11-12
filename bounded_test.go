@@ -137,3 +137,77 @@ func TestReadOnlySessionsKeepEverything(t *testing.T) {
 		t.Fatal("a read-only Harness is bounded")
 	}
 }
+
+func residentEntries(h *Harness, cid ConversationID) int {
+	h.session.mu.Lock()
+	defer h.session.mu.Unlock()
+	n := 0
+	for _, e := range h.session.state.Entries {
+		if e.Conversation == cid {
+			n++
+		}
+	}
+	return n
+}
+
+func TestBoundedSessionKeepsContextRangesOnly(t *testing.T) {
+	ctx := context.Background()
+	h := testHarness(t)
+	root := testRoot(t, h)
+	old := appendNotes(t, h, root, 40)
+	if _, err := root.Reset(ctx, ""); err != nil {
+		t.Fatal(err)
+	}
+	recent := appendNotes(t, h, root, 3)
+	// The reset moved the context range: the State keeps the reset and what
+	// follows.
+	if n := residentEntries(h, root.ID()); n > 5 {
+		t.Fatalf("%d entries kept after a reset", n)
+	}
+	// Whole-history reads still find everything, from storage.
+	entries, err := root.Entries(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) < 40+1+3 || entries[1].ID > old[0] {
+		t.Fatalf("history has %d entries", len(entries))
+	}
+	page, err := root.ScanEntries(ctx, EntryQuery{Order: "ascending", MaxEntryID: old[9]}, 100, nil)
+	if err != nil || len(page.Items) == 0 || page.Items[len(page.Items)-1].ID != old[9] {
+		t.Fatalf("scan=%+v error=%v", page, err)
+	}
+	// A window larger than the range reads the older entries.
+	view, stop, err := root.WatchWindow(ctx, ConversationWindow{Min: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stop()
+	select {
+	case first := <-view:
+		if len(first.Entries) != 10 || first.Entries[9].ID != recent[2] || first.Before == 0 {
+			t.Fatalf("window=%d entries, before %d", len(first.Entries), first.Before)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("no window")
+	}
+	// The current context starts at the reset; an earlier one reads storage.
+	current, err := root.ContextView(ctx, 0)
+	if err != nil || current.Head == nil {
+		t.Fatalf("context=%+v error=%v", current, err)
+	}
+	if _, err := root.ContextView(ctx, old[20]); err != nil {
+		t.Fatal(err)
+	}
+	// A fork at an entry the State no longer keeps reads its lineage.
+	fork, err := root.Fork(ctx, old[10], ConversationOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	forked, err := fork.Entries(ctx)
+	if err != nil || len(forked) < 11 {
+		t.Fatalf("fork history=%d error=%v", len(forked), err)
+	}
+	if _, err := fork.Context(ctx); err != nil {
+		t.Fatal(err)
+	}
+}

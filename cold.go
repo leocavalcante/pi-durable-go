@@ -28,6 +28,9 @@ type coldRecords struct {
 	mu          sync.Mutex
 	tasks       *lru[TaskID, *TaskRecord]
 	submissions *lru[SubmissionID, *SubmissionRecord]
+	entries     *lru[EntryID, *Entry]
+	// starts are where each conversation's context range starts (entries.go).
+	starts map[ConversationID]EntryID
 	// fail fails the Session on a storage read error, which upstream treats
 	// as fatal like any storage error.
 	fail func(error)
@@ -35,7 +38,8 @@ type coldRecords struct {
 
 func newColdRecords(storage RecordStorage, fail func(error)) *coldRecords {
 	return &coldRecords{storage: storage, tasks: newLRU[TaskID, *TaskRecord](coldTaskCapacity),
-		submissions: newLRU[SubmissionID, *SubmissionRecord](coldSubmissionCapacity), fail: fail}
+		submissions: newLRU[SubmissionID, *SubmissionRecord](coldSubmissionCapacity),
+		entries:     newLRU[EntryID, *Entry](coldEntryCapacity), starts: map[ConversationID]EntryID{}, fail: fail}
 }
 
 func (c *coldRecords) task(id TaskID) (*TaskRecord, error) {

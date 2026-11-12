@@ -50,7 +50,17 @@ func (tx *Tx) Entry(id EntryID) (*Entry, error) {
 	}
 	e := tx.state.mutEntry(id)
 	if e == nil {
-		return nil, ErrNotFound
+		// An older entry a bounded Session no longer keeps: a detached
+		// copy, as entries do not change once appended.
+		cold, err := tx.state.entry(id)
+		if err != nil {
+			return nil, err
+		}
+		if cold == nil {
+			return nil, ErrNotFound
+		}
+		copy := cold.detached()
+		return &copy, nil
 	}
 	return e, nil
 }
@@ -241,27 +251,3 @@ func (tx *Tx) ConversationsByOwner(owner TaskID) ([]ConversationRecord, error) {
 
 // Entries returns the active transcript, including inherited entries. It detects
 // corrupt parent cycles rather than hanging on malformed persisted state.
-func entriesFromState(s *State, cid ConversationID) ([]Entry, error) {
-	c := s.Conversations[cid]
-	if c == nil {
-		return nil, ErrNotFound
-	}
-	var entries []Entry
-	seen := map[EntryID]bool{}
-	for id := c.Head; id != 0; {
-		if seen[id] {
-			return nil, fmt.Errorf("%w: entry cycle", ErrInvalid)
-		}
-		seen[id] = true
-		e := s.Entries[id]
-		if e == nil {
-			return nil, fmt.Errorf("%w: missing entry %d", ErrInvalid, id)
-		}
-		entries = append(entries, e.detached())
-		id = e.Parent
-	}
-	for i, j := 0, len(entries)-1; i < j; i, j = i+1, j-1 {
-		entries[i], entries[j] = entries[j], entries[i]
-	}
-	return entries, nil
-}

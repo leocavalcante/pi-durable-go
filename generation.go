@@ -997,7 +997,7 @@ func buildRequest(ctx context.Context, r *TaskRuntime, state *State, c Conversat
 // messagesWith derives the conversation's context as if the planned entries
 // were appended after its newest entry.
 func messagesWith(state *State, cid ConversationID, planned []Entry) ([]Message, error) {
-	history, err := entriesFromState(state, cid)
+	history, err := rangeEntries(state, cid)
 	if err != nil {
 		return nil, err
 	}

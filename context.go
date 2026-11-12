@@ -23,6 +23,14 @@ type contextView struct {
 // deriveContextView derives the view; with at, as of that entry, as the
 // context a fork at it would start with.
 func deriveContextView(state *State, cid ConversationID, at EntryID) (contextView, error) {
+	if at == 0 {
+		// The current context needs its range only.
+		entries, err := rangeEntries(state, cid)
+		if err != nil {
+			return contextView{}, err
+		}
+		return deriveContext(entries)
+	}
 	entries, err := entriesFromState(state, cid)
 	if err != nil {
 		return contextView{}, err

@@ -120,6 +120,9 @@ func newSession(ctx context.Context, storage Storage, now func() time.Time, boun
 		s.cold = newColdRecords(records, func(err error) { go s.fail(err) })
 		st.cold = s.cold
 		s.cold.evict(st)
+		if err := s.cold.keepEntries(st, nil, true); err != nil {
+			return nil, err
+		}
 	}
 	// The upgrade changed records no delta would carry: the first commit
 	// stores the whole State.
@@ -502,6 +505,9 @@ func (s *Session) writeLoop() {
 			}
 			if s.cold != nil {
 				s.cold.evict(item.state)
+				// A read error already failed the Session; keeping every
+				// entry is safe meanwhile.
+				_ = s.cold.keepEntries(item.state, item.delta, false)
 			}
 			s.state = item.state
 			s.fullWrite = false
@@ -615,6 +621,11 @@ func (s *Session) wholeStateLocked() (*State, error) {
 			out.Submissions[id] = sub
 		}
 	}
+	for id, e := range stored.Entries {
+		if out.Entries[id] == nil && published(uint64(id)) {
+			out.Entries[id] = e
+		}
+	}
 	return out, nil
 }
 
@@ -687,6 +698,11 @@ func (s *Session) residentJSON(storedJSON []byte) []byte {
 				panic(fmt.Sprintf("durable: open submission %d left a bounded Session's state", id))
 			}
 			delete(stored.Submissions, id)
+		}
+	}
+	for id := range stored.Entries {
+		if s.state.Entries[id] == nil {
+			delete(stored.Entries, id)
 		}
 	}
 	data, err := json.Marshal(stored)

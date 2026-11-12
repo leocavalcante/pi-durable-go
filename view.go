@@ -113,58 +113,69 @@ func (c *Conversation) advanceView(state *State, previous *ConversationView, win
 	if record == nil {
 		return nil, ErrNotFound
 	}
-	history, err := entriesFromState(state, c.id)
-	if err != nil {
-		return nil, err
-	}
+	// Windows read only the newest entries, walking back from the head.
 	var entries []Entry
+	var before EntryID
 	switch {
 	case previous == nil:
-		start := len(history) - window.Min
+		// Enough for the window, and one more: the entry before it.
+		limit := window.Min + 1
 		if window.From != 0 {
-			at := len(history)
-			for i, e := range history {
-				if e.ID >= window.From {
-					at = i
-					break
-				}
+			limit = window.Max + 2
+		}
+		var newest []Entry
+		if err := walkBack(state, c.id, func(e *Entry) (bool, error) {
+			newest = append(newest, e.detached())
+			return len(newest) < limit, nil
+		}); err != nil {
+			return nil, err
+		}
+		take := min(window.Min, len(newest))
+		if window.From != 0 {
+			// The entries from From on, when at most Max of them follow it.
+			fromOn := 0
+			for fromOn < len(newest) && newest[fromOn].ID >= window.From {
+				fromOn++
 			}
-			if len(history)-at <= window.Max {
-				start = at
+			if fromOn <= window.Max {
+				take = fromOn
 			}
 		}
-		if start < 0 {
-			start = 0
+		if take < len(newest) {
+			before = newest[take].ID
 		}
-		entries = append(entries, history[start:]...)
+		entries = newest[:take]
+		reverseEntries(entries)
 	default:
 		entries = append(entries, previous.Entries...)
 		newest := previous.Before
 		if len(entries) > 0 {
 			newest = entries[len(entries)-1].ID
 		}
-		for _, e := range history {
-			if e.ID > newest {
-				entries = append(entries, e)
+		var added []Entry
+		stop := EntryID(0)
+		if err := walkBack(state, c.id, func(e *Entry) (bool, error) {
+			if e.ID <= newest {
+				stop = e.ID
+				return false, nil
 			}
+			added = append(added, e.detached())
+			return true, nil
+		}); err != nil {
+			return nil, err
 		}
+		reverseEntries(added)
+		before = previous.Before
+		if len(entries) == 0 && len(added) > 0 {
+			before = stop
+		}
+		entries = append(entries, added...)
 		if len(entries) > window.Max {
+			before = entries[len(entries)-window.Min-1].ID
 			entries = append([]Entry(nil), entries[len(entries)-window.Min:]...)
 		}
 	}
-	view := &ConversationView{Conversation: *cloneRecord(record), Entries: entries, Docs: map[string]json.RawMessage{}}
-	if len(entries) > 0 {
-		for i, e := range history {
-			if e.ID == entries[0].ID && i > 0 {
-				view.Before = history[i-1].ID
-				break
-			}
-		}
-	} else if len(history) > 0 {
-		view.Before = history[len(history)-1].ID
-	} else if previous != nil {
-		view.Before = previous.Before
-	}
+	view := &ConversationView{Conversation: *cloneRecord(record), Entries: entries, Before: before, Docs: map[string]json.RawMessage{}}
 	for _, doc := range state.Documents {
 		if doc.Scope == "conversation" && ConversationID(doc.ScopeID) == c.id && strings.HasPrefix(doc.Kind, "pi.") {
 			view.Docs[doc.Kind] = append(json.RawMessage(nil), doc.Value...)
