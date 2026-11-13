@@ -1,0 +1,54 @@
+{
+ "name": "two-rounds-then-error",
+ "tools": [
+  {
+   "name": "echo",
+   "parameters": {
+    "type": "object",
+    "properties": {
+     "text": {
+      "type": "string"
+     }
+    }
+   }
+  }
+ ],
+ "model": [
+  {
+   "calls": [
+    {
+     "id": "a",
+     "name": "echo",
+     "args": {
+      "text": "1"
+     }
+    }
+   ]
+  },
+  {
+   "calls": [
+    {
+     "id": "b",
+     "name": "echo",
+     "args": {
+      "text": "2"
+     }
+    }
+   ]
+  },
+  {
+   "error": "invalid request: late failure"
+  }
+ ],
+ "steps": [
+  {
+   "submit": {
+    "type": "input",
+    "content": "go"
+   }
+  },
+  {
+   "wait": "settled"
+  }
+ ]
+}

@@ -1,0 +1,37 @@
+{
+ "name": "reset",
+ "model": [
+  {
+   "text": "before"
+  },
+  {
+   "text": "after"
+  }
+ ],
+ "steps": [
+  {
+   "submit": {
+    "type": "input",
+    "content": "first"
+   }
+  },
+  {
+   "wait": "settled"
+  },
+  {
+   "reset": "a handoff note"
+  },
+  {
+   "wait": "idle"
+  },
+  {
+   "submit": {
+    "type": "input",
+    "content": "second"
+   }
+  },
+  {
+   "wait": "settled"
+  }
+ ]
+}

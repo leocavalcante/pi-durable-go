@@ -1,0 +1,92 @@
+{
+ "name": "compact-twice",
+ "settings": {
+  "compaction": {
+   "keepRecentTokens": 1
+  }
+ },
+ "model": [
+  {
+   "text": "a1"
+  },
+  {
+   "text": "a2"
+  },
+  {
+   "text": "a3"
+  },
+  {
+   "text": "a4"
+  },
+  {
+   "text": "a5"
+  }
+ ],
+ "summaries": [
+  {
+   "text": "SUMMARY ONE"
+  },
+  {
+   "text": "SUMMARY TWO"
+  }
+ ],
+ "steps": [
+  {
+   "submit": {
+    "type": "input",
+    "content": "q1"
+   }
+  },
+  {
+   "wait": "settled"
+  },
+  {
+   "submit": {
+    "type": "input",
+    "content": "q2"
+   }
+  },
+  {
+   "wait": "settled"
+  },
+  {
+   "compact": true
+  },
+  {
+   "wait": "idle"
+  },
+  {
+   "submit": {
+    "type": "input",
+    "content": "q3"
+   }
+  },
+  {
+   "wait": "settled"
+  },
+  {
+   "submit": {
+    "type": "input",
+    "content": "q4"
+   }
+  },
+  {
+   "wait": "settled"
+  },
+  {
+   "compact": true
+  },
+  {
+   "wait": "idle"
+  },
+  {
+   "submit": {
+    "type": "input",
+    "content": "q5"
+   }
+  },
+  {
+   "wait": "settled"
+  }
+ ]
+}

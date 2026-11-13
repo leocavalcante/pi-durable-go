@@ -18,5 +18,16 @@
  "abort-model",
  "abort-tool",
  "instructions-thinking",
- "continue"
+ "continue",
+ "compact-manual",
+ "compact-twice",
+ "threshold-compaction",
+ "overflow-compaction",
+ "reset",
+ "entries",
+ "steering-all",
+ "follow-up-all",
+ "after-failed-run-continue",
+ "two-rounds-then-error",
+ "background-compaction"
 ]

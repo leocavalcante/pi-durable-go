@@ -1,0 +1,44 @@
+{
+ "name": "follow-up-all",
+ "settings": {
+  "followUpMode": "all"
+ },
+ "model": [
+  {
+   "text": "first",
+   "hold": "m1"
+  },
+  {
+   "text": "both followed"
+  }
+ ],
+ "steps": [
+  {
+   "submit": {
+    "type": "input",
+    "content": "start"
+   }
+  },
+  {
+   "waitHeld": "m1"
+  },
+  {
+   "submit": {
+    "type": "input",
+    "content": "follow one"
+   }
+  },
+  {
+   "submit": {
+    "type": "input",
+    "content": "follow two"
+   }
+  },
+  {
+   "release": "m1"
+  },
+  {
+   "wait": "settled"
+  }
+ ]
+}

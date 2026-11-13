@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"reflect"
 	"sort"
 	"strings"
@@ -451,7 +452,11 @@ func TestCrosscheckPartialArguments(t *testing.T) {
 type scenarioSpec struct {
 	Name          string `json:"name"`
 	ContextWindow int    `json:"contextWindow,omitempty"`
-	Model         []struct {
+	Summaries     []struct {
+		Text string `json:"text"`
+		Hold string `json:"hold,omitempty"`
+	} `json:"summaries,omitempty"`
+	Model []struct {
 		Text     string `json:"text,omitempty"`
 		Thinking string `json:"thinking,omitempty"`
 		Stop     string `json:"stop,omitempty"`
@@ -483,9 +488,11 @@ type scenarioSpec struct {
 			BaseDelayMs     *float64 `json:"baseDelayMs,omitempty"`
 			MaxAgentDelayMs *float64 `json:"maxAgentDelayMs,omitempty"`
 		} `json:"retry,omitempty"`
-		ToolExecution string `json:"toolExecution,omitempty"`
-		SteeringMode  string `json:"steeringMode,omitempty"`
-		FollowUpMode  string `json:"followUpMode,omitempty"`
+		ToolExecution  string              `json:"toolExecution,omitempty"`
+		SteeringMode   string              `json:"steeringMode,omitempty"`
+		FollowUpMode   string              `json:"followUpMode,omitempty"`
+		AfterFailedRun string              `json:"afterFailedRun,omitempty"`
+		Compaction     *CompactionSettings `json:"compaction,omitempty"`
 	} `json:"settings"`
 	Agent struct {
 		MaxTurns     int     `json:"maxTurns,omitempty"`
@@ -497,7 +504,13 @@ type scenarioSpec struct {
 			Content  string `json:"content,omitempty"`
 			WhenBusy string `json:"whenBusy,omitempty"`
 			WhenIdle string `json:"whenIdle,omitempty"`
+			Entry    *struct {
+				Kind string          `json:"kind"`
+				Data json.RawMessage `json:"data,omitempty"`
+			} `json:"entry,omitempty"`
 		} `json:"submit,omitempty"`
+		Compact  json.RawMessage `json:"compact,omitempty"`
+		Reset    json.RawMessage `json:"reset,omitempty"`
 		Wait     string          `json:"wait,omitempty"`
 		WaitHeld string          `json:"waitHeld,omitempty"`
 		Release  string          `json:"release,omitempty"`
@@ -593,16 +606,35 @@ func runScenario(t *testing.T, sc scenarioSpec) json.RawMessage {
 	ctx := context.Background()
 	gates := &scenarioGates{}
 	var mu sync.Mutex
-	requests := []any{}
-	calls := 0
+	requests, summaryRequests := []any{}, []any{}
+	calls, summaryCalls := 0, 0
 	model := taskModelFunc(func(ctx context.Context, request ModelRequest, _ func(string) error) (ModelResponse, error) {
-		mu.Lock()
-		i := calls
-		calls++
 		messages := []any{}
 		for _, m := range request.Messages {
 			messages = append(messages, scenarioMessage(m))
 		}
+		// Summarization requests take their answers from Summaries.
+		if len(request.Messages) > 0 && request.Messages[0].Role == "system" && strings.HasPrefix(SystemText(request.Messages[0]), "You are a context summarization assistant") {
+			mu.Lock()
+			i := summaryCalls
+			summaryCalls++
+			summaryRequests = append(summaryRequests, messages)
+			mu.Unlock()
+			if i >= len(sc.Summaries) {
+				return ModelResponse{}, errors.New("no scripted response")
+			}
+			if hold := sc.Summaries[i].Hold; hold != "" {
+				if err := gates.hold(ctx, hold); err != nil {
+					return ModelResponse{}, err
+				}
+			}
+			response := ModelResponse{Content: sc.Summaries[i].Text, StopReason: "stop"}
+			response.Usage = fauxUsage(request.Messages, response)
+			return response, nil
+		}
+		mu.Lock()
+		i := calls
+		calls++
 		requests = append(requests, messages)
 		mu.Unlock()
 		if i >= len(sc.Model) {
@@ -631,8 +663,15 @@ func runScenario(t *testing.T, sc scenarioSpec) json.RawMessage {
 				response.StopReason = "toolUse"
 			}
 		}
+		// The usage pi-ai's faux provider reports, which context estimates
+		// prefer over character counts.
+		response.Usage = fauxUsage(request.Messages, response)
 		return response, nil
 	})
+	var harnessModel Model = model
+	if sc.ContextWindow > 0 {
+		harnessModel = scenarioModel{generate: model, window: sc.ContextWindow}
+	}
 	registry := NewRegistry()
 	var tools []ToolDefinition
 	for _, spec := range sc.Tools {
@@ -681,11 +720,14 @@ func runScenario(t *testing.T, sc scenarioSpec) json.RawMessage {
 			t.Fatal(err)
 		}
 	}
-	settings := Settings{ToolExecution: sc.Settings.ToolExecution, SteeringMode: sc.Settings.SteeringMode, FollowUpMode: sc.Settings.FollowUpMode}
+	settings := Settings{ToolExecution: sc.Settings.ToolExecution, SteeringMode: sc.Settings.SteeringMode, FollowUpMode: sc.Settings.FollowUpMode, AfterFailedRun: sc.Settings.AfterFailedRun}
+	if sc.Settings.Compaction != nil {
+		settings.Compaction = *sc.Settings.Compaction
+	}
 	if r := sc.Settings.Retry; r != nil {
 		settings.Retry = RetrySettings{Enabled: r.Enabled, MaxRetries: r.MaxRetries, BaseDelayMs: r.BaseDelayMs, MaxAgentDelayMs: r.MaxAgentDelayMs}
 	}
-	h, err := Open(ctx, NewMemoryStorage(), HarnessOptions{Model: model, Registry: registry, Settings: settings})
+	h, err := Open(ctx, NewMemoryStorage(), HarnessOptions{Model: harnessModel, Registry: registry, Settings: settings})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -702,7 +744,11 @@ func runScenario(t *testing.T, sc scenarioSpec) json.RawMessage {
 	for _, step := range sc.Steps {
 		switch {
 		case step.Submit != nil:
-			submission, err := root.Submit(ctx, SubmissionRequest{Type: step.Submit.Type, Content: step.Submit.Content, WhenBusy: step.Submit.WhenBusy, WhenIdle: step.Submit.WhenIdle})
+			request := SubmissionRequest{Type: step.Submit.Type, Content: step.Submit.Content, WhenBusy: step.Submit.WhenBusy, WhenIdle: step.Submit.WhenIdle}
+			if e := step.Submit.Entry; e != nil {
+				request.Entry = &Entry{Kind: e.Kind, Data: e.Data}
+			}
+			submission, err := root.Submit(ctx, request)
 			switch {
 			case errors.Is(err, ErrBusy):
 				submissions = append(submissions, submitted{refused: "ConversationBusy"})
@@ -716,6 +762,21 @@ func runScenario(t *testing.T, sc scenarioSpec) json.RawMessage {
 		case step.Wait == "idle":
 			if err := root.WaitForIdle(ctx); err != nil {
 				t.Fatal(err)
+			}
+		case step.Wait == "compactions":
+			deadline := time.Now().Add(10 * time.Second)
+			for {
+				live, err := ReadDocument[LiveState](ctx, h, liveDocument, uint64(root.ID()))
+				if err != nil && !errors.Is(err, ErrNotFound) {
+					t.Fatal(err)
+				}
+				if len(live.Compactions) == 0 {
+					break
+				}
+				if time.Now().After(deadline) {
+					t.Fatal("compactions never ended")
+				}
+				time.Sleep(5 * time.Millisecond)
 			}
 		case step.Wait == "settled":
 			for _, s := range submissions {
@@ -735,6 +796,18 @@ func runScenario(t *testing.T, sc scenarioSpec) json.RawMessage {
 			close(gates.get(step.Release).released)
 		case len(step.Abort) > 0:
 			if err := root.Abort(ctx, string(step.Abort) == `"background"`); err != nil {
+				t.Fatal(err)
+			}
+		case len(step.Compact) > 0:
+			var instructions string
+			_ = json.Unmarshal(step.Compact, &instructions)
+			if _, err := root.Compact(ctx, instructions); err != nil {
+				t.Fatal(err)
+			}
+		case len(step.Reset) > 0:
+			var note string
+			_ = json.Unmarshal(step.Reset, &note)
+			if _, err := root.Reset(ctx, note); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -772,7 +845,7 @@ func runScenario(t *testing.T, sc scenarioSpec) json.RawMessage {
 	}
 	mu.Lock()
 	defer mu.Unlock()
-	data, err := json.Marshal(map[string]any{"requests": requests, "transcript": transcript, "submissions": settled})
+	data, err := json.Marshal(map[string]any{"requests": requests, "summaryRequests": summaryRequests, "transcript": transcript, "submissions": settled})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -807,9 +880,10 @@ func TestCrosscheckScenarios(t *testing.T) {
 func roundsInCallOrder(t *testing.T, raw json.RawMessage) json.RawMessage {
 	t.Helper()
 	var out struct {
-		Requests    json.RawMessage `json:"requests"`
-		Submissions json.RawMessage `json:"submissions"`
-		Transcript  []struct {
+		Requests        json.RawMessage `json:"requests"`
+		SummaryRequests json.RawMessage `json:"summaryRequests"`
+		Submissions     json.RawMessage `json:"submissions"`
+		Transcript      []struct {
 			Kind     string            `json:"kind"`
 			Messages []json.RawMessage `json:"messages"`
 		} `json:"transcript"`
@@ -858,4 +932,88 @@ func roundsInCallOrder(t *testing.T, raw json.RawMessage) json.RawMessage {
 		t.Fatal(err)
 	}
 	return data
+}
+
+// scenarioModel is a scripted model with a context window, for threshold
+// compaction.
+type scenarioModel struct {
+	generate taskModelFunc
+	window   int
+}
+
+func (m scenarioModel) Generate(ctx context.Context, request ModelRequest, delta func(string) error) (ModelResponse, error) {
+	return m.generate(ctx, request, delta)
+}
+
+func (m scenarioModel) ContextWindow(ModelRef) int { return m.window }
+
+// fauxUsage is the usage pi-ai's faux provider reports for a request and its
+// answer (withUsageEstimate): the prompt's characters, each message as
+// "role:text" joined by blank lines, and the answer's, over four. Only the
+// total matters to context estimates.
+func fauxUsage(messages []Message, response ModelResponse) Usage {
+	quarter := func(n int) int64 { return int64((n + 3) / 4) }
+	length := 0
+	for i, m := range messages {
+		role := m.Role
+		if role == "tool" {
+			role = "toolResult"
+		}
+		length += utf16Len(role + ":" + fauxText(m))
+		if i > 0 {
+			length += 2
+		}
+	}
+	answer := Message{Role: "assistant", Thinking: response.Thinking, Content: response.Content, ToolCalls: response.ToolCalls}
+	return Usage{InputTokens: quarter(length), OutputTokens: quarter(utf16Len(fauxText(answer)))}
+}
+
+// fauxText is a message as the faux provider writes it into its prompt.
+func fauxText(m Message) string {
+	blocks := func() []string {
+		var out []string
+		for _, part := range OrderedContent(m.Content, m.Images, m.ImageOffsets) {
+			if part.Image != nil {
+				out = append(out, fmt.Sprintf("[image:%s:%d]", part.Image.MimeType, len(part.Image.Data)))
+			} else if part.Text != "" {
+				out = append(out, part.Text)
+			}
+		}
+		return out
+	}
+	switch m.Role {
+	case "system":
+		parts := []string{SystemText(m)}
+		for _, name := range m.ToolsRemoved {
+			parts = append(parts, "tool-:"+jsStringifyRaw(json.RawMessage(fmt.Sprintf(`{"name":%q}`, name))))
+		}
+		for _, tool := range m.ToolsAdded {
+			decl, _ := json.Marshal(map[string]any{"name": tool.Name, "description": tool.Description, "parameters": json.RawMessage(tool.Parameters)})
+			parts = append(parts, "tool+:"+jsStringifyRaw(decl))
+		}
+		var kept []string
+		for _, part := range parts {
+			if part != "" {
+				kept = append(kept, part)
+			}
+		}
+		return strings.Join(kept, "\n")
+	case "user":
+		return strings.Join(blocks(), "\n")
+	case "assistant":
+		var parts []string
+		if m.Thinking != "" {
+			parts = append(parts, m.Thinking)
+		}
+		if m.Content != "" {
+			parts = append(parts, m.Content)
+		}
+		for _, call := range m.ToolCalls {
+			parts = append(parts, call.Name+":"+jsStringifyRaw(call.Arguments))
+		}
+		return strings.Join(parts, "\n")
+	case "tool":
+		return strings.Join(append([]string{m.ToolName}, blocks()...), "\n")
+	}
+	return m.Content
 }

@@ -1,0 +1,62 @@
+{
+ "name": "steering-all",
+ "settings": {
+  "steeringMode": "all"
+ },
+ "tools": [
+  {
+   "name": "slow",
+   "results": [
+    {
+     "text": "slow done",
+     "hold": "t1"
+    }
+   ]
+  }
+ ],
+ "model": [
+  {
+   "calls": [
+    {
+     "id": "c1",
+     "name": "slow",
+     "args": {}
+    }
+   ]
+  },
+  {
+   "text": "steered"
+  }
+ ],
+ "steps": [
+  {
+   "submit": {
+    "type": "input",
+    "content": "start"
+   }
+  },
+  {
+   "waitHeld": "t1"
+  },
+  {
+   "submit": {
+    "type": "input",
+    "content": "steer one",
+    "whenBusy": "steer"
+   }
+  },
+  {
+   "submit": {
+    "type": "input",
+    "content": "steer two",
+    "whenBusy": "steer"
+   }
+  },
+  {
+   "release": "t1"
+  },
+  {
+   "wait": "settled"
+  }
+ ]
+}

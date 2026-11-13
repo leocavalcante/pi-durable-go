@@ -77,10 +77,22 @@ export async function runScenario(
 	});
 	const models = piAi.createModels();
 	models.setProvider(faux.provider);
+	// Summarization requests take their answers from summaries, the others
+	// from model, whichever order concurrent requests come in.
 	const requests: unknown[] = [];
+	const summaryRequests: unknown[] = [];
+	const answers = [...(scenario.model ?? [])];
+	const summaries = [...(scenario.summaries ?? [])];
+	const isSummary = (messages: any[]): boolean => {
+		const first = messages[0];
+		const text = typeof first?.content === "string" ? first.content : "";
+		return first?.role === "system" && text.startsWith("You are a context summarization assistant");
+	};
 	faux.setResponses(
-		(scenario.model ?? []).map((step: any) => async (request: any, options: any) => {
-			requests.push(request.messages.map(normalizeMessage));
+		Array.from({ length: answers.length + summaries.length }, () => async (request: any, options: any) => {
+			const summary = isSummary(request.messages);
+			(summary ? summaryRequests : requests).push(request.messages.map(normalizeMessage));
+			const step = (summary ? summaries : answers).shift() ?? { error: "no scripted response" };
 			if (step.hold) await hold(step.hold, options?.signal);
 			const content: any[] = [];
 			if (step.thinking) content.push(piAi.fauxThinking(step.thinking));
@@ -129,6 +141,15 @@ export async function runScenario(
 			}
 		} else if (step.wait === "idle") {
 			await root.waitForIdle(context);
+		} else if (step.wait === "compactions") {
+			// Until no compaction is listed: background ones do not keep a
+			// conversation busy.
+			for (let i = 0; ; i++) {
+				const live = await harness.snapshot(pd.LiveDoc, root.id, context);
+				if (live?.compactions === undefined || live.compactions.length === 0) break;
+				if (i > 2000) throw new Error("compactions never ended");
+				await new Promise((resolve) => setTimeout(resolve, 5));
+			}
 		} else if (step.wait === "settled") {
 			for (const submission of submissions) if (submission.wait) await submission.wait(context);
 		} else if (step.waitHeld) {
@@ -137,6 +158,10 @@ export async function runScenario(
 			gate(step.release).release();
 		} else if (step.abort) {
 			await root.abort(context, { background: step.abort === "background" });
+		} else if (step.compact !== undefined) {
+			await root.compact(typeof step.compact === "string" ? step.compact : undefined, context);
+		} else if (step.reset !== undefined) {
+			await root.reset(typeof step.reset === "string" ? step.reset : undefined, context);
 		}
 	}
 	await root.waitForIdle(context);
@@ -155,5 +180,5 @@ export async function runScenario(
 		settled.push({ type: record.type, status: record.status, ...(record.reason ? { reason: record.reason } : {}) });
 	}
 	await harness.close(context);
-	return { requests, transcript, submissions: settled };
+	return { requests, summaryRequests, transcript, submissions: settled };
 }

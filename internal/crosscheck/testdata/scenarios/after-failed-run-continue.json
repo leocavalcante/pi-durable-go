@@ -1,0 +1,38 @@
+{
+ "name": "after-failed-run-continue",
+ "settings": {
+  "afterFailedRun": "continue"
+ },
+ "model": [
+  {
+   "error": "invalid request: bad thing",
+   "hold": "m1"
+  },
+  {
+   "text": "continued after failure"
+  }
+ ],
+ "steps": [
+  {
+   "submit": {
+    "type": "input",
+    "content": "first"
+   }
+  },
+  {
+   "waitHeld": "m1"
+  },
+  {
+   "submit": {
+    "type": "input",
+    "content": "queued"
+   }
+  },
+  {
+   "release": "m1"
+  },
+  {
+   "wait": "settled"
+  }
+ ]
+}

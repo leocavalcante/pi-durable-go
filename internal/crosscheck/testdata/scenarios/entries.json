@@ -1,0 +1,36 @@
+{
+ "name": "entries",
+ "model": [
+  {
+   "text": "noted"
+  }
+ ],
+ "steps": [
+  {
+   "submit": {
+    "type": "write",
+    "entry": {
+     "kind": "app.note",
+     "data": {
+      "x": 1
+     }
+    }
+   }
+  },
+  {
+   "submit": {
+    "type": "input",
+    "content": "hi",
+    "entry": {
+     "kind": "app.question",
+     "data": {
+      "y": 2
+     }
+    }
+   }
+  },
+  {
+   "wait": "settled"
+  }
+ ]
+}

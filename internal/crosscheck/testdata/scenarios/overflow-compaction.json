@@ -1,0 +1,50 @@
+{
+ "name": "overflow-compaction",
+ "settings": {
+  "compaction": {
+   "keepRecentTokens": 1
+  },
+  "retry": {
+   "enabled": true,
+   "maxRetries": 2,
+   "baseDelayMs": 1,
+   "maxAgentDelayMs": 5
+  }
+ },
+ "model": [
+  {
+   "text": "first answer"
+  },
+  {
+   "error": "400 prompt is too long: 210000 tokens > 200000 maximum"
+  },
+  {
+   "text": "after overflow"
+  }
+ ],
+ "summaries": [
+  {
+   "text": "OVERFLOW SUMMARY"
+  }
+ ],
+ "steps": [
+  {
+   "submit": {
+    "type": "input",
+    "content": "first"
+   }
+  },
+  {
+   "wait": "settled"
+  },
+  {
+   "submit": {
+    "type": "input",
+    "content": "second"
+   }
+  },
+  {
+   "wait": "settled"
+  }
+ ]
+}
