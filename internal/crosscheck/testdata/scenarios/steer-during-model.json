@@ -1,0 +1,36 @@
+{
+ "name": "steer-during-model",
+ "model": [
+  {
+   "text": "first",
+   "hold": "m1"
+  },
+  {
+   "text": "steered"
+  }
+ ],
+ "steps": [
+  {
+   "submit": {
+    "type": "input",
+    "content": "start"
+   }
+  },
+  {
+   "waitHeld": "m1"
+  },
+  {
+   "submit": {
+    "type": "input",
+    "content": "change of plan",
+    "whenBusy": "steer"
+   }
+  },
+  {
+   "release": "m1"
+  },
+  {
+   "wait": "settled"
+  }
+ ]
+}

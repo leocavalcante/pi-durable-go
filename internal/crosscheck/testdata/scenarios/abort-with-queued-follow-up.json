@@ -1,0 +1,52 @@
+{
+ "name": "abort-with-queued-follow-up",
+ "tools": [
+  {
+   "name": "slow",
+   "results": [
+    {
+     "text": "slow done",
+     "hold": "t1"
+    }
+   ]
+  }
+ ],
+ "model": [
+  {
+   "calls": [
+    {
+     "id": "c1",
+     "name": "slow",
+     "args": {}
+    }
+   ]
+  },
+  {
+   "text": "follow-up answer"
+  }
+ ],
+ "steps": [
+  {
+   "submit": {
+    "type": "input",
+    "content": "start"
+   }
+  },
+  {
+   "waitHeld": "t1"
+  },
+  {
+   "submit": {
+    "type": "input",
+    "content": "later",
+    "whenBusy": "followUp"
+   }
+  },
+  {
+   "abort": true
+  },
+  {
+   "wait": "settled"
+  }
+ ]
+}

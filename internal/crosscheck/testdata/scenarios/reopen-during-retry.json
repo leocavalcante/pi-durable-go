@@ -1,0 +1,36 @@
+{
+ "name": "reopen-during-retry",
+ "settings": {
+  "retry": {
+   "enabled": true,
+   "maxRetries": 2,
+   "baseDelayMs": 300,
+   "maxAgentDelayMs": 1000
+  }
+ },
+ "model": [
+  {
+   "error": "503 Service Unavailable"
+  },
+  {
+   "text": "recovered after reopen"
+  }
+ ],
+ "steps": [
+  {
+   "submit": {
+    "type": "input",
+    "content": "go"
+   }
+  },
+  {
+   "wait": "retrying"
+  },
+  {
+   "reopen": true
+  },
+  {
+   "wait": "settled"
+  }
+ ]
+}

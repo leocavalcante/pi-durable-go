@@ -1,0 +1,77 @@
+{
+ "name": "nested-calls",
+ "tools": [
+  {
+   "name": "outer",
+   "parameters": {
+    "type": "object"
+   },
+   "results": [
+    {
+     "nested": [
+      {
+       "tool": "inner",
+       "args": {
+        "n": 1
+       }
+      },
+      {
+       "tool": "inner",
+       "args": {
+        "n": "2"
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "inner",
+   "parameters": {
+    "type": "object",
+    "properties": {
+     "n": {
+      "type": "number"
+     }
+    }
+   },
+   "callers": [
+    "tools"
+   ],
+   "results": [
+    {
+     "text": "inner one"
+    },
+    {
+     "text": "inner two",
+     "isError": true
+    }
+   ]
+  }
+ ],
+ "model": [
+  {
+   "calls": [
+    {
+     "id": "c1",
+     "name": "outer",
+     "args": {}
+    }
+   ]
+  },
+  {
+   "text": "done"
+  }
+ ],
+ "steps": [
+  {
+   "submit": {
+    "type": "input",
+    "content": "go"
+   }
+  },
+  {
+   "wait": "settled"
+  }
+ ]
+}

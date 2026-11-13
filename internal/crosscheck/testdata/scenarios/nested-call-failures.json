@@ -1,0 +1,97 @@
+{
+ "name": "nested-call-failures",
+ "tools": [
+  {
+   "name": "outer",
+   "parameters": {
+    "type": "object"
+   },
+   "results": [
+    {
+     "nested": [
+      {
+       "tool": "missing",
+       "args": {}
+      },
+      {
+       "tool": "inner",
+       "args": {
+        "n": "not a number"
+       }
+      },
+      {
+       "tool": "thrower",
+       "args": {}
+      },
+      {
+       "tool": "modelOnly",
+       "args": {}
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "inner",
+   "parameters": {
+    "type": "object",
+    "properties": {
+     "n": {
+      "type": "number"
+     }
+    }
+   },
+   "callers": [
+    "tools"
+   ]
+  },
+  {
+   "name": "thrower",
+   "parameters": {
+    "type": "object"
+   },
+   "callers": [
+    "tools"
+   ],
+   "results": [
+    {
+     "throw": "inner boom"
+    }
+   ]
+  },
+  {
+   "name": "modelOnly",
+   "parameters": {
+    "type": "object"
+   },
+   "callers": [
+    "model"
+   ]
+  }
+ ],
+ "model": [
+  {
+   "calls": [
+    {
+     "id": "c1",
+     "name": "outer",
+     "args": {}
+    }
+   ]
+  },
+  {
+   "text": "done"
+  }
+ ],
+ "steps": [
+  {
+   "submit": {
+    "type": "input",
+    "content": "go"
+   }
+  },
+  {
+   "wait": "settled"
+  }
+ ]
+}

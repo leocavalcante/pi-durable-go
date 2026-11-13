@@ -125,11 +125,25 @@ export async function runScenario(
 			parameters: tool.parameters ?? { type: "object" },
 			...(tool.sequential ? { executionMode: "sequential" } : {}),
 			...(tool.replaySafe ? { replay: "safe" } : {}),
-			async execute(args: unknown, _api: unknown, callContext: any) {
+			...(tool.callers ? { callers: tool.callers } : {}),
+			async execute(args: unknown, api: any, callContext: any) {
 				const results = tool.results ?? [];
 				const result = results[Math.min(calls++, results.length - 1)] ?? { text: JSON.stringify(args) };
 				if (result.hold) await hold(result.hold, callContext?.abortSignal);
 				if (result.throw) throw new Error(result.throw);
+				if (result.nested) {
+					// Nested calls in order; their results, as programs read them.
+					const nested: unknown[] = [];
+					for (const call of result.nested) {
+						const done = await api.executeTool(call.tool, call.args ?? {}, context, call.key === undefined ? undefined : { key: call.key });
+						nested.push({
+							structuredOutput: done.structuredOutput ?? null,
+							isError: done.isError,
+							diagnostics: done.diagnostics.map((d: any) => `[${d.severity}] ${d.message}`),
+						});
+					}
+					return { output: [{ type: "text", text: JSON.stringify(nested) }] };
+				}
 				const control = {
 					...(result.terminate !== undefined ? { terminate: result.terminate } : {}),
 					...(result.handoff !== undefined ? { handoff: result.handoff } : {}),
@@ -228,6 +242,14 @@ export async function runScenario(
 			}
 		} else if (step.wait === "idle") {
 			await root.waitForIdle(context);
+		} else if (step.wait === "retrying") {
+			// Until a generation waits out a retry backoff.
+			for (let i = 0; ; i++) {
+				const live = await harness.snapshot(pd.LiveDoc, root.id, context);
+				if (live?.generation?.retry !== undefined) break;
+				if (i > 2000) throw new Error("no retry");
+				await new Promise((resolve) => setTimeout(resolve, 5));
+			}
 		} else if (step.wait === "compactions") {
 			// Until no compaction is listed: background ones do not keep a
 			// conversation busy.

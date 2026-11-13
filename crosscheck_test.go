@@ -484,7 +484,14 @@ type scenarioSpec struct {
 			Handoff     string           `json:"handoff,omitempty"`
 			AddTools    []string         `json:"addTools,omitempty"`
 			Diagnostics []ToolDiagnostic `json:"diagnostics,omitempty"`
+			// Nested calls in order; the result lists theirs.
+			Nested []struct {
+				Tool string          `json:"tool"`
+				Args json.RawMessage `json:"args,omitempty"`
+				Key  string          `json:"key,omitempty"`
+			} `json:"nested,omitempty"`
 		} `json:"results,omitempty"`
+		Callers []string `json:"callers,omitempty"`
 	} `json:"tools,omitempty"`
 	Settings struct {
 		Retry *struct {
@@ -722,8 +729,8 @@ func runScenario(t *testing.T, sc scenarioSpec) json.RawMessage {
 		}
 		var toolCalls int
 		var toolMu sync.Mutex
-		definition := ToolDefinition{ToolSpec: ToolSpec{Name: spec.Name, Description: description, Parameters: parameters}, ReplaySafe: spec.ReplaySafe,
-			Execute: func(ctx context.Context, args json.RawMessage, _ *ToolRuntime) (ToolResult, error) {
+		definition := ToolDefinition{ToolSpec: ToolSpec{Name: spec.Name, Description: description, Parameters: parameters}, ReplaySafe: spec.ReplaySafe, Callers: spec.Callers,
+			Execute: func(ctx context.Context, args json.RawMessage, rt *ToolRuntime) (ToolResult, error) {
 				toolMu.Lock()
 				i := toolCalls
 				toolCalls++
@@ -739,6 +746,38 @@ func runScenario(t *testing.T, sc scenarioSpec) json.RawMessage {
 				}
 				if result.Throw != "" {
 					return ToolResult{}, errors.New(result.Throw)
+				}
+				if len(result.Nested) > 0 {
+					// Nested calls in order; their results, as programs read them.
+					type nestedView struct {
+						StructuredOutput json.RawMessage `json:"structuredOutput"`
+						IsError          bool            `json:"isError"`
+						Diagnostics      []string        `json:"diagnostics"`
+					}
+					views := []nestedView{}
+					for _, call := range result.Nested {
+						args := call.Args
+						if len(args) == 0 {
+							args = json.RawMessage(`{}`)
+						}
+						done, err := rt.ExecuteTool(ctx, call.Tool, args, NestedCallOptions{Key: call.Key})
+						if err != nil {
+							return ToolResult{}, err
+						}
+						view := nestedView{StructuredOutput: done.StructuredOutput, IsError: done.IsError, Diagnostics: []string{}}
+						if len(view.StructuredOutput) == 0 {
+							view.StructuredOutput = json.RawMessage(`null`)
+						}
+						for _, d := range done.Diagnostics {
+							view.Diagnostics = append(view.Diagnostics, "["+d.Severity+"] "+d.Message)
+						}
+						views = append(views, view)
+					}
+					encoded, err := json.Marshal(views)
+					if err != nil {
+						return ToolResult{}, err
+					}
+					return ToolResult{Content: jsStringifyRaw(encoded)}, nil // JSON.stringify
 				}
 				out := ToolResult{IsError: result.IsError, Diagnostics: result.Diagnostics, Terminate: result.Terminate, Handoff: result.Handoff, AddTools: result.AddTools}
 				if result.Text != nil {
@@ -876,6 +915,21 @@ func runScenario(t *testing.T, sc scenarioSpec) json.RawMessage {
 		case step.Wait == "idle":
 			if err := root.WaitForIdle(ctx); err != nil {
 				t.Fatal(err)
+			}
+		case step.Wait == "retrying":
+			deadline := time.Now().Add(10 * time.Second)
+			for {
+				live, err := ReadDocument[LiveState](ctx, h, liveDocument, uint64(root.ID()))
+				if err != nil && !errors.Is(err, ErrNotFound) {
+					t.Fatal(err)
+				}
+				if live.Generation != nil && live.Generation.Retry != nil {
+					break
+				}
+				if time.Now().After(deadline) {
+					t.Fatal("no retry")
+				}
+				time.Sleep(5 * time.Millisecond)
 			}
 		case step.Wait == "compactions":
 			deadline := time.Now().Add(10 * time.Second)

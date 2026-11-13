@@ -44,5 +44,12 @@
  "tool-terminates-not-all",
  "tool-handoff",
  "tool-adds-tools",
- "tool-diagnostics"
+ "tool-diagnostics",
+ "abort-during-retry",
+ "reopen-during-retry",
+ "abort-with-queued-follow-up",
+ "steer-during-model",
+ "follow-up-during-tool",
+ "nested-calls",
+ "nested-call-failures"
 ]
