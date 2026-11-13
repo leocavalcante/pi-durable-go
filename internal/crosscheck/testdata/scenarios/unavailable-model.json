@@ -1,0 +1,38 @@
+{
+ "name": "unavailable-model",
+ "model": [
+  {
+   "text": "back again"
+  }
+ ],
+ "steps": [
+  {
+   "configure": {
+    "model": "faux-9"
+   }
+  },
+  {
+   "submit": {
+    "type": "input",
+    "content": "first"
+   }
+  },
+  {
+   "wait": "settled"
+  },
+  {
+   "configure": {
+    "model": "faux-1"
+   }
+  },
+  {
+   "submit": {
+    "type": "input",
+    "content": "second"
+   }
+  },
+  {
+   "wait": "settled"
+  }
+ ]
+}

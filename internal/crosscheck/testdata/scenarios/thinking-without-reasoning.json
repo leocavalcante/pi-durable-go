@@ -1,0 +1,24 @@
+{
+ "name": "thinking-without-reasoning",
+ "model": [
+  {
+   "text": "plain"
+  }
+ ],
+ "steps": [
+  {
+   "configure": {
+    "thinkingLevel": "medium"
+   }
+  },
+  {
+   "submit": {
+    "type": "input",
+    "content": "go"
+   }
+  },
+  {
+   "wait": "settled"
+  }
+ ]
+}

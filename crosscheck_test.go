@@ -452,7 +452,12 @@ func TestCrosscheckPartialArguments(t *testing.T) {
 type scenarioSpec struct {
 	Name          string `json:"name"`
 	ContextWindow int    `json:"contextWindow,omitempty"`
-	Summaries     []struct {
+	Models        []struct {
+		ID            string `json:"id"`
+		ContextWindow int    `json:"contextWindow,omitempty"`
+		Reasoning     bool   `json:"reasoning,omitempty"`
+	} `json:"models,omitempty"`
+	Summaries []struct {
 		Text string `json:"text"`
 		Hold string `json:"hold,omitempty"`
 	} `json:"summaries,omitempty"`
@@ -545,8 +550,10 @@ type scenarioSpec struct {
 		Compact   json.RawMessage `json:"compact,omitempty"`
 		Reset     json.RawMessage `json:"reset,omitempty"`
 		Configure *struct {
-			Instructions *string `json:"instructions,omitempty"`
-			MaxTurns     *int    `json:"maxTurns,omitempty"`
+			Instructions  *string `json:"instructions,omitempty"`
+			MaxTurns      *int    `json:"maxTurns,omitempty"`
+			Model         *string `json:"model,omitempty"`
+			ThinkingLevel *string `json:"thinkingLevel,omitempty"`
 		} `json:"configure,omitempty"`
 		Reopen   bool            `json:"reopen,omitempty"`
 		Wait     string          `json:"wait,omitempty"`
@@ -655,7 +662,11 @@ func runScenario(t *testing.T, sc scenarioSpec) json.RawMessage {
 		for _, spec := range request.Tools {
 			offered = append(offered, spec.Name)
 		}
-		record := map[string]any{"messages": messages, "tools": offered}
+		thinking := request.ThinkingLevel
+		if thinking == "" {
+			thinking = "off"
+		}
+		record := map[string]any{"model": request.Model.ID, "thinking": thinking, "messages": messages, "tools": offered}
 		// Summarization requests take their answers from Summaries.
 		if len(request.Messages) > 0 && request.Messages[0].Role == "system" && strings.HasPrefix(SystemText(request.Messages[0]), "You are a context summarization assistant") {
 			mu.Lock()
@@ -711,10 +722,18 @@ func runScenario(t *testing.T, sc scenarioSpec) json.RawMessage {
 		response.Usage = fauxUsage(request.Messages, response)
 		return response, nil
 	})
-	var harnessModel Model = model
+	// The faux provider's models: faux-1 and the scenario's own.
+	windows := map[string]int{"faux-1": 128000}
 	if sc.ContextWindow > 0 {
-		harnessModel = scenarioModel{generate: model, window: sc.ContextWindow}
+		windows["faux-1"] = sc.ContextWindow
 	}
+	for _, m := range sc.Models {
+		windows[m.ID] = 128000
+		if m.ContextWindow > 0 {
+			windows[m.ID] = m.ContextWindow
+		}
+	}
+	var harnessModel Model = scenarioModel{generate: model, windows: windows}
 	registry := NewRegistry()
 	var tools []ToolDefinition
 	for _, spec := range sc.Tools {
@@ -967,7 +986,11 @@ func runScenario(t *testing.T, sc scenarioSpec) json.RawMessage {
 				t.Fatal(err)
 			}
 		case step.Configure != nil:
-			if err := root.ChangeAgent(ctx, AgentChange{Instructions: step.Configure.Instructions, MaxTurns: step.Configure.MaxTurns}); err != nil {
+			change := AgentChange{Instructions: step.Configure.Instructions, MaxTurns: step.Configure.MaxTurns, ThinkingLevel: step.Configure.ThinkingLevel}
+			if step.Configure.Model != nil {
+				change.Model = &ModelRef{Provider: "faux", ID: *step.Configure.Model}
+			}
+			if err := root.ChangeAgent(ctx, change); err != nil {
 				t.Fatal(err)
 			}
 		case len(step.Compact) > 0:
@@ -1110,14 +1133,20 @@ func roundsInCallOrder(t *testing.T, raw json.RawMessage) json.RawMessage {
 // compaction.
 type scenarioModel struct {
 	generate taskModelFunc
-	window   int
+	windows  map[string]int
 }
 
 func (m scenarioModel) Generate(ctx context.Context, request ModelRequest, delta func(string) error) (ModelResponse, error) {
 	return m.generate(ctx, request, delta)
 }
 
-func (m scenarioModel) ContextWindow(ModelRef) int { return m.window }
+func (m scenarioModel) ContextWindow(ref ModelRef) int { return m.windows[ref.ID] }
+
+// HasModel: the faux provider registers only its models.
+func (m scenarioModel) HasModel(ref ModelRef) bool {
+	_, ok := m.windows[ref.ID]
+	return ref.Provider == "faux" && ok
+}
 
 // fauxUsage is the usage pi-ai's faux provider reports for a request and its
 // answer (withUsageEstimate): the prompt's characters, each message as

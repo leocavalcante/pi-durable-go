@@ -83,7 +83,16 @@ export async function runScenario(
 	};
 
 	const faux = piAi.fauxProvider({
-		models: [{ id: "faux-1", contextWindow: scenario.contextWindow ?? 128000, maxTokens: 16384, input: ["text", "image"] }],
+		models: [
+			{ id: "faux-1", contextWindow: scenario.contextWindow ?? 128000, maxTokens: 16384, input: ["text", "image"] },
+			...(scenario.models ?? []).map((m: any) => ({
+				id: m.id,
+				contextWindow: m.contextWindow ?? 128000,
+				maxTokens: 16384,
+				input: ["text", "image"],
+				reasoning: m.reasoning ?? false,
+			})),
+		],
 	});
 	const models = piAi.createModels();
 	models.setProvider(faux.provider);
@@ -99,9 +108,11 @@ export async function runScenario(
 		return first?.role === "system" && text.startsWith("You are a context summarization assistant");
 	};
 	faux.setResponses(
-		Array.from({ length: answers.length + summaries.length }, () => async (request: any, options: any) => {
+		Array.from({ length: answers.length + summaries.length }, () => async (request: any, options: any, _state: any, model: any) => {
 			const summary = isSummary(request.messages);
 			(summary ? summaryRequests : requests).push({
+				model: model?.id,
+				thinking: options?.reasoning ?? "off",
 				messages: request.messages.map(normalizeMessage),
 				// What pi-ai's adapters offer: the system messages' tool changes, folded.
 				tools: piAi.getCurrentTools(request.messages).map((tool: any) => tool.name),
@@ -268,7 +279,9 @@ export async function runScenario(
 		} else if (step.abort) {
 			await root.abort(context, { background: step.abort === "background" });
 		} else if (step.configure !== undefined) {
-			await root.configure(step.configure, context);
+			// A model is named by its faux ID.
+			const { model, ...change } = step.configure;
+			await root.configure({ ...change, ...(model === undefined ? {} : { model: { provider: "faux", modelId: model } }) }, context);
 		} else if (step.compact !== undefined) {
 			await root.compact(typeof step.compact === "string" ? step.compact : undefined, context);
 		} else if (step.reset !== undefined) {

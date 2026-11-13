@@ -51,5 +51,8 @@
  "steer-during-model",
  "follow-up-during-tool",
  "nested-calls",
- "nested-call-failures"
+ "nested-call-failures",
+ "change-model-and-thinking",
+ "unavailable-model",
+ "thinking-without-reasoning"
 ]

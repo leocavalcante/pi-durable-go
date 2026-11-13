@@ -1,0 +1,44 @@
+{
+ "name": "change-model-and-thinking",
+ "models": [
+  {
+   "id": "faux-2",
+   "reasoning": true
+  }
+ ],
+ "model": [
+  {
+   "text": "from one"
+  },
+  {
+   "thinking": "hmm",
+   "text": "from two"
+  }
+ ],
+ "steps": [
+  {
+   "submit": {
+    "type": "input",
+    "content": "first"
+   }
+  },
+  {
+   "wait": "settled"
+  },
+  {
+   "configure": {
+    "model": "faux-2",
+    "thinkingLevel": "high"
+   }
+  },
+  {
+   "submit": {
+    "type": "input",
+    "content": "second"
+   }
+  },
+  {
+   "wait": "settled"
+  }
+ ]
+}
