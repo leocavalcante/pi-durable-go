@@ -1,0 +1,66 @@
+{
+ "name": "reset-during-tool",
+ "tools": [
+  {
+   "name": "slow",
+   "parameters": {
+    "type": "object"
+   },
+   "results": [
+    {
+     "text": "late",
+     "hold": "t1"
+    }
+   ]
+  }
+ ],
+ "model": [
+  {
+   "calls": [
+    {
+     "id": "c1",
+     "name": "slow",
+     "args": {}
+    }
+   ]
+  },
+  {
+   "text": "after tool"
+  },
+  {
+   "text": "fresh start"
+  }
+ ],
+ "steps": [
+  {
+   "submit": {
+    "type": "input",
+    "content": "go"
+   }
+  },
+  {
+   "waitHeld": "t1"
+  },
+  {
+   "reset": "starting over"
+  },
+  {
+   "release": "t1"
+  },
+  {
+   "wait": "settled"
+  },
+  {
+   "live": true
+  },
+  {
+   "submit": {
+    "type": "input",
+    "content": "new topic"
+   }
+  },
+  {
+   "wait": "settled"
+  }
+ ]
+}

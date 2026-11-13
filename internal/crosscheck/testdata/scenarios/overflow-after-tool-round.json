@@ -1,0 +1,77 @@
+{
+ "name": "overflow-after-tool-round",
+ "settings": {
+  "compaction": {
+   "keepRecentTokens": 1
+  },
+  "retry": {
+   "enabled": true,
+   "maxRetries": 2,
+   "baseDelayMs": 1,
+   "maxAgentDelayMs": 5
+  }
+ },
+ "tools": [
+  {
+   "name": "echo",
+   "parameters": {
+    "type": "object",
+    "properties": {
+     "text": {
+      "type": "string"
+     }
+    }
+   }
+  }
+ ],
+ "model": [
+  {
+   "text": "first answer"
+  },
+  {
+   "calls": [
+    {
+     "id": "a",
+     "name": "echo",
+     "args": {
+      "text": "x"
+     }
+    }
+   ]
+  },
+  {
+   "error": "400 prompt is too long: 210000 tokens > 200000 maximum"
+  },
+  {
+   "text": "after overflow"
+  }
+ ],
+ "summaries": [
+  {
+   "text": "OVERFLOW SUMMARY"
+  }
+ ],
+ "steps": [
+  {
+   "submit": {
+    "type": "input",
+    "content": "first"
+   }
+  },
+  {
+   "wait": "settled"
+  },
+  {
+   "submit": {
+    "type": "input",
+    "content": "second"
+   }
+  },
+  {
+   "wait": "settled"
+  },
+  {
+   "live": true
+  }
+ ]
+}

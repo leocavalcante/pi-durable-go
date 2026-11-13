@@ -79,5 +79,9 @@
  "live-retrying-then-aborted",
  "live-after-model-failure",
  "live-after-turn-limit",
- "live-background-compaction"
+ "live-background-compaction",
+ "compact-after-tool-rounds",
+ "overflow-after-tool-round",
+ "abort-during-manual-compaction",
+ "reset-during-tool"
 ]

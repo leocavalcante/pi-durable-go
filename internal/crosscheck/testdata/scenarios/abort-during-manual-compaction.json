@@ -1,0 +1,60 @@
+{
+ "name": "abort-during-manual-compaction",
+ "settings": {
+  "compaction": {
+   "keepRecentTokens": 1
+  }
+ },
+ "model": [
+  {
+   "text": "answer one"
+  },
+  {
+   "text": "answer two"
+  }
+ ],
+ "summaries": [
+  {
+   "text": "NEVER",
+   "hold": "s1"
+  }
+ ],
+ "steps": [
+  {
+   "submit": {
+    "type": "input",
+    "content": "first"
+   }
+  },
+  {
+   "wait": "settled"
+  },
+  {
+   "submit": {
+    "type": "input",
+    "content": "second"
+   }
+  },
+  {
+   "wait": "settled"
+  },
+  {
+   "compact": "summarize"
+  },
+  {
+   "waitHeld": "s1"
+  },
+  {
+   "live": true
+  },
+  {
+   "abort": "background"
+  },
+  {
+   "wait": "compactions"
+  },
+  {
+   "live": true
+  }
+ ]
+}
