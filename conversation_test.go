@@ -331,6 +331,11 @@ func TestCompactionPreservesTranscript(t *testing.T) {
 	if len(after) <= len(before) {
 		t.Fatal("compaction entry absent")
 	}
+	// The summary is the entry's model message, as upstream's is.
+	last := after[len(after)-1]
+	if last.Kind != "pi.compaction" || last.Message == nil || last.Message.Role != "user" || !strings.HasPrefix(last.Message.Content, summaryPrefix) {
+		t.Fatalf("compaction entry %+v", last)
+	}
 	messages, err := c.Context(ctx)
 	if err != nil {
 		t.Fatal(err)

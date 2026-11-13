@@ -551,7 +551,9 @@ func placeSummary(tx *Tx, h *Harness, task TaskRecord, input compactionInput, fi
 	if err != nil {
 		return TaskTransition{}, err
 	}
-	entry := &Entry{Kind: "pi.compaction", Data: data}
+	// The summary is the entry's model message, as upstream's is; the data
+	// keeps what derivation needs.
+	entry := &Entry{Kind: "pi.compaction", Data: data, Message: &Message{Role: "user", Content: summaryPrefix + summary + summarySuffix}}
 	var result json.RawMessage
 	if task.Owner.Task != 0 {
 		id, err := tx.Append(cid, *entry)
