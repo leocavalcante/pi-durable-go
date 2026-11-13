@@ -490,6 +490,16 @@ type scenarioSpec struct {
 			AddTools    []string         `json:"addTools,omitempty"`
 			Diagnostics []ToolDiagnostic `json:"diagnostics,omitempty"`
 			Images      []ImageContent   `json:"images,omitempty"`
+			// Running output, and text built by repetition.
+			Stream       []string `json:"stream,omitempty"`
+			StreamRepeat *struct {
+				Text  string `json:"text"`
+				Times int    `json:"times"`
+			} `json:"streamRepeat,omitempty"`
+			Repeat *struct {
+				Text  string `json:"text"`
+				Times int    `json:"times"`
+			} `json:"repeat,omitempty"`
 			// Nested calls in order; the result lists theirs.
 			Nested []struct {
 				Tool string          `json:"tool"`
@@ -497,7 +507,12 @@ type scenarioSpec struct {
 				Key  string          `json:"key,omitempty"`
 			} `json:"nested,omitempty"`
 		} `json:"results,omitempty"`
-		Callers []string `json:"callers,omitempty"`
+		Callers      []string `json:"callers,omitempty"`
+		OutputLimits *struct {
+			MaxBytes int    `json:"maxBytes,omitempty"`
+			MaxLines int    `json:"maxLines,omitempty"`
+			Retain   string `json:"retain,omitempty"`
+		} `json:"outputLimits,omitempty"`
 	} `json:"tools,omitempty"`
 	Settings struct {
 		Retry *struct {
@@ -815,14 +830,32 @@ func runScenario(t *testing.T, sc scenarioSpec) json.RawMessage {
 					}
 					return ToolResult{Content: jsStringifyRaw(encoded)}, nil // JSON.stringify
 				}
+				for _, chunk := range result.Stream {
+					if err := rt.Output(ctx, chunk); err != nil {
+						return ToolResult{}, err
+					}
+				}
+				if r := result.StreamRepeat; r != nil {
+					for range r.Times {
+						if err := rt.Output(ctx, r.Text); err != nil {
+							return ToolResult{}, err
+						}
+					}
+				}
 				out := ToolResult{IsError: result.IsError, Diagnostics: result.Diagnostics, Terminate: result.Terminate, Handoff: result.Handoff, AddTools: result.AddTools, Images: result.Images}
 				if result.Text != nil {
 					out.Content = *result.Text
+				}
+				if r := result.Repeat; r != nil {
+					out.Content = strings.Repeat(r.Text, r.Times)
 				}
 				return out, nil
 			}}
 		if spec.Sequential {
 			definition.ExecutionMode = "sequential"
+		}
+		if l := spec.OutputLimits; l != nil {
+			definition.OutputLimits = &OutputLimits{MaxBytes: l.MaxBytes, MaxLines: l.MaxLines, Retain: l.Retain}
 		}
 		tools = append(tools, definition)
 	}

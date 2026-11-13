@@ -138,6 +138,7 @@ export async function runScenario(
 			...(tool.sequential ? { executionMode: "sequential" } : {}),
 			...(tool.replaySafe ? { replay: "safe" } : {}),
 			...(tool.callers ? { callers: tool.callers } : {}),
+			...(tool.outputLimits ? { outputLimits: tool.outputLimits } : {}),
 			async execute(args: unknown, api: any, callContext: any) {
 				const results = tool.results ?? [];
 				const result = results[Math.min(calls++, results.length - 1)] ?? { text: JSON.stringify(args) };
@@ -161,9 +162,15 @@ export async function runScenario(
 					...(result.handoff !== undefined ? { handoff: result.handoff } : {}),
 					...(result.addTools !== undefined ? { addTools: result.addTools } : {}),
 				};
+				// Running output, then the result; a result without text or
+				// images omits its output, so the retained output stands.
+				for (const chunk of result.stream ?? []) api.output(chunk);
+				if (result.streamRepeat) for (let i = 0; i < result.streamRepeat.times; i++) api.output(result.streamRepeat.text);
+				const text = result.repeat ? result.repeat.text.repeat(result.repeat.times) : result.text;
 				const images = (result.images ?? []).map((image: any) => ({ type: "image", data: image.data, mimeType: image.mimeType }));
+				const output = [...(text === undefined ? [] : [{ type: "text", text }]), ...images];
 				return {
-					output: [...(result.text === undefined ? [] : [{ type: "text", text: result.text }]), ...images],
+					...(output.length > 0 ? { output } : {}),
 					...(result.isError ? { isError: true } : {}),
 					...(result.diagnostics !== undefined ? { diagnostics: result.diagnostics } : {}),
 					...(Object.keys(control).length > 0 ? { control } : {}),

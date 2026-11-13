@@ -63,5 +63,12 @@
  "user-images",
  "tool-images",
  "fork-and-continue",
- "fork-inherits-agent"
+ "fork-inherits-agent",
+ "tool-output-lines-truncated",
+ "tool-output-bytes-tail",
+ "tool-streamed-output",
+ "tool-streamed-output-truncated",
+ "tool-streamed-then-returned",
+ "tool-streamed-long-line",
+ "tool-streamed-head"
 ]

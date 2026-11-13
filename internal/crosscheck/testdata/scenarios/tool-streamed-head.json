@@ -1,0 +1,51 @@
+{
+ "name": "tool-streamed-head",
+ "tools": [
+  {
+   "name": "streamer",
+   "parameters": {
+    "type": "object"
+   },
+   "outputLimits": {
+    "maxBytes": 64,
+    "retain": "head"
+   },
+   "results": [
+    {
+     "stream": [
+      "first line\n",
+      "second line\n",
+      "a third line that is long\n",
+      "fourth\n",
+      "fifth line here\n"
+     ]
+    }
+   ]
+  }
+ ],
+ "model": [
+  {
+   "calls": [
+    {
+     "id": "c1",
+     "name": "streamer",
+     "args": {}
+    }
+   ]
+  },
+  {
+   "text": "done"
+  }
+ ],
+ "steps": [
+  {
+   "submit": {
+    "type": "input",
+    "content": "go"
+   }
+  },
+  {
+   "wait": "settled"
+  }
+ ]
+}

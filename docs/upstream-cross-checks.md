@@ -38,7 +38,7 @@ For another upstream release, set `PI_DURABLE_UPSTREAM_TAG` with Pi of that vers
 | `model.OpenAI` reasoning | `reasoning_effort` and `clampThinkingLevel` | Ported to equal (24 combinations) |
 | `model.OpenAI` responses | SSE parsing from a local server: usage, stop reasons | Ported to equal; provider error text stays sanitized by design |
 | Tool runtime behavior | `tool.ts`: throws, retained output, structured output contract, nested keys | Ported |
-| Whole conversations | Upstream's `Harness` with pi-ai's faux provider, against this Harness with a scripted model: 65 scenarios (`internal/crosscheck/testdata/scenarios`) | Equal: model requests, transcripts, and settlements. They found three differences, all ported: upstream keeps the agent in a `pi.agent` document rather than transcript entries, a compaction entry carries its summary as a user message, and a nested call's value depends on whether the tool ran or the Harness wrote its result |
+| Whole conversations | Upstream's `Harness` with pi-ai's faux provider, against this Harness with a scripted model: 72 scenarios (`internal/crosscheck/testdata/scenarios`) | Equal: model requests, transcripts, and settlements. They found four differences, all ported: upstream keeps the agent in a `pi.agent` document rather than transcript entries, a compaction entry carries its summary as a user message, a nested call's value depends on whether the tool ran or the Harness wrote its result, and a line kept in part is not counted as dropped |
 
 ## Scenarios
 

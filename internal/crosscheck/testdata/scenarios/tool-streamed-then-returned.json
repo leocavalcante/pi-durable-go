@@ -1,0 +1,44 @@
+{
+ "name": "tool-streamed-then-returned",
+ "tools": [
+  {
+   "name": "streamer",
+   "parameters": {
+    "type": "object"
+   },
+   "results": [
+    {
+     "stream": [
+      "progress\n"
+     ],
+     "text": "final text"
+    }
+   ]
+  }
+ ],
+ "model": [
+  {
+   "calls": [
+    {
+     "id": "c1",
+     "name": "streamer",
+     "args": {}
+    }
+   ]
+  },
+  {
+   "text": "done"
+  }
+ ],
+ "steps": [
+  {
+   "submit": {
+    "type": "input",
+    "content": "go"
+   }
+  },
+  {
+   "wait": "settled"
+  }
+ ]
+}

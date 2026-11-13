@@ -1,0 +1,44 @@
+{
+ "name": "tool-streamed-output",
+ "tools": [
+  {
+   "name": "streamer",
+   "parameters": {
+    "type": "object"
+   },
+   "results": [
+    {
+     "stream": [
+      "first chunk\n",
+      "second chunk\n"
+     ]
+    }
+   ]
+  }
+ ],
+ "model": [
+  {
+   "calls": [
+    {
+     "id": "c1",
+     "name": "streamer",
+     "args": {}
+    }
+   ]
+  },
+  {
+   "text": "done"
+  }
+ ],
+ "steps": [
+  {
+   "submit": {
+    "type": "input",
+    "content": "go"
+   }
+  },
+  {
+   "wait": "settled"
+  }
+ ]
+}

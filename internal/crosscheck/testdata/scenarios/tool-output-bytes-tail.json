@@ -1,0 +1,48 @@
+{
+ "name": "tool-output-bytes-tail",
+ "tools": [
+  {
+   "name": "big",
+   "parameters": {
+    "type": "object"
+   },
+   "outputLimits": {
+    "maxBytes": 100,
+    "retain": "tail"
+   },
+   "results": [
+    {
+     "repeat": {
+      "text": "abcdefghij",
+      "times": 30
+     }
+    }
+   ]
+  }
+ ],
+ "model": [
+  {
+   "calls": [
+    {
+     "id": "c1",
+     "name": "big",
+     "args": {}
+    }
+   ]
+  },
+  {
+   "text": "done"
+  }
+ ],
+ "steps": [
+  {
+   "submit": {
+    "type": "input",
+    "content": "go"
+   }
+  },
+  {
+   "wait": "settled"
+  }
+ ]
+}

@@ -1,0 +1,48 @@
+{
+ "name": "tool-streamed-long-line",
+ "tools": [
+  {
+   "name": "streamer",
+   "parameters": {
+    "type": "object"
+   },
+   "outputLimits": {
+    "maxBytes": 100,
+    "retain": "tail"
+   },
+   "results": [
+    {
+     "streamRepeat": {
+      "text": "abcdefghij",
+      "times": 30
+     }
+    }
+   ]
+  }
+ ],
+ "model": [
+  {
+   "calls": [
+    {
+     "id": "c1",
+     "name": "streamer",
+     "args": {}
+    }
+   ]
+  },
+  {
+   "text": "done"
+  }
+ ],
+ "steps": [
+  {
+   "submit": {
+    "type": "input",
+    "content": "go"
+   }
+  },
+  {
+   "wait": "settled"
+  }
+ ]
+}

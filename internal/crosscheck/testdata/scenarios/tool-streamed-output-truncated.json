@@ -1,0 +1,48 @@
+{
+ "name": "tool-streamed-output-truncated",
+ "tools": [
+  {
+   "name": "streamer",
+   "parameters": {
+    "type": "object"
+   },
+   "outputLimits": {
+    "maxLines": 100,
+    "retain": "tail"
+   },
+   "results": [
+    {
+     "streamRepeat": {
+      "text": "row\n",
+      "times": 500
+     }
+    }
+   ]
+  }
+ ],
+ "model": [
+  {
+   "calls": [
+    {
+     "id": "c1",
+     "name": "streamer",
+     "args": {}
+    }
+   ]
+  },
+  {
+   "text": "done"
+  }
+ ],
+ "steps": [
+  {
+   "submit": {
+    "type": "input",
+    "content": "go"
+   }
+  },
+  {
+   "wait": "settled"
+  }
+ ]
+}

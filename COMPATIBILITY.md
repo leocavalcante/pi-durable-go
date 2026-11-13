@@ -147,7 +147,7 @@ This table highlights compatibility changes since the previous runtime reference
 
 ## Cross-checks
 
-`make crosscheck` checks behavior against upstream's own 1.5.2 code, run from its TypeScript sources: tool argument coercion and validation, the coding tools, tool search, context ordering, compaction, prompt planning, error classification, and `model.OpenAI`'s requests and responses. It also plays 65 conversation scenarios through upstream's Harness and this one. They cover:
+`make crosscheck` checks behavior against upstream's own 1.5.2 code, run from its TypeScript sources: tool argument coercion and validation, the coding tools, tool search, context ordering, compaction, prompt planning, error classification, and `model.OpenAI`'s requests and responses. It also plays 72 conversation scenarios through upstream's Harness and this one. They cover:
 - tool rounds, parallel and sequential tools, failing and unknown tools, invalid arguments, and a model failure after tool rounds;
 - model errors and retries, turn limits, length stops, and failed-run policies;
 - follow-ups, steering, queue modes, refusals, and aborts;
@@ -156,7 +156,7 @@ This table highlights compatibility changes since the previous runtime reference
 - prompt sections, agent changes (models, thinking levels, an unavailable model), and `beforeRequest`, `afterResponse` (errors rewritten either way), `beforeTool`, `afterTool`, `onYield`, and `beforeCompact` (a summary, a decline) hooks;
 - images in user input and tool results;
 - forks, which share history up to their entry and take the agent as of it;
-- tool control (terminating rounds, handoffs, added tools), diagnostics, and nested calls and their failures;
+- tool control (terminating rounds, handoffs, added tools), diagnostics, nested calls and their failures, and output bounds on returned and streamed output, head and tail;
 - aborts and reopening during retry backoff, aborts with queued follow-ups, and steering and follow-ups during model requests and tool calls;
 - reopening while idle, during a model request, and during unsafe and replay-safe tool calls.
 

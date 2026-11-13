@@ -1,0 +1,44 @@
+{
+ "name": "tool-output-lines-truncated",
+ "tools": [
+  {
+   "name": "big",
+   "parameters": {
+    "type": "object"
+   },
+   "results": [
+    {
+     "repeat": {
+      "text": "line\n",
+      "times": 3000
+     }
+    }
+   ]
+  }
+ ],
+ "model": [
+  {
+   "calls": [
+    {
+     "id": "c1",
+     "name": "big",
+     "args": {}
+    }
+   ]
+  },
+  {
+   "text": "done"
+  }
+ ],
+ "steps": [
+  {
+   "submit": {
+    "type": "input",
+    "content": "go"
+   }
+  },
+  {
+   "wait": "settled"
+  }
+ ]
+}
