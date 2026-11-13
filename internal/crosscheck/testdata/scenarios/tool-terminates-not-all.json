@@ -2,20 +2,23 @@
  "name": "tool-terminates-not-all",
  "tools": [
   {
-   "name": "echo",
+   "name": "finish",
    "parameters": {
-    "type": "object",
-    "properties": {
-     "text": {
-      "type": "string"
-     }
-    }
+    "type": "object"
    },
    "results": [
     {
      "text": "stop",
      "terminate": true
-    },
+    }
+   ]
+  },
+  {
+   "name": "echo",
+   "parameters": {
+    "type": "object"
+   },
+   "results": [
     {
      "text": "go on"
     }
@@ -27,7 +30,7 @@
    "calls": [
     {
      "id": "a",
-     "name": "echo",
+     "name": "finish",
      "args": {
       "text": "1"
      }

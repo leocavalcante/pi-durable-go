@@ -36,7 +36,9 @@ func openTaskStore(t *testing.T, ctx context.Context, path string, registry *dur
 func TestAbandonOnRestartMarksBeforeAnyReservation(t *testing.T) {
 	for _, status := range []string{"pending", "running", "waiting", "completing"} {
 		t.Run(status, func(t *testing.T) {
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			// SQLite on disk syncs every commit, which can take seconds
+			// under load; the test checks outcomes, not speed.
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
 			path := filepath.Join(t.TempDir(), "tasks.sqlite")
 			var mu sync.Mutex
