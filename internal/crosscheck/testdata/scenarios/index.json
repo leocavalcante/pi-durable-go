@@ -86,5 +86,6 @@
  "reset-during-tool",
  "after-run-task",
  "after-run-holds-the-queue",
- "after-run-terminate"
+ "after-run-terminate",
+ "malformed-arguments"
 ]

@@ -166,7 +166,10 @@ export async function runScenario(
 			const content: any[] = [];
 			if (step.thinking) content.push(piAi.fauxThinking(step.thinking));
 			if (step.text) content.push(piAi.fauxText(step.text));
-			for (const call of step.calls ?? []) content.push(piAi.fauxToolCall(call.name, call.args ?? {}, { id: call.id }));
+			for (const call of step.calls ?? []) {
+				const block = piAi.fauxToolCall(call.name, call.args ?? {}, { id: call.id });
+				content.push(call.argumentsError === undefined ? block : { ...block, argumentsError: call.argumentsError });
+			}
 			const stopReason = step.error ? "error" : (step.stop ?? (step.calls?.length ? "toolUse" : "stop"));
 			return piAi.fauxAssistantMessage(content, { stopReason, ...(step.error ? { errorMessage: step.error } : {}) });
 		}),

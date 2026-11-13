@@ -164,6 +164,21 @@ const ops: Record<string, (input: any) => Promise<unknown>> = {
 		return partials.map((text) => JSON.stringify(parseStreamingJson(text)));
 	},
 
+	/** pi-ai's reading of a finished call's arguments text, and V8's JSON.parse messages. */
+	async toolArguments(texts: string[]) {
+		const { parseToolCallArguments } = await ai("utils/json-parse.ts");
+		return texts.map((text) => {
+			const { arguments: args, argumentsError } = parseToolCallArguments(text);
+			let parse = "";
+			try {
+				JSON.parse(text);
+			} catch (error) {
+				parse = (error as Error).message;
+			}
+			return { arguments: args, ...(argumentsError === undefined ? {} : { argumentsError }), parse };
+		});
+	},
+
 	/** Size formatting and Number.prototype.toFixed. */
 	async numbers({ sizes, fixed }: { sizes: number[]; fixed: [number, number][] }) {
 		const { formatSize } = await durable("truncate.ts");
@@ -250,7 +265,9 @@ const ops: Record<string, (input: any) => Promise<unknown>> = {
 					text: message.content.flatMap((block: any) => (block.type === "text" ? [block.text] : [])).join(""),
 					thinking: message.content.flatMap((block: any) => (block.type === "thinking" ? [block.thinking] : [])).join(""),
 					toolCalls: message.content.flatMap((block: any) =>
-						block.type === "toolCall" ? [{ id: block.id, name: block.name, arguments: block.arguments }] : [],
+						block.type === "toolCall"
+							? [{ id: block.id, name: block.name, arguments: block.arguments, ...(block.argumentsError ? { argumentsError: block.argumentsError } : {}) }]
+							: [],
 					),
 					usage: { input: message.usage.input, output: message.usage.output, cacheRead: message.usage.cacheRead, cacheWrite: message.usage.cacheWrite },
 				});

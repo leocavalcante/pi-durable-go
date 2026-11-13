@@ -1,0 +1,61 @@
+{
+ "name": "malformed-arguments",
+ "tools": [
+  {
+   "name": "echo",
+   "parameters": {
+    "type": "object",
+    "properties": {
+     "text": {
+      "type": "string"
+     }
+    }
+   },
+   "results": [
+    {
+     "text": "never runs"
+    },
+    {
+     "text": "ran"
+    }
+   ]
+  }
+ ],
+ "model": [
+  {
+   "calls": [
+    {
+     "id": "c1",
+     "name": "echo",
+     "args": {},
+     "argumentsError": "Expected ',' or '}' after property value in JSON at position 11 (line 1 column 12)\n\nReceived arguments:\n{\"text\":\"x\""
+    }
+   ]
+  },
+  {
+   "calls": [
+    {
+     "id": "c2",
+     "name": "echo",
+     "args": {
+      "text": "fixed"
+     }
+    }
+   ]
+  },
+  {
+   "text": "done"
+  }
+ ],
+ "steps": [
+  {
+   "submit": {
+    "type": "input",
+    "content": "go"
+   }
+  },
+  {
+   "wait": "settled"
+  }
+ ]
+}

@@ -479,6 +479,8 @@ type scenarioSpec struct {
 			ID   string          `json:"id"`
 			Name string          `json:"name"`
 			Args json.RawMessage `json:"args,omitempty"`
+			// As pi-ai sets it for malformed arguments text.
+			ArgumentsError string `json:"argumentsError,omitempty"`
 		} `json:"calls,omitempty"`
 	} `json:"model"`
 	Tools []struct {
@@ -760,7 +762,7 @@ func runScenario(t *testing.T, sc scenarioSpec) json.RawMessage {
 			if len(args) == 0 {
 				args = json.RawMessage(`{}`)
 			}
-			response.ToolCalls = append(response.ToolCalls, ToolCall{ID: call.ID, Name: call.Name, Arguments: args})
+			response.ToolCalls = append(response.ToolCalls, ToolCall{ID: call.ID, Name: call.Name, Arguments: args, ArgumentsError: call.ArgumentsError})
 		}
 		if response.StopReason == "" {
 			response.StopReason = "stop"

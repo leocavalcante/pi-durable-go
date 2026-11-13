@@ -109,6 +109,10 @@ func TestCrosscheckOpenAIResponses(t *testing.T) {
 		{`data: {"choices":[{"delta":{"content":"cut"},"finish_reason":"length"}]}`, `data: [DONE]`},
 		{`data: {"choices":[{"delta":{"content":"x"},"finish_reason":"content_filter"}]}`, `data: [DONE]`},
 		{`data: {"choices":[{"delta":{"content":"x"},"finish_reason":"stop"}],"usage":{"prompt_tokens":30,"completion_tokens":2,"prompt_cache_hit_tokens":12}}`, `data: [DONE]`},
+		// Malformed arguments stay the model's: the call carries argumentsError.
+		{`data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_m","type":"function","function":{"name":"lookup","arguments":"{\"q\":\"x\""}}]}}]}`, `data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}`, `data: [DONE]`},
+		{`data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_r","type":"function","function":{"name":"lookup","arguments":"{\"q\":\"line\nbreak\"}"}}]}}]}`, `data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}`, `data: [DONE]`},
+		{`data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_n","type":"function","function":{"name":"lookup","arguments":"[1,2]"}}]}}]}`, `data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}`, `data: [DONE]`},
 	}
 	var want []struct {
 		StopReason   string  `json:"stopReason"`
@@ -116,9 +120,10 @@ func TestCrosscheckOpenAIResponses(t *testing.T) {
 		Text         string  `json:"text"`
 		Thinking     string  `json:"thinking"`
 		ToolCalls    []struct {
-			ID        string          `json:"id"`
-			Name      string          `json:"name"`
-			Arguments json.RawMessage `json:"arguments"`
+			ID             string          `json:"id"`
+			Name           string          `json:"name"`
+			Arguments      json.RawMessage `json:"arguments"`
+			ArgumentsError string          `json:"argumentsError"`
 		} `json:"toolCalls"`
 		Usage struct {
 			Input, Output, CacheRead, CacheWrite int64
@@ -155,7 +160,7 @@ func TestCrosscheckOpenAIResponses(t *testing.T) {
 			t.Errorf("stream %d: %d tool calls, upstream %d", current, len(response.ToolCalls), len(w.ToolCalls))
 		}
 		for i := range response.ToolCalls {
-			if i < len(w.ToolCalls) && (response.ToolCalls[i].ID != w.ToolCalls[i].ID || response.ToolCalls[i].Name != w.ToolCalls[i].Name || !crosscheck.Same(response.ToolCalls[i].Arguments, w.ToolCalls[i].Arguments)) {
+			if i < len(w.ToolCalls) && (response.ToolCalls[i].ID != w.ToolCalls[i].ID || response.ToolCalls[i].Name != w.ToolCalls[i].Name || !crosscheck.Same(response.ToolCalls[i].Arguments, w.ToolCalls[i].Arguments) || response.ToolCalls[i].ArgumentsError != w.ToolCalls[i].ArgumentsError) {
 				t.Errorf("stream %d call %d: %+v, upstream %+v", current, i, response.ToolCalls[i], w.ToolCalls[i])
 			}
 		}

@@ -33,12 +33,13 @@ For another upstream release, set `PI_DURABLE_UPSTREAM_TAG` with Pi of that vers
 | Prompt planning | `planSections`, `planTools` | Equal |
 | Retry and overflow classification | pi-ai `isRetryableAssistantError`, `isContextOverflow` | Equal (27 messages) |
 | Partial tool arguments | pi-ai `parseStreamingJson` | Equal except unterminated numbers such as `1.` |
+| Finished tool arguments | pi-ai `parseToolCallArguments` with its repair, and V8's `JSON.parse` messages it reports | Ported to equal (about 130 texts). Malformed arguments used to fail the response here; upstream reports them to the model as `invalid_arguments` |
 | Size formatting | `formatSize`, `toFixed` | Ported to equal |
 | `model.OpenAI` requests | pi-ai `openai-completions` `streamSimple` payload via `onPayload` | Ported to equal for messages, tools, cache key, store, and output limit |
 | `model.OpenAI` reasoning | `reasoning_effort` and `clampThinkingLevel` | Ported to equal (24 combinations) |
-| `model.OpenAI` responses | SSE parsing from a local server: usage, stop reasons | Ported to equal; provider error text stays sanitized by design |
+| `model.OpenAI` responses | SSE parsing from a local server: usage, stop reasons, malformed and repaired tool arguments | Ported to equal; provider error text stays sanitized by design |
 | Tool runtime behavior | `tool.ts`: throws, retained output, structured output contract, nested keys | Ported |
-| Whole conversations | Upstream's `Harness` with pi-ai's faux provider, against this Harness with a scripted model: 88 scenarios (`internal/crosscheck/testdata/scenarios`) | Equal: model requests, transcripts, and settlements. They found five differences, all ported: upstream keeps the agent in a `pi.agent` document rather than transcript entries, a compaction entry carries its summary as a user message, a nested call's value depends on whether the tool ran or the Harness wrote its result, a line kept in part is not counted as dropped, and only tool results with usage enter the usage ledger |
+| Whole conversations | Upstream's `Harness` with pi-ai's faux provider, against this Harness with a scripted model: 89 scenarios (`internal/crosscheck/testdata/scenarios`) | Equal: model requests, transcripts, and settlements. They found five differences, all ported: upstream keeps the agent in a `pi.agent` document rather than transcript entries, a compaction entry carries its summary as a user message, a nested call's value depends on whether the tool ran or the Harness wrote its result, a line kept in part is not counted as dropped, and only tool results with usage enter the usage ledger |
 
 ## Scenarios
 
