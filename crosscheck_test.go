@@ -422,15 +422,9 @@ func TestCrosscheckPartialArguments(t *testing.T) {
 	partials := []string{"", "{", `{"a"`, `{"a":`, `{"a":1`, `{"a":1,`, `{"a":"x`, `{"a":"x\`, `{"a":"x\u00`, `{"a":[1,2`, `{"a":{"b":`,
 		`{"a":tr`, `{"a":nul`, `{"a":-`, `{"a":1e`, `[1,2`, `{"a":"x"}`, `{"a":"x"} extra`, "not json", `{"a":"\n"`,
 		`{"a": [ {"b": "c" } , {`, `{"a":1}{`, `  {"k" : "v" ,  "n" : 12.5e`, `{"a":true,"b":fals`, `"str`}
-	// Unterminated numbers that pi-ai's parser drops for a moment are a
-	// documented difference (docs/upstream-cross-checks.md).
-	known := map[string]bool{`{"a":1.`: true, `{"b":2,"a":1.`: true, `{"b":2,"a":1E-`: true}
 	var want []string
 	crosscheck.Run(t, "partial", partials, &want)
 	for i, text := range partials {
-		if known[text] {
-			continue
-		}
 		got := partialArguments(text)
 		var w any
 		_ = json.Unmarshal([]byte(want[i]), &w)

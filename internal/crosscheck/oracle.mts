@@ -158,10 +158,13 @@ const ops: Record<string, (input: any) => Promise<unknown>> = {
 		}));
 	},
 
-	/** pi-ai's streaming JSON reading of partial tool arguments. */
+	/**
+	 * pi-ai's reading of partial tool arguments as its providers stream them (ToolCallArgumentsStream): one append of
+	 * the text, which earns the credit for a fresh snapshot.
+	 */
 	async partial(partials: string[]) {
-		const { parseStreamingJson } = await ai("utils/json-parse.ts");
-		return partials.map((text) => JSON.stringify(parseStreamingJson(text)));
+		const { ToolCallArgumentsStream } = await ai("utils/streaming-json.ts");
+		return partials.map((text) => JSON.stringify(new ToolCallArgumentsStream().append(text)));
 	},
 
 	/** pi-ai's reading of a finished call's arguments text, and V8's JSON.parse messages. */

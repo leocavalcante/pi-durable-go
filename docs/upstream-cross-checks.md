@@ -32,7 +32,7 @@ For another upstream release, set `PI_DURABLE_UPSTREAM_TAG` with Pi of that vers
 | Compaction | `serializeConversation`, `estimateMessageTokens`, `selectCut`, `estimateContext` | Ported to equal |
 | Prompt planning | `planSections`, `planTools` | Equal |
 | Retry and overflow classification | pi-ai `isRetryableAssistantError`, `isContextOverflow` | Equal (27 messages) |
-| Partial tool arguments | pi-ai `parseStreamingJson` | Equal except unterminated numbers such as `1.` |
+| Partial tool arguments | pi-ai `ToolCallArgumentsStream`, which its providers stream arguments through | Ported to equal (about 130 texts). The check used to read the older `parseStreamingJson`; the port now follows the streaming parser, including unterminated numbers, JavaScript number values, key order, and lone surrogates |
 | Finished tool arguments | pi-ai `parseToolCallArguments` with its repair, and V8's `JSON.parse` messages it reports | Ported to equal (about 130 texts). Malformed arguments used to fail the response here; upstream reports them to the model as `invalid_arguments` |
 | Size formatting | `formatSize`, `toFixed` | Ported to equal |
 | `model.OpenAI` requests | pi-ai `openai-completions` `streamSimple` payload via `onPayload` | Ported to equal for messages, tools, cache key, store, and output limit |
@@ -63,7 +63,7 @@ To check another flow, add a scenario file and list it in `index.json`.
 
 ## Known remaining differences
 
-- Partial tool arguments: an unterminated number such as `1.` or `1E-` is dropped by pi-ai's parser, while Go shows its digits. This only affects what streaming shows for a moment.
+- Partial tool arguments: upstream's streaming parser copies its open containers for each snapshot within a work budget, so its preview of a very large open container (thousands of elements) can lag behind the text; every reading here is fresh.
 - `read`: with fractional `offset` or `limit`, upstream's continuation note prints fractions. A negative `limit` selects nothing in Go, where upstream's slice counts it from the end.
 - `model.OpenAI` sanitizes provider error text that pi-ai passes through, and has no provider-specific thinking formats (DeepSeek, OpenRouter, Z.ai, Qwen, Together) or model catalog.
 - Schema coercion keeps no key order for schema objects. Pattern properties apply in sorted order, and RE2 replaces JavaScript regular expressions.
