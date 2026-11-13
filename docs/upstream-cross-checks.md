@@ -38,14 +38,15 @@ For another upstream release, set `PI_DURABLE_UPSTREAM_TAG` with Pi of that vers
 | `model.OpenAI` reasoning | `reasoning_effort` and `clampThinkingLevel` | Ported to equal (24 combinations) |
 | `model.OpenAI` responses | SSE parsing from a local server: usage, stop reasons | Ported to equal; provider error text stays sanitized by design |
 | Tool runtime behavior | `tool.ts`: throws, retained output, structured output contract, nested keys | Ported |
-| Whole conversations | Upstream's `Harness` with pi-ai's faux provider, against this Harness with a scripted model: 31 scenarios (`internal/crosscheck/testdata/scenarios`) | Equal: model requests, transcripts, and settlements. They found two differences, both ported: upstream keeps the agent in a `pi.agent` document rather than transcript entries, and a compaction entry carries its summary as a user message |
+| Whole conversations | Upstream's `Harness` with pi-ai's faux provider, against this Harness with a scripted model: 41 scenarios (`internal/crosscheck/testdata/scenarios`) | Equal: model requests, transcripts, and settlements. They found two differences, both ported: upstream keeps the agent in a `pi.agent` document rather than transcript entries, and a compaction entry carries its summary as a user message |
 
 ## Scenarios
 
 A scenario (`internal/crosscheck/testdata/scenarios/*.json`) is a script that both runtimes play:
 - **model:** scripted answers (text, thinking, tool calls, stop reasons, errors);
 - **tools:** scripted results, or each call's arguments echoed back;
-- **steps:** submissions, waits, holds and releases of a model answer or a tool call, and aborts.
+- **steps:** submissions, waits, holds and releases of a model answer or a tool call, aborts, compactions, resets, agent changes, and reopening the Harness over the same storage (JSONL upstream, memory here);
+- **extensions:** declarative static sections and hook rules (`beforeTool` blocks or rewrites, `afterTool` replacements, `onYield` continues).
 
 `internal/crosscheck/scenario.mts` plays it on upstream's Harness with pi-ai's faux provider. `TestCrosscheckScenarios` plays it on this one with a scripted model. Both report the messages of each model request, the transcript, and each submission's settlement in one normalized form. The scripted model reports the usage pi-ai's faux provider estimates (`fauxUsage`), which context estimates prefer over character counts. Summarization requests take their answers from a separate `summaries` queue and are reported apart, so they can run beside the conversation's own requests.
 

@@ -1,0 +1,32 @@
+{
+ "name": "hook-continues-on-yield",
+ "extensions": [
+  {
+   "name": "yield",
+   "onYield": [
+    {
+     "continue": "keep going"
+    }
+   ]
+  }
+ ],
+ "model": [
+  {
+   "text": "first answer"
+  },
+  {
+   "text": "second answer"
+  }
+ ],
+ "steps": [
+  {
+   "submit": {
+    "type": "input",
+    "content": "go"
+   }
+  },
+  {
+   "wait": "settled"
+  }
+ ]
+}

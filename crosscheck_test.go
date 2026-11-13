@@ -498,6 +498,26 @@ type scenarioSpec struct {
 		MaxTurns     int     `json:"maxTurns,omitempty"`
 		Instructions *string `json:"instructions,omitempty"`
 	} `json:"agent"`
+	Extensions []struct {
+		Name     string `json:"name"`
+		Sections []struct {
+			Key  string `json:"key"`
+			Text string `json:"text"`
+			Tag  *bool  `json:"tag,omitempty"`
+		} `json:"sections,omitempty"`
+		BeforeTool []struct {
+			Tool  string          `json:"tool"`
+			Block *string         `json:"block,omitempty"`
+			Args  json.RawMessage `json:"args,omitempty"`
+		} `json:"beforeTool,omitempty"`
+		AfterTool []struct {
+			Tool string `json:"tool"`
+			Text string `json:"text"`
+		} `json:"afterTool,omitempty"`
+		OnYield []struct {
+			Continue *string `json:"continue,omitempty"`
+		} `json:"onYield,omitempty"`
+	} `json:"extensions,omitempty"`
 	Steps []struct {
 		Submit *struct {
 			Type     string `json:"type"`
@@ -509,8 +529,13 @@ type scenarioSpec struct {
 				Data json.RawMessage `json:"data,omitempty"`
 			} `json:"entry,omitempty"`
 		} `json:"submit,omitempty"`
-		Compact  json.RawMessage `json:"compact,omitempty"`
-		Reset    json.RawMessage `json:"reset,omitempty"`
+		Compact   json.RawMessage `json:"compact,omitempty"`
+		Reset     json.RawMessage `json:"reset,omitempty"`
+		Configure *struct {
+			Instructions *string `json:"instructions,omitempty"`
+			MaxTurns     *int    `json:"maxTurns,omitempty"`
+		} `json:"configure,omitempty"`
+		Reopen   bool            `json:"reopen,omitempty"`
 		Wait     string          `json:"wait,omitempty"`
 		WaitHeld string          `json:"waitHeld,omitempty"`
 		Release  string          `json:"release,omitempty"`
@@ -693,7 +718,7 @@ func runScenario(t *testing.T, sc scenarioSpec) json.RawMessage {
 				toolCalls++
 				toolMu.Unlock()
 				if len(spec.Results) == 0 {
-					return ToolResult{Content: string(args)}, nil
+					return ToolResult{Content: jsStringifyRaw(args)}, nil // JSON.stringify(args)
 				}
 				result := spec.Results[min(i, len(spec.Results)-1)]
 				if result.Hold != "" {
@@ -720,6 +745,64 @@ func runScenario(t *testing.T, sc scenarioSpec) json.RawMessage {
 			t.Fatal(err)
 		}
 	}
+	// Declarative extensions: static sections and hook rules.
+	for _, spec := range sc.Extensions {
+		spec := spec
+		extension := Extension{Name: spec.Name}
+		for _, section := range spec.Sections {
+			text := section.Text
+			extension.Sections = append(extension.Sections, Section{Name: section.Key, Untagged: section.Tag != nil && !*section.Tag,
+				Render: func(context.Context, PromptInput) (string, error) { return text, nil }})
+		}
+		if len(spec.BeforeTool) > 0 {
+			extension.Hooks.BeforeTool = func(_ context.Context, call *ToolCall, _ *ToolRuntime) error {
+				for _, rule := range spec.BeforeTool {
+					if rule.Tool != call.Name {
+						continue
+					}
+					if rule.Block != nil {
+						return errors.New(*rule.Block)
+					}
+					if len(rule.Args) > 0 {
+						call.Arguments = rule.Args
+						return nil
+					}
+				}
+				return nil
+			}
+		}
+		if len(spec.AfterTool) > 0 {
+			extension.Hooks.AfterTool = func(_ context.Context, result *ToolResult, rt *ToolRuntime) error {
+				for _, rule := range spec.AfterTool {
+					if rule.Tool == rt.Call.Name {
+						result.Content = rule.Text
+						return nil
+					}
+				}
+				return nil
+			}
+		}
+		if len(spec.OnYield) > 0 {
+			var yields sync.Mutex
+			queue := append(spec.OnYield[:0:0], spec.OnYield...)
+			extension.Hooks.OnYield = func(context.Context, ModelResponse, *TaskRuntime) (string, error) {
+				yields.Lock()
+				defer yields.Unlock()
+				if len(queue) == 0 {
+					return "", nil
+				}
+				next := queue[0]
+				queue = queue[1:]
+				if next.Continue == nil {
+					return "", nil
+				}
+				return *next.Continue, nil
+			}
+		}
+		if err := registry.Install(extension); err != nil {
+			t.Fatal(err)
+		}
+	}
 	settings := Settings{ToolExecution: sc.Settings.ToolExecution, SteeringMode: sc.Settings.SteeringMode, FollowUpMode: sc.Settings.FollowUpMode, AfterFailedRun: sc.Settings.AfterFailedRun}
 	if sc.Settings.Compaction != nil {
 		settings.Compaction = *sc.Settings.Compaction
@@ -727,14 +810,29 @@ func runScenario(t *testing.T, sc scenarioSpec) json.RawMessage {
 	if r := sc.Settings.Retry; r != nil {
 		settings.Retry = RetrySettings{Enabled: r.Enabled, MaxRetries: r.MaxRetries, BaseDelayMs: r.BaseDelayMs, MaxAgentDelayMs: r.MaxAgentDelayMs}
 	}
-	h, err := Open(ctx, NewMemoryStorage(), HarnessOptions{Model: harnessModel, Registry: registry, Settings: settings})
-	if err != nil {
-		t.Fatal(err)
+	// Storage that outlives its Harness, for reopen steps.
+	store := reopenable{NewMemoryStorage()}
+	var h *Harness
+	var root *Conversation
+	open := func() {
+		var err error
+		h, err = Open(ctx, store, HarnessOptions{Model: harnessModel, Registry: registry, Settings: settings})
+		if err != nil {
+			t.Fatal(err)
+		}
+		root, err = h.Root(ctx, ConversationOptions{Agent: Agent{Model: ModelRef{Provider: "faux", ID: "faux-1"}, MaxTurns: sc.Agent.MaxTurns, Instructions: sc.Agent.Instructions}})
+		if err != nil {
+			t.Fatal(err)
+		}
 	}
-	defer h.Close(ctx)
-	root, err := h.Root(ctx, ConversationOptions{Agent: Agent{Model: ModelRef{Provider: "faux", ID: "faux-1"}, MaxTurns: sc.Agent.MaxTurns, Instructions: sc.Agent.Instructions}})
-	if err != nil {
-		t.Fatal(err)
+	open()
+	defer func() { _ = h.Close(ctx) }()
+	handle := func(id SubmissionID) *Submission {
+		submission, err := h.Submission(ctx, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return submission
 	}
 	type submitted struct {
 		submission *Submission
@@ -743,6 +841,11 @@ func runScenario(t *testing.T, sc scenarioSpec) json.RawMessage {
 	var submissions []submitted
 	for _, step := range sc.Steps {
 		switch {
+		case step.Reopen:
+			if err := h.Close(ctx); err != nil {
+				t.Fatal(err)
+			}
+			open()
 		case step.Submit != nil:
 			request := SubmissionRequest{Type: step.Submit.Type, Content: step.Submit.Content, WhenBusy: step.Submit.WhenBusy, WhenIdle: step.Submit.WhenIdle}
 			if e := step.Submit.Entry; e != nil {
@@ -781,7 +884,7 @@ func runScenario(t *testing.T, sc scenarioSpec) json.RawMessage {
 		case step.Wait == "settled":
 			for _, s := range submissions {
 				if s.submission != nil {
-					if _, err := s.submission.Wait(ctx); err != nil {
+					if _, err := handle(s.submission.ID()).Wait(ctx); err != nil {
 						t.Fatal(err)
 					}
 				}
@@ -796,6 +899,10 @@ func runScenario(t *testing.T, sc scenarioSpec) json.RawMessage {
 			close(gates.get(step.Release).released)
 		case len(step.Abort) > 0:
 			if err := root.Abort(ctx, string(step.Abort) == `"background"`); err != nil {
+				t.Fatal(err)
+			}
+		case step.Configure != nil:
+			if err := root.ChangeAgent(ctx, AgentChange{Instructions: step.Configure.Instructions, MaxTurns: step.Configure.MaxTurns}); err != nil {
 				t.Fatal(err)
 			}
 		case len(step.Compact) > 0:
@@ -833,7 +940,7 @@ func runScenario(t *testing.T, sc scenarioSpec) json.RawMessage {
 			settled = append(settled, map[string]any{"refused": s.refused})
 			continue
 		}
-		record, err := s.submission.Record(ctx)
+		record, err := handle(s.submission.ID()).Record(ctx)
 		if err != nil {
 			t.Fatal(err)
 		}

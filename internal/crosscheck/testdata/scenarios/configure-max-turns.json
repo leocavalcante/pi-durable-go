@@ -1,0 +1,68 @@
+{
+ "name": "configure-max-turns",
+ "tools": [
+  {
+   "name": "echo",
+   "parameters": {
+    "type": "object",
+    "properties": {
+     "text": {
+      "type": "string"
+     }
+    }
+   }
+  }
+ ],
+ "model": [
+  {
+   "text": "plain"
+  },
+  {
+   "calls": [
+    {
+     "id": "a",
+     "name": "echo",
+     "args": {
+      "text": "1"
+     }
+    }
+   ]
+  },
+  {
+   "calls": [
+    {
+     "id": "b",
+     "name": "echo",
+     "args": {
+      "text": "2"
+     }
+    }
+   ]
+  }
+ ],
+ "steps": [
+  {
+   "submit": {
+    "type": "input",
+    "content": "first"
+   }
+  },
+  {
+   "wait": "settled"
+  },
+  {
+   "configure": {
+    "maxTurns": 1
+   }
+  },
+  {
+   "submit": {
+    "type": "input",
+    "content": "second"
+   }
+  },
+  {
+   "wait": "settled"
+  }
+ ]
+}

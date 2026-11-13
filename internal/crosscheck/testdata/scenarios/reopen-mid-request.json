@@ -1,0 +1,29 @@
+{
+ "name": "reopen-mid-request",
+ "model": [
+  {
+   "text": "never",
+   "hold": "m1"
+  },
+  {
+   "text": "after reopen"
+  }
+ ],
+ "steps": [
+  {
+   "submit": {
+    "type": "input",
+    "content": "go"
+   }
+  },
+  {
+   "waitHeld": "m1"
+  },
+  {
+   "reopen": true
+  },
+  {
+   "wait": "settled"
+  }
+ ]
+}

@@ -1,0 +1,34 @@
+{
+ "name": "reopen-idle",
+ "model": [
+  {
+   "text": "before reopen"
+  },
+  {
+   "text": "after reopen"
+  }
+ ],
+ "steps": [
+  {
+   "submit": {
+    "type": "input",
+    "content": "first"
+   }
+  },
+  {
+   "wait": "settled"
+  },
+  {
+   "reopen": true
+  },
+  {
+   "submit": {
+    "type": "input",
+    "content": "second"
+   }
+  },
+  {
+   "wait": "settled"
+  }
+ ]
+}

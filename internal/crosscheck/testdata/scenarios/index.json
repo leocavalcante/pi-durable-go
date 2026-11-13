@@ -29,5 +29,15 @@
  "follow-up-all",
  "after-failed-run-continue",
  "two-rounds-then-error",
- "background-compaction"
+ "background-compaction",
+ "sections-and-configure",
+ "hook-blocks-tool",
+ "hook-rewrites-arguments",
+ "hook-replaces-result",
+ "hook-continues-on-yield",
+ "configure-max-turns",
+ "reopen-idle",
+ "reopen-mid-request",
+ "reopen-mid-tool-unsafe",
+ "reopen-mid-tool-safe"
 ]

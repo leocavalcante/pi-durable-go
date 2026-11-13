@@ -1,0 +1,52 @@
+{
+ "name": "sections-and-configure",
+ "extensions": [
+  {
+   "name": "prompt",
+   "sections": [
+    {
+     "key": "rules",
+     "text": "be kind"
+    },
+    {
+     "key": "plain",
+     "text": "untagged text",
+     "tag": false
+    }
+   ]
+  }
+ ],
+ "model": [
+  {
+   "text": "first"
+  },
+  {
+   "text": "second"
+  }
+ ],
+ "steps": [
+  {
+   "submit": {
+    "type": "input",
+    "content": "hi"
+   }
+  },
+  {
+   "wait": "settled"
+  },
+  {
+   "configure": {
+    "instructions": "Be brief now."
+   }
+  },
+  {
+   "submit": {
+    "type": "input",
+    "content": "again"
+   }
+  },
+  {
+   "wait": "settled"
+  }
+ ]
+}

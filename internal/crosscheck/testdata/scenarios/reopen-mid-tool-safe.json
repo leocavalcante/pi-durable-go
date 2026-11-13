@@ -1,0 +1,59 @@
+{
+ "name": "reopen-mid-tool-safe",
+ "tools": [
+  {
+   "name": "echo",
+   "parameters": {
+    "type": "object",
+    "properties": {
+     "text": {
+      "type": "string"
+     }
+    }
+   },
+   "replaySafe": true,
+   "results": [
+    {
+     "text": "first run",
+     "hold": "t1"
+    },
+    {
+     "text": "second run"
+    }
+   ]
+  }
+ ],
+ "model": [
+  {
+   "calls": [
+    {
+     "id": "c1",
+     "name": "echo",
+     "args": {
+      "text": "x"
+     }
+    }
+   ]
+  },
+  {
+   "text": "after reopen"
+  }
+ ],
+ "steps": [
+  {
+   "submit": {
+    "type": "input",
+    "content": "go"
+   }
+  },
+  {
+   "waitHeld": "t1"
+  },
+  {
+   "reopen": true
+  },
+  {
+   "wait": "settled"
+  }
+ ]
+}

@@ -1,3 +1,7 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
 // Runs a cross-check scenario through upstream's Harness: pi-ai's faux
 // provider plays the scripted model, tools return scripted results, and the
 // steps drive the root conversation. The result is what the Go runner
@@ -125,17 +129,77 @@ export async function runScenario(
 	});
 	const registry = pd.createRegistry();
 	if (tools.length > 0) registry.install(pd.defineExtension({ name: "scenario", tools }));
+	// Declarative extensions: static sections and hook rules.
+	for (const ext of scenario.extensions ?? []) {
+		const sections = (ext.sections ?? []).map((s: any) =>
+			pd.section(s.key, () => s.text, s.tag === false ? { tag: false } : undefined),
+		);
+		const hooks: unknown[] = [];
+		if (ext.beforeTool || ext.afterTool) {
+			hooks.push(
+				pd.hook(pd.ToolTask, {
+					...(ext.beforeTool
+						? {
+								beforeTool: (call: any) => {
+									for (const rule of ext.beforeTool) {
+										if (rule.tool !== call.name) continue;
+										if (rule.block !== undefined) return { block: rule.block };
+										if (rule.args !== undefined) return { arguments: rule.args };
+									}
+									return undefined;
+								},
+							}
+						: {}),
+					...(ext.afterTool
+						? {
+								afterTool: (call: any, result: any) => {
+									for (const rule of ext.afterTool) {
+										if (rule.tool === call.name) return { ...result, output: [{ type: "text", text: rule.text }] };
+									}
+									return undefined;
+								},
+							}
+						: {}),
+				}),
+			);
+		}
+		if (ext.onYield) {
+			const queue = [...ext.onYield];
+			hooks.push(
+				pd.hook(pd.GenerationTask, {
+					onYield: () => {
+						const next = queue.shift();
+						return next?.continue !== undefined ? { continue: next.continue } : undefined;
+					},
+				}),
+			);
+		}
+		registry.install(pd.defineExtension({ name: ext.name, sections, hooks }));
+	}
 	// Real time: retries and timers wait for it; timestamps are not compared.
-	const harness = await pd.Harness.open(new pd.MemoryStorage(), { models, registry, settings: scenario.settings ?? {} }, context);
-	const root = await harness.root(context, {
-		agent: { model: { provider: "faux", modelId: "faux-1" }, ...(scenario.agent ?? {}) },
-	});
+	// A scenario that reopens needs storage that outlives its Harness.
+	const reopens = (scenario.steps ?? []).some((step: any) => step.reopen);
+	const directory = reopens ? mkdtempSync(join(tmpdir(), "crosscheck-")) : undefined;
+	const { openNodeJsonlStorage } = await load.durable("storage/jsonl/node.ts");
+	const storage = async () => (directory === undefined ? new pd.MemoryStorage() : openNodeJsonlStorage(directory, context));
+	const open = async () => {
+		const opened = await pd.Harness.open(await storage(), { models, registry, settings: scenario.settings ?? {} }, context);
+		const conversation = await opened.root(context, {
+			agent: { model: { provider: "faux", modelId: "faux-1" }, ...(scenario.agent ?? {}) },
+		});
+		return { opened, conversation };
+	};
+	let { opened: harness, conversation: root } = await open();
 
 	const submissions: any[] = [];
+	const handle = (id: unknown) => harness.submission(id, context);
 	for (const step of scenario.steps ?? []) {
-		if (step.submit) {
+		if (step.reopen) {
+			await harness.close(context);
+			({ opened: harness, conversation: root } = await open());
+		} else if (step.submit) {
 			try {
-				submissions.push(await root.submit(step.submit, context));
+				submissions.push({ id: (await root.submit(step.submit, context)).id });
 			} catch (error: any) {
 				submissions.push({ refused: error?.name ?? "Error" });
 			}
@@ -151,13 +215,15 @@ export async function runScenario(
 				await new Promise((resolve) => setTimeout(resolve, 5));
 			}
 		} else if (step.wait === "settled") {
-			for (const submission of submissions) if (submission.wait) await submission.wait(context);
+			for (const submission of submissions) if (submission.id !== undefined) await (await handle(submission.id)).wait(context);
 		} else if (step.waitHeld) {
 			await gate(step.waitHeld).reached;
 		} else if (step.release) {
 			gate(step.release).release();
 		} else if (step.abort) {
 			await root.abort(context, { background: step.abort === "background" });
+		} else if (step.configure !== undefined) {
+			await root.configure(step.configure, context);
 		} else if (step.compact !== undefined) {
 			await root.compact(typeof step.compact === "string" ? step.compact : undefined, context);
 		} else if (step.reset !== undefined) {
@@ -176,9 +242,10 @@ export async function runScenario(
 			settled.push({ refused: submission.refused });
 			continue;
 		}
-		const record = await submission.status(context);
+		const record = await (await handle(submission.id)).status(context);
 		settled.push({ type: record.type, status: record.status, ...(record.reason ? { reason: record.reason } : {}) });
 	}
 	await harness.close(context);
+	if (directory !== undefined) rmSync(directory, { recursive: true, force: true });
 	return { requests, summaryRequests, transcript, submissions: settled };
 }
