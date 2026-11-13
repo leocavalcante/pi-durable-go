@@ -20,7 +20,14 @@ func recordModelUsage(tx *Tx, cid ConversationID, model ModelRef, usage Usage) e
 		return nil
 	})
 }
+
+// recordToolUsage adds a tool result's usage under its tool's name; a result
+// without usage (the zero Usage) records nothing, as upstream records only a
+// result's defined usage.
 func recordToolUsage(tx *Tx, cid ConversationID, name string, usage Usage) error {
+	if usage == (Usage{}) {
+		return nil
+	}
 	return UpdateDocument(tx, usageDocument, uint64(cid), func(s *UsageState) error {
 		if s.Tools == nil {
 			s.Tools = map[string]Usage{}

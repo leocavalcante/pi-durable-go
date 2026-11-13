@@ -234,3 +234,38 @@ func TestNestedValuesFollowWhereTheResultCameFrom(t *testing.T) {
 		t.Fatalf("typedError=%+v", r)
 	}
 }
+
+// A tool result records usage under its tool only when it has some, as
+// upstream records only a defined usage; nested calls likewise.
+func TestToolUsageIsRecordedOnlyWhenReported(t *testing.T) {
+	object := json.RawMessage(`{"type":"object"}`)
+	model := taskModelFunc(func(ctx context.Context, request ModelRequest, _ func(string) error) (ModelResponse, error) {
+		if hasToolResult(request) {
+			return ModelResponse{Content: "done"}, nil
+		}
+		return ModelResponse{ToolCalls: []ToolCall{{ID: "a", Name: "plain", Arguments: json.RawMessage(`{}`)}, {ID: "b", Name: "spender", Arguments: json.RawMessage(`{}`)}}}, nil
+	})
+	tools := []ToolDefinition{
+		{ToolSpec: ToolSpec{Name: "plain", Parameters: object}, Execute: func(ctx context.Context, _ json.RawMessage, r *ToolRuntime) (ToolResult, error) {
+			if _, err := r.ExecuteTool(ctx, "inner", json.RawMessage(`{}`), NestedCallOptions{}); err != nil {
+				return ToolResult{}, err
+			}
+			return ToolResult{Content: "no usage"}, nil
+		}},
+		{ToolSpec: ToolSpec{Name: "spender", Parameters: object}, Execute: func(context.Context, json.RawMessage, *ToolRuntime) (ToolResult, error) {
+			return ToolResult{Content: "spent", Usage: Usage{InputTokens: 3, OutputTokens: 4}}, nil
+		}},
+		{ToolSpec: ToolSpec{Name: "inner", Parameters: object}, Callers: []string{"tools"}, Execute: func(context.Context, json.RawMessage, *ToolRuntime) (ToolResult, error) {
+			return ToolResult{Content: "inner, no usage"}, nil
+		}},
+	}
+	h, root := runHarness(t, model, Settings{}, Extension{Name: "tools", Tools: tools})
+	waitSettled(t, h, submit(t, root, SubmissionRequest{Content: "go"}))
+	ledger, err := ReadDocument[UsageState](context.Background(), h, usageDocument, uint64(root.ID()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ledger.Tools) != 1 || ledger.Tools["spender"] != (Usage{InputTokens: 3, OutputTokens: 4}) {
+		t.Fatalf("tools=%+v", ledger.Tools)
+	}
+}
