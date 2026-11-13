@@ -97,7 +97,7 @@ The root conversation takes the reserved ID 1 (`RootConversationID`, upstream's 
 
 Tool arguments are repaired, coerced, and checked as upstream's are. `ToolDefinition.PrepareArguments` is upstream's `prepareArguments`. Coercion ports pi-schema's `parse()` with `coerce: true`, as pi-ai's `validateToolArguments` uses it: optional nulls are dropped, TypeBox's conversion rules apply, then Ajv-style primitive coercion. So `"42"` becomes a number and a single value a one-item array. Hooks and the tool get the coerced arguments; the transcript keeps the model's. A `$ref` that names nothing rejects only values at its place, and failures are worded as pi-ai words them (`Validation failed for tool ...`, paths like `tags.0`, and the received arguments). The differences, checked against pi-schema 1.5.2:
 - Go keeps no key order for schema objects. Several `patternProperties` matching one key apply in sorted order, and a union's tag is found in sorted key order.
-- Patterns use Go's RE2 rather than JavaScript regular expressions.
+- Patterns are ECMAScript regular expressions with the `u` flag, as pi-schema compiles them (through `regexp2`, with JavaScript's dot), so lookarounds, backreferences, and Unicode property escapes work; a match is bounded at 5 seconds, which JavaScript does not bound.
 - Coercion follows only local `#/...` references.
 - Format checks come from the Go JSON Schema library.
 - Schemas are read as leniently as pi-schema reads them, since the Go library checks schemas against their metaschema. Malformed keyword values are dropped, draft-7 tuples become `prefixItems` (their `additionalItems` still uncoerced), and an invalid `type` or empty union matches nothing.

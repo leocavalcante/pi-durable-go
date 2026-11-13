@@ -10,6 +10,7 @@ checksums are recorded in `go.mod` and `go.sum`.
 |---|---|---|
 | [`modernc.org/sqlite`](https://pkg.go.dev/modernc.org/sqlite) | BSD-3-Clause | Pure-Go SQLite driver; SQLite itself is public domain |
 | [`github.com/santhosh-tekuri/jsonschema/v6`](https://github.com/santhosh-tekuri/jsonschema) | Apache-2.0 | Local JSON Schema validation for tool arguments |
+| [`github.com/dlclark/regexp2`](https://github.com/dlclark/regexp2) | MIT | ECMAScript regular expressions for schema patterns, as pi-schema compiles them |
 | [`golang.org/x/text`](https://pkg.go.dev/golang.org/x/text) | BSD-3-Clause | Unicode normalization and segmentation for `tool_search` and edit matching; wording of schema failures pi-schema has no message for |
 | [`golang.org/x/image`](https://pkg.go.dev/golang.org/x/image) | BSD-3-Clause | WebP and BMP decoding and image scaling for `tools.StdImages` |
 

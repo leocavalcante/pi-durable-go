@@ -24,6 +24,7 @@ func validateAgainst(schema, value json.RawMessage) error {
 	}
 	compiler := jsonschema.NewCompiler()
 	compiler.UseLoader(noSchemaNetwork{})
+	compiler.UseRegexpEngine(jsRegexpEngine)
 	const location = "urn:pi-durable-go:structured-output"
 	if err := compiler.AddResource(location, document); err != nil {
 		return err

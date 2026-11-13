@@ -86,6 +86,7 @@ func toolValidatorFor(schema json.RawMessage) (*toolValidator, error) {
 	document = lenientSchema(document, !olderDraft(document))
 	compiler := jsonschema.NewCompiler()
 	compiler.UseLoader(noSchemaNetwork{})
+	compiler.UseRegexpEngine(jsRegexpEngine)
 	if err := compiler.AddResource(toolSchemaLocation, document); err != nil {
 		return nil, fmt.Errorf("invalid tool schema: %w", err)
 	}
@@ -646,7 +647,7 @@ func pointerTo(pointer string, tokens ...string) string {
 
 type pattern struct {
 	source string
-	re     *regexp.Regexp
+	re     *jsRegexp
 	schema any
 }
 
@@ -657,7 +658,7 @@ func patternsOf(node map[string]any) []pattern {
 	}
 	var out []pattern
 	for _, source := range sortedKeys(properties) {
-		if re, err := regexp.Compile(source); err == nil {
+		if re, err := compileJSRegexp(source); err == nil {
 			out = append(out, pattern{source: source, re: re, schema: properties[source]})
 		}
 	}

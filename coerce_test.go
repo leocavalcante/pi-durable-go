@@ -396,3 +396,34 @@ func TestMalformedArgumentsAreReportedToTheModel(t *testing.T) {
 		t.Fatalf("ran=%v requests=%d result=%q", ran, requests, result.Message.Content)
 	}
 }
+
+// Schema patterns are JavaScript regular expressions, as pi-schema compiles
+// them (expectations are its results for the same schemas).
+func TestSchemaPatternsAreJavaScripts(t *testing.T) {
+	object := func(pattern string) json.RawMessage {
+		data, _ := json.Marshal(map[string]any{"type": "object", "properties": map[string]any{"s": map[string]any{"type": "string", "pattern": pattern}}})
+		return data
+	}
+	for _, c := range []struct {
+		schema json.RawMessage
+		args   string
+		ok     bool
+		value  string
+	}{
+		{object(`^(?=.*\d)[a-z0-9]+$`), `{"s":"abc1"}`, true, `{"s":"abc1"}`},
+		{object(`^(?=.*\d)[a-z0-9]+$`), `{"s":"abc"}`, false, ""},
+		{object(`^(a)\1$`), `{"s":"aa"}`, true, `{"s":"aa"}`},
+		{object(`^\p{L}+$`), `{"s":"héllo"}`, true, `{"s":"héllo"}`},
+		{object(`^a.b$`), `{"s":"a\u2028b"}`, false, ""},
+		{object(`^a.b$`), `{"s":"a😀b"}`, true, `{"s":"a😀b"}`},
+		{object(`^\u{1F600}$`), `{"s":"😀"}`, true, `{"s":"😀"}`},
+		{object(`[[:alpha:]]`), `{"s":"a"}`, false, ""},
+		{object(`(`), `{"s":"x"}`, false, ""},
+		{json.RawMessage(`{"type":"object","patternProperties":{"^(?!x)":{"type":"number"}}}`), `{"a":"5","x":"6"}`, true, `{"a":5,"x":"6"}`},
+	} {
+		got, err := validateToolArguments(ToolSpec{Name: "t", Parameters: c.schema}, json.RawMessage(c.args))
+		if (err == nil) != c.ok || err == nil && !jsonEqual(got, json.RawMessage(c.value)) {
+			t.Errorf("%s with %s: %s %v, want ok=%v %s", c.schema, c.args, got, err, c.ok, c.value)
+		}
+	}
+}
