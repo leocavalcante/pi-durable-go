@@ -236,16 +236,21 @@ func writeNestedCall(tx *Tx, caller TaskID, key string, call nestedCallState) er
 // settleNested stores a nested call's result with its caller and marks its
 // slot done. The caller's documents retire with it, so a result for a
 // caller that already ended is dropped.
-func settleNested(tx *Tx, input toolTaskInput, task TaskRecord, def *ToolDefinition, result ToolResult) (json.RawMessage, error) {
+//
+// The caller's value (upstream finalResult and afterHarnessResult): a call
+// the tool ran, a throw included, gives a schema tool's structured output or
+// another tool's output; a result the Harness wrote gives the output only
+// when hooks made it a success of a tool without a schema.
+func settleNested(tx *Tx, input toolTaskInput, task TaskRecord, def *ToolDefinition, result ToolResult, executed bool) (json.RawMessage, error) {
 	nested := NestedToolResult{TaskID: task.ID, IsError: result.IsError, Details: result.Details, Diagnostics: result.Diagnostics, Usage: result.Usage, DurationMs: result.DurationMs}
 	if nested.Diagnostics == nil {
 		nested.Diagnostics = []ToolDiagnostic{}
 	}
-	harnessWritten := result.IsError && len(result.Diagnostics) > 0 && result.Content == "" && len(result.StructuredOutput) == 0
+	schema := def != nil && len(def.StructuredOutputSchema) > 0
 	switch {
-	case def != nil && len(def.StructuredOutputSchema) > 0:
+	case executed && schema:
 		nested.StructuredOutput = result.StructuredOutput
-	case !harnessWritten:
+	case executed, !schema && !result.IsError:
 		nested.StructuredOutput = unstructuredOutput(result)
 	}
 	if parent, err := tx.Task(input.Parent); err == nil && parent.Status != "terminal" {

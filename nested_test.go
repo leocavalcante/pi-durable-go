@@ -165,3 +165,72 @@ func TestNestedCallKeysCannotLookLikeDefaultKeys(t *testing.T) {
 		}
 	}
 }
+
+// A nested caller's value depends on where the result came from (upstream
+// finalResult and afterHarnessResult): a call the tool ran, a throw
+// included, gives its output; a result the Harness wrote gives it only when
+// hooks made it a success.
+func TestNestedValuesFollowWhereTheResultCameFrom(t *testing.T) {
+	results := map[string]NestedToolResult{}
+	model := taskModelFunc(func(ctx context.Context, request ModelRequest, _ func(string) error) (ModelResponse, error) {
+		if hasToolResult(request) {
+			return ModelResponse{Content: "done"}, nil
+		}
+		return ModelResponse{ToolCalls: []ToolCall{{ID: "outer-call", Name: "outer", Arguments: json.RawMessage(`{}`)}}}, nil
+	})
+	object := json.RawMessage(`{"type":"object"}`)
+	tools := []ToolDefinition{
+		{ToolSpec: ToolSpec{Name: "outer", Parameters: object}, Execute: func(ctx context.Context, _ json.RawMessage, r *ToolRuntime) (ToolResult, error) {
+			for _, name := range []string{"thrower", "explained", "fixed", "typedError"} {
+				result, err := r.ExecuteTool(ctx, name, json.RawMessage(`{}`), NestedCallOptions{Key: name})
+				if err != nil {
+					return ToolResult{}, err
+				}
+				results[name] = result
+			}
+			return ToolResult{Content: "ok"}, nil
+		}},
+		{ToolSpec: ToolSpec{Name: "thrower", Parameters: object}, Callers: []string{"tools"},
+			Execute: func(context.Context, json.RawMessage, *ToolRuntime) (ToolResult, error) {
+				return ToolResult{}, errors.New("inner boom")
+			}},
+		// Model-only tools: a nested call to them is a Harness-written error,
+		// which the hooks below explain or turn into a success.
+		{ToolSpec: ToolSpec{Name: "explained", Parameters: object}, Callers: []string{"model"}, Execute: func(context.Context, json.RawMessage, *ToolRuntime) (ToolResult, error) {
+			return ToolResult{}, nil
+		}},
+		{ToolSpec: ToolSpec{Name: "fixed", Parameters: object}, Callers: []string{"model"}, Execute: func(context.Context, json.RawMessage, *ToolRuntime) (ToolResult, error) {
+			return ToolResult{}, nil
+		}},
+		{ToolSpec: ToolSpec{Name: "typedError", Parameters: object}, Callers: []string{"tools"},
+			StructuredOutputSchema: json.RawMessage(`{"type":"object"}`),
+			Execute: func(context.Context, json.RawMessage, *ToolRuntime) (ToolResult, error) {
+				return ToolResult{Content: "went wrong", IsError: true}, nil
+			}},
+	}
+	hooks := Extension{Name: "hooks", Hooks: Hooks{AfterTool: func(_ context.Context, result *ToolResult, rt *ToolRuntime) error {
+		switch rt.Call.Name {
+		case "explained":
+			result.Content, result.StructuredOutput = "explained", json.RawMessage(`"dropped"`)
+		case "fixed":
+			result.Content, result.IsError = "fixed", false
+		}
+		return nil
+	}}}
+	h, root := runHarness(t, model, Settings{}, Extension{Name: "nesting", Tools: tools}, hooks)
+	waitSettled(t, h, submit(t, root, SubmissionRequest{Content: "go"}))
+
+	if r := results["thrower"]; !r.IsError || string(r.StructuredOutput) != `""` || len(r.Diagnostics) != 1 || r.Diagnostics[0].Message != "inner boom" {
+		t.Fatalf("thrower=%+v structuredOutput=%s", r, r.StructuredOutput)
+	}
+	if r := results["explained"]; !r.IsError || r.StructuredOutput != nil {
+		t.Fatalf("explained=%+v structuredOutput=%s", r, r.StructuredOutput)
+	}
+	if r := results["fixed"]; r.IsError || string(r.StructuredOutput) != `"fixed"` {
+		t.Fatalf("fixed=%+v structuredOutput=%s", r, r.StructuredOutput)
+	}
+	r := results["typedError"]
+	if last := r.Diagnostics[len(r.Diagnostics)-1]; !r.IsError || r.StructuredOutput != nil || last.Code != "tool_error" || last.Message != "went wrong" {
+		t.Fatalf("typedError=%+v", r)
+	}
+}

@@ -216,7 +216,7 @@ func runTool(ctx context.Context, r *TaskRuntime, task TaskRecord) error {
 			if salvageable(task.Restarts, limit) {
 				result = call.afterTool(ctx, result)
 			}
-			return finishToolEnding(ctx, r, task, result, OutcomeFailed, message, restartLimitDetail)
+			return finishToolEnding(ctx, r, task, result, OutcomeFailed, message, restartLimitDetail, false)
 		}
 	}
 	reject := func(result ToolResult) error {
@@ -231,7 +231,7 @@ func runTool(ctx context.Context, r *TaskRuntime, task TaskRecord) error {
 			if err != nil {
 				return err
 			}
-			return finishToolEnding(ctx, r, task, call.afterTool(ctx, result), OutcomeFailed, message, nil)
+			return finishToolEnding(ctx, r, task, call.afterTool(ctx, result), OutcomeFailed, message, nil, false)
 		}
 		// The rerun reports from scratch: clear what the interrupted attempt
 		// published. A version-1 record's checkpoint output goes too.
@@ -359,8 +359,21 @@ func runTool(ctx context.Context, r *TaskRuntime, task TaskRecord) error {
 	}
 	// The contract holds for what the afterTool chain leaves (upstream).
 	result = call.checkStructuredOutput(ctx, result)
+	// A schema tool's error result without structured output has its text
+	// only in the content, which nested callers never get: it becomes an
+	// error diagnostic, as a throw's message does, unless one says what went
+	// wrong already (upstream).
+	if runtime.nested && len(def.StructuredOutputSchema) > 0 && result.IsError && len(result.StructuredOutput) == 0 && result.Content != "" {
+		explained := false
+		for _, d := range result.Diagnostics {
+			explained = explained || d.Severity == "error"
+		}
+		if !explained {
+			result.Diagnostics = append(result.Diagnostics, ToolDiagnostic{Severity: "error", Code: "tool_error", Message: result.Content})
+		}
+	}
 	result.DurationMs = &durationMs
-	return finishToolEnding(ctx, r, task, result, status, outcomeError, nil)
+	return finishToolEnding(ctx, r, task, result, status, outcomeError, nil, true)
 }
 
 // checkStructuredOutput holds a result to its tool's structured output
@@ -413,13 +426,19 @@ func structuredOutputError(def *ToolDefinition, result ToolResult) string {
 }
 
 func finishTool(ctx context.Context, r *TaskRuntime, task TaskRecord, result ToolResult, status string) error {
-	return finishToolEnding(ctx, r, task, result, status, "", nil)
+	return finishToolEnding(ctx, r, task, result, status, "", nil, false)
 }
 
 // finishToolEnding settles a call with its result entry. A failed outcome's
 // Error is outcomeError when given, else the result content, and carries
-// detail as its ErrorDetail.
-func finishToolEnding(ctx context.Context, r *TaskRuntime, task TaskRecord, result ToolResult, status, outcomeError string, detail json.RawMessage) error {
+// detail as its ErrorDetail. executed says the tool ran (a throw included)
+// rather than the Harness writing the result, which decides a nested
+// caller's value.
+func finishToolEnding(ctx context.Context, r *TaskRuntime, task TaskRecord, result ToolResult, status, outcomeError string, detail json.RawMessage, executed bool) error {
+	if !executed {
+		// The tool never produced one; hooks cannot add it (upstream).
+		result.StructuredOutput = nil
+	}
 	var input toolTaskInput
 	if err := json.Unmarshal(task.Input, &input); err != nil {
 		return err
@@ -459,7 +478,7 @@ func finishToolEnding(ctx context.Context, r *TaskRuntime, task TaskRecord, resu
 		}
 		if input.Kind == "nested" {
 			def, _ := r.Registry().toolByName(task, input.Call.Name)
-			data, err := settleNested(tx, input, task, def, result)
+			data, err := settleNested(tx, input, task, def, result, executed)
 			if err != nil {
 				return TaskTransition{}, err
 			}
