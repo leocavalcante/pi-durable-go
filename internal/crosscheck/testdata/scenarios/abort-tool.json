@@ -1,0 +1,45 @@
+{
+ "name": "abort-tool",
+ "tools": [
+  {
+   "name": "slow",
+   "results": [
+    {
+     "text": "late",
+     "hold": "t1"
+    }
+   ]
+  }
+ ],
+ "model": [
+  {
+   "calls": [
+    {
+     "id": "c1",
+     "name": "slow",
+     "args": {}
+    }
+   ]
+  },
+  {
+   "text": "never"
+  }
+ ],
+ "steps": [
+  {
+   "submit": {
+    "type": "input",
+    "content": "go"
+   }
+  },
+  {
+   "waitHeld": "t1"
+  },
+  {
+   "abort": true
+  },
+  {
+   "wait": "idle"
+  }
+ ]
+}

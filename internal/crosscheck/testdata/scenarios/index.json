@@ -1,0 +1,22 @@
+[
+ "tool-round",
+ "answer",
+ "parallel-tools",
+ "sequential-tools",
+ "tool-error-result",
+ "tool-throws",
+ "unknown-tool",
+ "invalid-arguments",
+ "model-error",
+ "model-retry",
+ "turn-limit",
+ "length-stop",
+ "follow-up",
+ "steer",
+ "busy-reject",
+ "idle-reject",
+ "abort-model",
+ "abort-tool",
+ "instructions-thinking",
+ "continue"
+]

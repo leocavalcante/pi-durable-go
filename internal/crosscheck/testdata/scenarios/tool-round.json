@@ -1,0 +1,6 @@
+{
+ "name": "tool round",
+ "tools": [{"name": "echo", "parameters": {"type": "object", "properties": {"text": {"type": "string"}}}, "results": [{"text": "echo hi"}]}],
+ "model": [{"calls": [{"id": "c1", "name": "echo", "args": {"text": "hi"}}]}, {"text": "done"}],
+ "steps": [{"submit": {"type": "input", "content": "go"}}, {"wait": "settled"}]
+}

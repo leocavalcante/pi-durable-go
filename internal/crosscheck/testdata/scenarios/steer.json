@@ -1,0 +1,52 @@
+{
+ "name": "steer",
+ "tools": [
+  {
+   "name": "slow",
+   "results": [
+    {
+     "text": "slow done",
+     "hold": "t1"
+    }
+   ]
+  }
+ ],
+ "model": [
+  {
+   "calls": [
+    {
+     "id": "c1",
+     "name": "slow",
+     "args": {}
+    }
+   ]
+  },
+  {
+   "text": "steered answer"
+  }
+ ],
+ "steps": [
+  {
+   "submit": {
+    "type": "input",
+    "content": "start"
+   }
+  },
+  {
+   "waitHeld": "t1"
+  },
+  {
+   "submit": {
+    "type": "input",
+    "content": "also this",
+    "whenBusy": "steer"
+   }
+  },
+  {
+   "release": "t1"
+  },
+  {
+   "wait": "settled"
+  }
+ ]
+}

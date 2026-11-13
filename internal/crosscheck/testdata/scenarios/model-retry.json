@@ -1,0 +1,30 @@
+{
+ "name": "model-retry",
+ "settings": {
+  "retry": {
+   "enabled": true,
+   "maxRetries": 2,
+   "baseDelayMs": 1,
+   "maxAgentDelayMs": 5
+  }
+ },
+ "model": [
+  {
+   "error": "503 Service Unavailable"
+  },
+  {
+   "text": "recovered"
+  }
+ ],
+ "steps": [
+  {
+   "submit": {
+    "type": "input",
+    "content": "go"
+   }
+  },
+  {
+   "wait": "settled"
+  }
+ ]
+}

@@ -1,0 +1,58 @@
+{
+ "name": "turn-limit",
+ "agent": {
+  "maxTurns": 1
+ },
+ "tools": [
+  {
+   "name": "echo",
+   "parameters": {
+    "type": "object",
+    "properties": {
+     "text": {
+      "type": "string"
+     }
+    }
+   },
+   "results": [
+    {
+     "text": "x"
+    }
+   ]
+  }
+ ],
+ "model": [
+  {
+   "calls": [
+    {
+     "id": "a",
+     "name": "echo",
+     "args": {}
+    }
+   ]
+  },
+  {
+   "calls": [
+    {
+     "id": "b",
+     "name": "echo",
+     "args": {}
+    }
+   ]
+  },
+  {
+   "text": "never"
+  }
+ ],
+ "steps": [
+  {
+   "submit": {
+    "type": "input",
+    "content": "go"
+   }
+  },
+  {
+   "wait": "settled"
+  }
+ ]
+}

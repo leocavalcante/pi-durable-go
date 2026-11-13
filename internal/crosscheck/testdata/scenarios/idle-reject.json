@@ -1,0 +1,13 @@
+{
+ "name": "idle-reject",
+ "model": [],
+ "steps": [
+  {
+   "submit": {
+    "type": "input",
+    "content": "nope",
+    "whenIdle": "reject"
+   }
+  }
+ ]
+}

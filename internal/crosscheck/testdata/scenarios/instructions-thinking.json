@@ -1,0 +1,23 @@
+{
+ "name": "instructions-thinking",
+ "agent": {
+  "instructions": "Be brief."
+ },
+ "model": [
+  {
+   "thinking": "let me think",
+   "text": "brief"
+  }
+ ],
+ "steps": [
+  {
+   "submit": {
+    "type": "input",
+    "content": "hi"
+   }
+  },
+  {
+   "wait": "settled"
+  }
+ ]
+}

@@ -10,10 +10,12 @@ package crosscheck
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 )
@@ -74,4 +76,31 @@ func Same(a, b json.RawMessage) bool {
 	ja, _ := json.Marshal(x)
 	jb, _ := json.Marshal(y)
 	return bytes.Equal(ja, jb)
+}
+
+// Diff shows where two JSON documents part: both printed with sorted keys,
+// from a few lines before the first that differs.
+func Diff(want, got json.RawMessage) string {
+	lines := func(raw json.RawMessage) []string {
+		var v any
+		if json.Unmarshal(raw, &v) != nil {
+			return strings.Split(string(raw), "\n")
+		}
+		pretty, _ := json.MarshalIndent(v, "", "  ")
+		return strings.Split(string(pretty), "\n")
+	}
+	w, g := lines(want), lines(got)
+	first := 0
+	for first < len(w) && first < len(g) && w[first] == g[first] {
+		first++
+	}
+	from := max(0, first-8)
+	excerpt := func(all []string) string {
+		to := min(len(all), first+12)
+		if from >= to {
+			return "(ends)"
+		}
+		return strings.Join(all[from:to], "\n")
+	}
+	return fmt.Sprintf("upstream (line %d):\n%s\n\nGo:\n%s", first+1, excerpt(w), excerpt(g))
 }

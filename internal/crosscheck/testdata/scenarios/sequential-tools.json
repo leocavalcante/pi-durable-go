@@ -1,0 +1,53 @@
+{
+ "name": "sequential-tools",
+ "settings": {
+  "toolExecution": "sequential"
+ },
+ "tools": [
+  {
+   "name": "echo",
+   "parameters": {
+    "type": "object",
+    "properties": {
+     "text": {
+      "type": "string"
+     }
+    }
+   }
+  }
+ ],
+ "model": [
+  {
+   "calls": [
+    {
+     "id": "a",
+     "name": "echo",
+     "args": {
+      "text": "1"
+     }
+    },
+    {
+     "id": "b",
+     "name": "echo",
+     "args": {
+      "text": "2"
+     }
+    }
+   ]
+  },
+  {
+   "text": "both done"
+  }
+ ],
+ "steps": [
+  {
+   "submit": {
+    "type": "input",
+    "content": "go"
+   }
+  },
+  {
+   "wait": "settled"
+  }
+ ]
+}

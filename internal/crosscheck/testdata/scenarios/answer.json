@@ -1,0 +1,19 @@
+{
+ "name": "answer",
+ "model": [
+  {
+   "text": "hello there"
+  }
+ ],
+ "steps": [
+  {
+   "submit": {
+    "type": "input",
+    "content": "hi"
+   }
+  },
+  {
+   "wait": "settled"
+  }
+ ]
+}

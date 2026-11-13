@@ -1,0 +1,39 @@
+{
+ "name": "tool-error-result",
+ "tools": [
+  {
+   "name": "fail",
+   "results": [
+    {
+     "text": "it broke",
+     "isError": true
+    }
+   ]
+  }
+ ],
+ "model": [
+  {
+   "calls": [
+    {
+     "id": "c1",
+     "name": "fail",
+     "args": {}
+    }
+   ]
+  },
+  {
+   "text": "sorry"
+  }
+ ],
+ "steps": [
+  {
+   "submit": {
+    "type": "input",
+    "content": "go"
+   }
+  },
+  {
+   "wait": "settled"
+  }
+ ]
+}

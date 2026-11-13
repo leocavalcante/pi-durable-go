@@ -86,6 +86,8 @@ A Go transaction callback cannot access its `Tx` after return, and committed val
 
 The testing kit ports the storage conformance suite as `storagetest` (`Run`), written for Go's storage contracts rather than upstream's record-level storage interface. Upstream's environment conformance and storage benchmarks are not ported: Go has no environment adapters to check, and its benchmarks are package tests.
 
+A conversation's agent is a rewindable `pi.agent` document, as upstream's `AgentDoc` is, so a fork takes the agent as of its entry, and conversations start with no entries. Stores from before kept agent changes as `pi.agent` entries; those stay in their transcripts, and forks still read them.
+
 The root conversation takes the reserved ID 1 (`RootConversationID`, upstream's `ROOT_CONVERSATION_ID`), and new stores mint other IDs from 2; a store from before the reservation keeps its root, and one created there takes ID 1 only if no record uses it. A conversation's provider session identity is on its record (`ConversationRecord.ProviderSessionID`, fresh for every conversation and fork) rather than in upstream's `pi.provider` document (`ProviderDoc`); hosts read it from the record. Task graph blocked reasons have constants (`BlockedMissingTask`, `BlockedTaskTooOld`, `BlockedMigrationFailed`).
 
 ### Agent execution, tools, and compaction
@@ -144,7 +146,7 @@ This table highlights compatibility changes since the previous runtime reference
 
 ## Cross-checks
 
-Pure behavior is checked against upstream's own 1.5.2 code, run from its TypeScript sources: tool argument coercion and validation, the coding tools, tool search, context ordering, compaction, prompt planning, error classification, and `model.OpenAI`'s requests and responses. [docs/upstream-cross-checks.md](docs/upstream-cross-checks.md) has the method, the results, and the differences that remain.
+`make crosscheck` checks behavior against upstream's own 1.5.2 code, run from its TypeScript sources: tool argument coercion and validation, the coding tools, tool search, context ordering, compaction, prompt planning, error classification, and `model.OpenAI`'s requests and responses. It also plays 20 conversation scenarios through upstream's Harness and this one. The scenarios cover tool rounds, parallel and sequential tools, failing and unknown tools, invalid arguments, model errors and retries, turn limits, follow-ups, steering, refusals, aborts, instructions, and continues, and each compares the model's requests, the transcript, and the submissions' settlements. [docs/upstream-cross-checks.md](docs/upstream-cross-checks.md) has the method, the results, and the differences that remain.
 
 ## Provenance
 

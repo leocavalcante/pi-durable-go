@@ -1,0 +1,30 @@
+{
+ "name": "continue",
+ "model": [
+  {
+   "error": "invalid request: bad thing"
+  },
+  {
+   "text": "continued"
+  }
+ ],
+ "steps": [
+  {
+   "submit": {
+    "type": "input",
+    "content": "go"
+   }
+  },
+  {
+   "wait": "settled"
+  },
+  {
+   "submit": {
+    "type": "continue"
+   }
+  },
+  {
+   "wait": "settled"
+  }
+ ]
+}

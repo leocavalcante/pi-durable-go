@@ -1,0 +1,26 @@
+{
+ "name": "abort-model",
+ "model": [
+  {
+   "text": "never",
+   "hold": "m1"
+  }
+ ],
+ "steps": [
+  {
+   "submit": {
+    "type": "input",
+    "content": "go"
+   }
+  },
+  {
+   "waitHeld": "m1"
+  },
+  {
+   "abort": true
+  },
+  {
+   "wait": "idle"
+  }
+ ]
+}

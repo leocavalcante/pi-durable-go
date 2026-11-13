@@ -1,0 +1,62 @@
+{
+ "name": "invalid-arguments",
+ "tools": [
+  {
+   "name": "count",
+   "parameters": {
+    "type": "object",
+    "properties": {
+     "n": {
+      "type": "integer"
+     }
+    },
+    "required": [
+     "n"
+    ]
+   },
+   "results": [
+    {
+     "text": "counted"
+    }
+   ]
+  }
+ ],
+ "model": [
+  {
+   "calls": [
+    {
+     "id": "c1",
+     "name": "count",
+     "args": {
+      "n": "many"
+     }
+    }
+   ]
+  },
+  {
+   "calls": [
+    {
+     "id": "c2",
+     "name": "count",
+     "args": {
+      "n": "3"
+     }
+    }
+   ]
+  },
+  {
+   "text": "ok"
+  }
+ ],
+ "steps": [
+  {
+   "submit": {
+    "type": "input",
+    "content": "go"
+   }
+  },
+  {
+   "wait": "settled"
+  }
+ ]
+}

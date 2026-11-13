@@ -1,0 +1,19 @@
+{
+ "name": "model-error",
+ "model": [
+  {
+   "error": "invalid request: bad thing"
+  }
+ ],
+ "steps": [
+  {
+   "submit": {
+    "type": "input",
+    "content": "go"
+   }
+  },
+  {
+   "wait": "settled"
+  }
+ ]
+}

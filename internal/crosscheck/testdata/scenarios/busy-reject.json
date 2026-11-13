@@ -1,0 +1,33 @@
+{
+ "name": "busy-reject",
+ "model": [
+  {
+   "text": "answer",
+   "hold": "m1"
+  }
+ ],
+ "steps": [
+  {
+   "submit": {
+    "type": "input",
+    "content": "first"
+   }
+  },
+  {
+   "waitHeld": "m1"
+  },
+  {
+   "submit": {
+    "type": "input",
+    "content": "nope",
+    "whenBusy": "reject"
+   }
+  },
+  {
+   "release": "m1"
+  },
+  {
+   "wait": "settled"
+  }
+ ]
+}

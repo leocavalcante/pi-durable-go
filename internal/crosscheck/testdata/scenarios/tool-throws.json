@@ -1,0 +1,38 @@
+{
+ "name": "tool-throws",
+ "tools": [
+  {
+   "name": "boom",
+   "results": [
+    {
+     "throw": "disk on fire"
+    }
+   ]
+  }
+ ],
+ "model": [
+  {
+   "calls": [
+    {
+     "id": "c1",
+     "name": "boom",
+     "args": {}
+    }
+   ]
+  },
+  {
+   "text": "it threw"
+  }
+ ],
+ "steps": [
+  {
+   "submit": {
+    "type": "input",
+    "content": "go"
+   }
+  },
+  {
+   "wait": "settled"
+  }
+ ]
+}

@@ -1,0 +1,35 @@
+{
+ "name": "follow-up",
+ "model": [
+  {
+   "text": "first answer",
+   "hold": "m1"
+  },
+  {
+   "text": "second answer"
+  }
+ ],
+ "steps": [
+  {
+   "submit": {
+    "type": "input",
+    "content": "first"
+   }
+  },
+  {
+   "waitHeld": "m1"
+  },
+  {
+   "submit": {
+    "type": "input",
+    "content": "second"
+   }
+  },
+  {
+   "release": "m1"
+  },
+  {
+   "wait": "settled"
+  }
+ ]
+}
