@@ -2,6 +2,7 @@ package durable
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"math"
 )
@@ -133,4 +134,18 @@ func checkCompactionTokens(settings CompactionSettings, path string) error {
 		}
 	}
 	return nil
+}
+
+// agentDocument is a conversation's agent (upstream AgentDoc): rewindable,
+// so a fork takes the agent as of its entry. The conversation record keeps
+// the current one too.
+var agentDocument = DocumentDefinition{Kind: "pi.agent", Version: 1, Scope: "conversation", History: "rewindable", Fork: "asOf"}
+
+// putAgent records a conversation's agent in its pi.agent document.
+func putAgent(tx *Tx, cid ConversationID, agent Agent) error {
+	data, err := json.Marshal(agent)
+	if err != nil {
+		return err
+	}
+	return tx.PutDocument(agentDocument, uint64(cid), data)
 }

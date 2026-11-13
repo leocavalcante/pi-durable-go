@@ -19,6 +19,15 @@ func TestReadDocumentAsOfAnEntry(t *testing.T) {
 		t.Fatal(err)
 	}
 	cid := uint64(root.ID())
+	// An entry before the documents existed.
+	var before EntryID
+	if err := h.Commit(ctx, func(tx *Tx) error {
+		var err error
+		before, err = tx.Append(root.ID(), Entry{Kind: "app.step", Data: json.RawMessage(`{}`)})
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
 	// Each step sets the documents and appends an entry in one commit.
 	var ids []EntryID
 	for n := 1; n <= 2; n++ {
@@ -49,8 +58,7 @@ func TestReadDocumentAsOfAnEntry(t *testing.T) {
 		}
 	}
 	// An entry before the document existed: no value then.
-	head := ids[0] - 1
-	if _, err := ReadDocumentAsOf[doc](ctx, h, notes, cid, head); !errors.Is(err, ErrNotFound) {
+	if _, err := ReadDocumentAsOf[doc](ctx, h, notes, cid, before); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("before the first value: %v", err)
 	}
 	// From a fork, a parent's entry reads the parent's document then.

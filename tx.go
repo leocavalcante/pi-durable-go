@@ -143,11 +143,7 @@ func (tx *Tx) createConversation(opts ConversationOptions, reserved Conversation
 		id = ConversationID(tx.id())
 	}
 	tx.state.Conversations[id] = &ConversationRecord{ID: id, Owner: opts.Owner, Agent: agent, ProviderSessionID: sessionID, CreatedAt: tx.clock()}
-	data, err := json.Marshal(agent)
-	if err != nil {
-		return 0, err
-	}
-	if _, err := tx.Append(id, Entry{Kind: "pi.agent", Data: data}); err != nil {
+	if err := putAgent(tx, id, agent); err != nil {
 		return 0, err
 	}
 	if tx.created != nil {

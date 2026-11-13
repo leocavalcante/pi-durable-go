@@ -182,7 +182,7 @@ func TestContextToolRoundsRespectResetAndKeepStoredEntries(t *testing.T) {
 	if !reflect.DeepEqual(before, after) {
 		t.Fatal("context derivation changed stored entries")
 	}
-	if len(after) < 7 {
+	if len(after) < 6 {
 		t.Fatalf("reset discarded transcript entries: %d", len(after))
 	}
 }

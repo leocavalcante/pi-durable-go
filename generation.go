@@ -1830,6 +1830,5 @@ func addTools(tx *Tx, cid ConversationID, added []string) error {
 		return err
 	}
 	conv.Agent = agent
-	_, err = tx.Append(cid, Entry{Kind: "pi.agent", Data: after})
-	return err
+	return putAgent(tx, cid, agent)
 }

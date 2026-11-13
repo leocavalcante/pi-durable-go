@@ -174,7 +174,7 @@ func TestBoundedSessionKeepsContextRangesOnly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(entries) < 40+1+3 || entries[1].ID > old[0] {
+	if len(entries) < 40+1+3 || entries[0].ID > old[0] {
 		t.Fatalf("history has %d entries", len(entries))
 	}
 	page, err := root.ScanEntries(ctx, EntryQuery{Order: "ascending", MaxEntryID: old[9]}, 100, nil)
@@ -258,7 +258,7 @@ func TestBoundedOpenLoadsOnlyWhatItKeeps(t *testing.T) {
 		t.Fatal(err)
 	}
 	entries, err := again.Entries(ctx)
-	if err != nil || len(entries) < 20 || entries[1].ID != old[0] {
+	if err != nil || len(entries) < 20 || entries[0].ID != old[0] {
 		t.Fatalf("history after reopening=%d error=%v", len(entries), err)
 	}
 	if sub, err := reopened.Submission(ctx, write.ID()); err != nil {
@@ -335,6 +335,10 @@ func idleDocuments(t *testing.T, store Storage) (*Harness, *Conversation, Docume
 	notes := DocumentDefinition{Kind: "test.notes", Version: 1, Scope: "conversation", History: "rewindable", Fork: "current"}
 	gone := DocumentDefinition{Kind: "test.gone", Version: 1, Scope: "conversation"}
 	if err := h.Commit(context.Background(), func(tx *Tx) error {
+		// An entry to fork at: conversations start empty.
+		if _, err := tx.Append(root.ID(), Entry{Kind: "app.note", Data: json.RawMessage(`{}`)}); err != nil {
+			return err
+		}
 		if err := tx.PutDocument(notes, uint64(root.ID()), json.RawMessage(`{"n":1}`)); err != nil {
 			return err
 		}

@@ -293,7 +293,7 @@ func TestContextResetPreservesTranscript(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(entries) < 4 {
+	if len(entries) < 3 {
 		t.Fatal("history lost")
 	}
 }

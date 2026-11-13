@@ -78,7 +78,7 @@ func (c *Conversation) Configure(ctx context.Context, agent Agent) error {
 // (upstream configure(tx, conversationId, change)): read the current one
 // with Tx.Conversation, change what should change, and configure it, so the
 // change applies atomically with the commit's other writes. The agent is
-// recorded as a pi.agent entry.
+// recorded in the conversation's pi.agent document.
 func (tx *Tx) Configure(cid ConversationID, agent Agent) error {
 	if agent.MaxTurns < 0 {
 		return fmt.Errorf("%w: MaxTurns must be 1 or more, or 0 for no bound", ErrInvalid)
@@ -87,13 +87,8 @@ func (tx *Tx) Configure(cid ConversationID, agent Agent) error {
 	if err != nil {
 		return err
 	}
-	data, err := json.Marshal(agent)
-	if err != nil {
-		return err
-	}
 	rec.Agent = agent
-	_, err = tx.Append(cid, Entry{Kind: "pi.agent", Data: data})
-	return err
+	return putAgent(tx, cid, agent)
 }
 func (c *Conversation) Agent(ctx context.Context) (Agent, error) {
 	s, err := c.h.read(ctx)
@@ -231,6 +226,8 @@ func (tx *Tx) Fork(parentID ConversationID, at EntryID, opts ConversationOptions
 		var found *Entry
 		agent := parent.Agent
 		for _, e := range entries {
+			// Stores from before the pi.agent document kept agent changes
+			// as entries.
 			if e.Kind == "pi.agent" {
 				agent = Agent{}
 				if err := json.Unmarshal(e.Data, &agent); err != nil {
@@ -246,6 +243,15 @@ func (tx *Tx) Fork(parentID ConversationID, at EntryID, opts ConversationOptions
 		if found == nil {
 			return fmt.Errorf("%w: fork entry not visible", ErrInvalid)
 		}
+		// The agent as of the fork entry (upstream AgentDoc forks asOf).
+		if revision, err := revisionAt(tx.state, documentKey(agentDocument, uint64(parentID)), found.Sequence); err != nil {
+			return err
+		} else if revision != nil && !revision.Retired {
+			agent = Agent{}
+			if err := json.Unmarshal(revision.Value, &agent); err != nil {
+				return err
+			}
+		}
 		// A zero agent means inherit the parent's choices at this entry.
 		if opts.Agent.Model.ID != "" || opts.Agent.Model.Provider != "" || opts.Agent.Tools != nil || opts.Agent.RemoveTools != nil || opts.Agent.Extensions != nil || opts.Agent.ExtensionEdits != nil || opts.Agent.Instructions != nil || opts.Agent.Cwd != "" || opts.Agent.ThinkingLevel != "" {
 			agent = opts.Agent
@@ -259,18 +265,10 @@ func (tx *Tx) Fork(parentID ConversationID, at EntryID, opts ConversationOptions
 			return err
 		}
 		child := tx.state.mutConversation(id)
-		delete(tx.state.Entries, child.Head) // replace the unobserved creation baseline
 		child.Agent = agent
 		child.Parent = parentID
 		child.ForkAt = at
 		child.Head = at
-		baseline, err := json.Marshal(agent)
-		if err != nil {
-			return err
-		}
-		if _, err := tx.Append(id, Entry{Kind: "pi.agent", Data: baseline}); err != nil {
-			return err
-		}
 		// Copy only conversation documents; task/session documents never fork.
 		docs, err := tx.state.conversationDocuments(parentID)
 		if err != nil {
