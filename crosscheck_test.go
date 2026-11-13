@@ -601,6 +601,7 @@ type scenarioSpec struct {
 			Value json.RawMessage `json:"value"`
 		} `json:"doc,omitempty"`
 		RetireDoc string          `json:"retireDoc,omitempty"`
+		Live      bool            `json:"live,omitempty"`
 		Wait      string          `json:"wait,omitempty"`
 		WaitHeld  string          `json:"waitHeld,omitempty"`
 		Release   string          `json:"release,omitempty"`
@@ -1003,6 +1004,7 @@ func runScenario(t *testing.T, sc scenarioSpec) json.RawMessage {
 	var submissions []submitted
 	var forks []*Conversation
 	current := root
+	var lives []any
 	// Conversation documents, version 1, starting empty.
 	docs := map[string]DocumentDefinition{}
 	var kinds []string
@@ -1038,6 +1040,12 @@ func runScenario(t *testing.T, sc scenarioSpec) json.RawMessage {
 			}
 			forks = append(forks, fork)
 			current = fork
+		case step.Live:
+			live, err := ReadDocument[LiveState](ctx, h, liveDocument, uint64(current.ID()))
+			if err != nil && !errors.Is(err, ErrNotFound) {
+				t.Fatal(err)
+			}
+			lives = append(lives, scenarioLive(live))
 		case step.Doc != nil:
 			def, value := docs[step.Doc.Kind], step.Doc.Value
 			if err := h.Commit(ctx, func(tx *Tx) error { return tx.PutDocument(def, uint64(current.ID()), value) }); err != nil {
@@ -1250,6 +1258,9 @@ func runScenario(t *testing.T, sc scenarioSpec) json.RawMessage {
 	if len(docs) > 0 {
 		report["documents"] = documents
 	}
+	if len(lives) > 0 {
+		report["live"] = lives
+	}
 	data, err := json.Marshal(report)
 	if err != nil {
 		t.Fatal(err)
@@ -1453,4 +1464,89 @@ func fauxText(m Message) string {
 		return strings.Join(append([]string{m.ToolName}, blocks()...), "\n")
 	}
 	return m.Content
+}
+
+// scenarioLive is pi.live without IDs and times, as the upstream runner's
+// normalizeLive gives it: counts and presence instead.
+func scenarioLive(live LiveState) map[string]any {
+	out := map[string]any{}
+	slot := func(callID, name, status, output string, droppedBytes, droppedLines int, diagnostics []ToolDiagnostic) map[string]any {
+		s := map[string]any{"callId": callID, "name": name, "status": status}
+		if output != "" {
+			s["output"] = output
+		}
+		if droppedBytes > 0 {
+			s["droppedBytes"], s["droppedLines"] = droppedBytes, droppedLines
+		}
+		if len(diagnostics) > 0 {
+			var notes []string
+			for _, d := range diagnostics {
+				notes = append(notes, "["+d.Severity+"] "+d.Message)
+			}
+			s["diagnostics"] = notes
+		}
+		return s
+	}
+	if r := live.Run; r != nil {
+		out["run"] = map[string]any{"inputs": len(r.Inputs), "turns": r.Turns, "first": r.First != 0, "afterRun": r.AfterRun != nil}
+	}
+	if g := live.Generation; g != nil {
+		gen := map[string]any{"attempt": g.Attempt}
+		if g.Message != nil {
+			gen["message"] = scenarioMessage(*g.Message)
+		}
+		if g.Retry != nil {
+			gen["retry"] = g.Retry.Error
+		}
+		if g.Deferred != nil {
+			gen["deferred"] = true
+		}
+		out["generation"] = gen
+	}
+	if len(live.Tools) > 0 {
+		var tools []any
+		for _, t := range live.Tools {
+			s := slot(t.CallID, t.Name, t.Status, t.Output, t.DroppedBytes, t.DroppedLines, t.Diagnostics)
+			s["task"], s["entry"] = t.TaskID != 0, t.Entry != 0
+			if t.Unoffered {
+				s["unoffered"] = true
+			}
+			tools = append(tools, s)
+		}
+		out["tools"] = tools
+	}
+	if len(live.NestedTools) > 0 {
+		var nested []any
+		for _, t := range live.NestedTools {
+			s := slot(t.CallID, t.Name, t.Status, t.Output, t.DroppedBytes, t.DroppedLines, t.Diagnostics)
+			s["parentCallId"], s["arguments"] = t.ParentCallID, t.Arguments
+			if t.Summary != nil {
+				summary := map[string]any{"isError": t.Summary.IsError}
+				if t.Summary.Error != "" {
+					summary["error"] = t.Summary.Error
+				}
+				s["summary"] = summary
+			}
+			nested = append(nested, s)
+		}
+		out["nestedTools"] = nested
+	}
+	if len(live.Compactions) > 0 {
+		var compactions []any
+		for _, c := range live.Compactions {
+			compactions = append(compactions, map[string]any{"trigger": c.Trigger, "blocking": c.Blocking, "attempt": c.Attempt, "retry": c.Retry != nil})
+		}
+		out["compactions"] = compactions
+	}
+	if f := live.CompactionFailure; f != nil {
+		out["compactionFailure"] = map[string]any{"trigger": f.Trigger, "error": f.Error}
+	}
+	if f := live.RunFailure; f != nil {
+		failure := map[string]any{"inputs": len(f.Inputs), "reason": f.Reason, "first": f.First != 0}
+		if f.Detail != "" {
+			failure["detail"] = f.Detail
+		}
+		out["runFailure"] = failure
+	}
+	return out
 }

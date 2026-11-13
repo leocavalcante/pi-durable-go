@@ -1,0 +1,22 @@
+{
+ "name": "live-after-model-failure",
+ "model": [
+  {
+   "error": "400 Bad Request: nope"
+  }
+ ],
+ "steps": [
+  {
+   "submit": {
+    "type": "input",
+    "content": "go"
+   }
+  },
+  {
+   "wait": "settled"
+  },
+  {
+   "live": true
+  }
+ ]
+}

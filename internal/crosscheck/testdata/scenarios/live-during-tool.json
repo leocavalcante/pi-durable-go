@@ -1,0 +1,56 @@
+{
+ "name": "live-during-tool",
+ "tools": [
+  {
+   "name": "slow",
+   "parameters": {
+    "type": "object"
+   },
+   "results": [
+    {
+     "text": "late",
+     "hold": "t1"
+    }
+   ]
+  }
+ ],
+ "model": [
+  {
+   "calls": [
+    {
+     "id": "c1",
+     "name": "slow",
+     "args": {
+      "x": 1
+     }
+    }
+   ]
+  },
+  {
+   "text": "done"
+  }
+ ],
+ "steps": [
+  {
+   "submit": {
+    "type": "input",
+    "content": "go"
+   }
+  },
+  {
+   "waitHeld": "t1"
+  },
+  {
+   "live": true
+  },
+  {
+   "release": "t1"
+  },
+  {
+   "wait": "settled"
+  },
+  {
+   "live": true
+  }
+ ]
+}

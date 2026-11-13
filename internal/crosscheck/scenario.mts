@@ -51,6 +51,49 @@ export function normalizeMessage(message: any): Record<string, unknown> {
 	return { role: String(message.role) };
 }
 
+/** pi.live without IDs and times: counts and presence instead. */
+export function normalizeLive(live: any): Record<string, unknown> {
+	if (live === undefined || live === null) return {};
+	const out: Record<string, unknown> = {};
+	const slot = (s: any) => ({
+		callId: s.callId,
+		name: s.name,
+		status: s.status,
+		...(s.output ? { output: s.output } : {}),
+		...(s.droppedBytes ? { droppedBytes: s.droppedBytes, droppedLines: s.droppedLines ?? 0 } : {}),
+		...(s.diagnostics?.length ? { diagnostics: s.diagnostics.map((d: any) => `[${d.severity}] ${d.message}`) } : {}),
+	});
+	if (live.run) out.run = { inputs: live.run.inputs.length, turns: live.run.turns, first: live.run.first !== undefined, afterRun: live.run.afterRun !== undefined };
+	if (live.generation) {
+		out.generation = {
+			attempt: live.generation.attempt,
+			...(live.generation.message ? { message: normalizeMessage(live.generation.message) } : {}),
+			...(live.generation.retry ? { retry: live.generation.retry.error } : {}),
+			...(live.generation.deferred ? { deferred: true } : {}),
+		};
+	}
+	if (live.tools?.length) out.tools = live.tools.map((s: any) => ({ ...slot(s), task: s.taskId !== undefined, entry: s.entry !== undefined, ...(s.unoffered ? { unoffered: true } : {}) }));
+	if (live.nestedTools?.length) {
+		out.nestedTools = live.nestedTools.map((s: any) => ({
+			...slot(s),
+			parentCallId: s.parentCallId,
+			arguments: s.arguments,
+			...(s.summary ? { summary: { isError: s.summary.isError, ...(s.summary.error ? { error: s.summary.error } : {}) } } : {}),
+		}));
+	}
+	if (live.compactions?.length) out.compactions = live.compactions.map((c: any) => ({ trigger: c.trigger, blocking: c.blocking, attempt: c.attempt, retry: c.retry !== undefined }));
+	if (live.compactionFailure) out.compactionFailure = { trigger: live.compactionFailure.trigger, error: live.compactionFailure.error };
+	if (live.runFailure) {
+		out.runFailure = {
+			inputs: live.runFailure.inputs.length,
+			reason: live.runFailure.reason,
+			...(live.runFailure.detail !== undefined ? { detail: live.runFailure.detail } : {}),
+			first: live.runFailure.first !== undefined,
+		};
+	}
+	return out;
+}
+
 type Gate = { reached: Promise<void>; reach: () => void; released: Promise<void>; release: () => void };
 
 export async function runScenario(
@@ -303,6 +346,7 @@ export async function runScenario(
 	}
 	const forks: any[] = [];
 	let current = root;
+	const lives: unknown[] = [];
 	for (const step of scenario.steps ?? []) {
 		if (step.reopen) {
 			if (forks.length > 0) throw new Error("reopening with forks is not supported");
@@ -316,6 +360,8 @@ export async function runScenario(
 			const index = step.fork.at < 0 ? items.length + step.fork.at : step.fork.at;
 			current = await current.fork(items[index].id, { ownership: { kind: "ownerless" } }, context);
 			forks.push(current);
+		} else if (step.live) {
+			lives.push(normalizeLive(await harness.snapshot(pd.LiveDoc, current.id, context)));
 		} else if (step.doc !== undefined) {
 			await current.commit(async (tx: any) => {
 				const draft = await tx.doc(docs.get(step.doc.kind), current.id);
@@ -412,6 +458,7 @@ export async function runScenario(
 		usage,
 		...(forks.length > 0 ? { forks: forked } : {}),
 		...(docs.size > 0 ? { documents } : {}),
+		...(lives.length > 0 ? { live: lives } : {}),
 		submissions: settled,
 	};
 }

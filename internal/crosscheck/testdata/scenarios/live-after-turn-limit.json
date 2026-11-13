@@ -1,0 +1,42 @@
+{
+ "name": "live-after-turn-limit",
+ "agent": {
+  "maxTurns": 1
+ },
+ "tools": [
+  {
+   "name": "echo",
+   "parameters": {
+    "type": "object"
+   }
+  }
+ ],
+ "model": [
+  {
+   "calls": [
+    {
+     "id": "c1",
+     "name": "echo",
+     "args": {}
+    }
+   ]
+  },
+  {
+   "text": "never"
+  }
+ ],
+ "steps": [
+  {
+   "submit": {
+    "type": "input",
+    "content": "go"
+   }
+  },
+  {
+   "wait": "settled"
+  },
+  {
+   "live": true
+  }
+ ]
+}

@@ -73,5 +73,11 @@
  "tool-streamed-head",
  "documents-fork-modes",
  "documents-retired",
- "tool-usage"
+ "tool-usage",
+ "live-during-tool",
+ "live-during-model",
+ "live-retrying-then-aborted",
+ "live-after-model-failure",
+ "live-after-turn-limit",
+ "live-background-compaction"
 ]

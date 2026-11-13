@@ -1,0 +1,32 @@
+{
+ "name": "live-during-model",
+ "model": [
+  {
+   "text": "late",
+   "hold": "m1"
+  }
+ ],
+ "steps": [
+  {
+   "submit": {
+    "type": "input",
+    "content": "go"
+   }
+  },
+  {
+   "waitHeld": "m1"
+  },
+  {
+   "live": true
+  },
+  {
+   "release": "m1"
+  },
+  {
+   "wait": "settled"
+  },
+  {
+   "live": true
+  }
+ ]
+}
