@@ -1,0 +1,49 @@
+{
+ "name": "after-run-holds-the-queue",
+ "afterRun": {
+  "hold": "a1"
+ },
+ "model": [
+  {
+   "text": "one"
+  },
+  {
+   "text": "two"
+  }
+ ],
+ "steps": [
+  {
+   "submit": {
+    "type": "input",
+    "content": "first"
+   }
+  },
+  {
+   "waitHeld": "a1"
+  },
+  {
+   "live": true
+  },
+  {
+   "submit": {
+    "type": "input",
+    "content": "second"
+   }
+  },
+  {
+   "live": true
+  },
+  {
+   "release": "a1"
+  },
+  {
+   "wait": "settled"
+  },
+  {
+   "wait": "idle"
+  },
+  {
+   "live": true
+  }
+ ]
+}

@@ -1,0 +1,43 @@
+{
+ "name": "after-run-terminate",
+ "afterRun": {},
+ "tools": [
+  {
+   "name": "finish",
+   "parameters": {
+    "type": "object"
+   },
+   "results": [
+    {
+     "text": "finished",
+     "terminate": true
+    }
+   ]
+  }
+ ],
+ "model": [
+  {
+   "calls": [
+    {
+     "id": "c1",
+     "name": "finish",
+     "args": {}
+    }
+   ]
+  }
+ ],
+ "steps": [
+  {
+   "submit": {
+    "type": "input",
+    "content": "go"
+   }
+  },
+  {
+   "wait": "settled"
+  },
+  {
+   "wait": "idle"
+  }
+ ]
+}

@@ -452,7 +452,10 @@ func TestCrosscheckPartialArguments(t *testing.T) {
 type scenarioSpec struct {
 	Name          string `json:"name"`
 	ContextWindow int    `json:"contextWindow,omitempty"`
-	Documents     []struct {
+	AfterRun      *struct {
+		Hold string `json:"hold,omitempty"`
+	} `json:"afterRun,omitempty"`
+	Documents []struct {
 		Kind    string `json:"kind"`
 		History string `json:"history"`
 		Fork    string `json:"fork"`
@@ -883,6 +886,46 @@ func runScenario(t *testing.T, sc scenarioSpec) json.RawMessage {
 			t.Fatal(err)
 		}
 	}
+	// An AfterRun hook asking for one task per run: it appends a
+	// scenario.after-run entry with its label and completes.
+	var askedMu sync.Mutex
+	var asked []RunSummary
+	if spec := sc.AfterRun; spec != nil {
+		task := TaskDefinition{Kind: "scenario.after-run", Version: 1, Run: func(ctx context.Context, rt *TaskRuntime, task TaskRecord) error {
+			if spec.Hold != "" {
+				if err := gates.hold(ctx, spec.Hold); err != nil {
+					return err
+				}
+			}
+			var input struct {
+				Label string `json:"label"`
+			}
+			if err := json.Unmarshal(task.Input, &input); err != nil {
+				return err
+			}
+			label, err := json.Marshal(input.Label)
+			if err != nil {
+				return err
+			}
+			return rt.Commit(ctx, func(tx *Tx) (TaskTransition, error) {
+				if _, err := tx.Append(task.Conversation, Entry{Kind: "scenario.after-run", Data: label}); err != nil {
+					return TaskTransition{}, err
+				}
+				return TaskTransition{Status: "terminal", Outcome: &Outcome{Status: OutcomeCompleted, Result: label}}, nil
+			})
+		}}
+		if err := registry.Install(Extension{Name: "after-run", Tasks: []TaskDefinition{task}, Hooks: Hooks{
+			AfterRun: func(_ context.Context, run RunSummary, _ *TaskRuntime) ([]RunEndTask, error) {
+				askedMu.Lock()
+				asked = append(asked, run)
+				n := len(asked)
+				askedMu.Unlock()
+				input, err := json.Marshal(map[string]string{"label": fmt.Sprintf("run %d", n)})
+				return []RunEndTask{{Kind: "scenario.after-run", Input: input}}, err
+			}}}); err != nil {
+			t.Fatal(err)
+		}
+	}
 	// Declarative extensions: static sections and hook rules.
 	for _, spec := range sc.Extensions {
 		spec := spec
@@ -1180,7 +1223,7 @@ func runScenario(t *testing.T, sc scenarioSpec) json.RawMessage {
 			}
 		}
 	}
-	transcriptOf := func(c *Conversation) []any {
+	entriesOf := func(c *Conversation) []Entry {
 		if err := c.WaitForIdle(ctx); err != nil {
 			t.Fatal(err)
 		}
@@ -1188,17 +1231,41 @@ func runScenario(t *testing.T, sc scenarioSpec) json.RawMessage {
 		if err != nil {
 			t.Fatal(err)
 		}
+		return entries
+	}
+	// Entries as kinds and model messages, and the data of non-pi entries.
+	transcriptOf := func(c *Conversation) []any {
 		transcript := []any{}
-		for _, e := range entries {
+		for _, e := range entriesOf(c) {
 			messages := []any{}
 			if e.Message != nil {
 				messages = append(messages, scenarioMessage(*e.Message))
 			}
-			transcript = append(transcript, map[string]any{"kind": e.Kind, "messages": messages})
+			entry := map[string]any{"kind": e.Kind, "messages": messages}
+			if !strings.HasPrefix(e.Kind, "pi.") && len(e.Data) > 0 {
+				entry["data"] = e.Data
+			}
+			transcript = append(transcript, entry)
 		}
 		return transcript
 	}
 	transcript := transcriptOf(root)
+	// AfterRun summaries, their entries as root transcript positions.
+	rootEntries := entriesOf(root)
+	position := func(id EntryID) int {
+		for i, e := range rootEntries {
+			if e.ID == id {
+				return i
+			}
+		}
+		return -1
+	}
+	afterRun := []any{}
+	askedMu.Lock()
+	for _, run := range asked {
+		afterRun = append(afterRun, map[string]any{"reason": run.Reason, "first": position(run.First), "answer": position(run.Answer), "last": position(run.Last)})
+	}
+	askedMu.Unlock()
 	// The root's usage ledger: tokens per model and per tool.
 	ledger, err := ReadDocument[UsageState](ctx, h, usageDocument, uint64(root.ID()))
 	if err != nil && !errors.Is(err, ErrNotFound) {
@@ -1260,6 +1327,9 @@ func runScenario(t *testing.T, sc scenarioSpec) json.RawMessage {
 	}
 	if len(lives) > 0 {
 		report["live"] = lives
+	}
+	if sc.AfterRun != nil {
+		report["afterRun"] = afterRun
 	}
 	data, err := json.Marshal(report)
 	if err != nil {

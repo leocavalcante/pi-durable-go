@@ -83,5 +83,8 @@
  "compact-after-tool-rounds",
  "overflow-after-tool-round",
  "abort-during-manual-compaction",
- "reset-during-tool"
+ "reset-during-tool",
+ "after-run-task",
+ "after-run-holds-the-queue",
+ "after-run-terminate"
 ]

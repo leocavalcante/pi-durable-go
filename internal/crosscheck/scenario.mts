@@ -235,6 +235,43 @@ export async function runScenario(
 	});
 	const registry = pd.createRegistry();
 	if (tools.length > 0) registry.install(pd.defineExtension({ name: "scenario", tools }));
+	// An afterRun hook asking for one task per run: it appends a
+	// scenario.after-run entry with its label and completes.
+	const asked: any[] = [];
+	if (scenario.afterRun) {
+		const spec = scenario.afterRun;
+		const AfterTask = pd.defineTask({
+			name: "scenario.after-run",
+			version: 1,
+			initial: () => ({ phase: "run" }),
+			phases: {
+				run: async (task: any, runtime: any, ctx: any) => {
+					if (spec.hold) await hold(spec.hold, runtime.signal);
+					await runtime.commit(async (tx: any) => {
+						await tx.appendEntry(runtime.conversationId, { kind: "scenario.after-run", data: task.input.label });
+						return { status: "terminal", outcome: { status: "completed", result: task.input.label } };
+					}, ctx);
+				},
+			},
+			abort: async (_task: any, runtime: any, ctx: any) => {
+				await runtime.commit(() => ({ status: "terminal", outcome: { status: "aborted" } }), ctx);
+			},
+		});
+		registry.install(
+			pd.defineExtension({
+				name: "after-run",
+				tasks: [AfterTask],
+				hooks: [
+					pd.hook(pd.GenerationTask, {
+						afterRun: (run: any) => {
+							asked.push(run);
+							return { tasks: [pd.runEndTask(AfterTask, { label: `run ${asked.length}` })] };
+						},
+					}),
+				],
+			}),
+		);
+	}
 	// Declarative extensions: static sections and hook rules.
 	for (const ext of scenario.extensions ?? []) {
 		const sections = (ext.sections ?? []).map((s: any) =>
@@ -418,12 +455,19 @@ export async function runScenario(
 	const transcriptOf = async (conversation: any) => {
 		await conversation.waitForIdle(context);
 		const page = await conversation.entries({}, 1000, undefined, context);
-		return [...page.items].reverse().map((entry: any) => ({
-			kind: entry.kind,
-			messages: (entry.model ?? []).map(normalizeMessage),
-		}));
+		return [...page.items].reverse();
 	};
-	const transcript = await transcriptOf(root);
+	// Entries as kinds and model messages, and the data of non-pi entries.
+	const normalizeEntry = (entry: any) => ({
+		kind: entry.kind,
+		messages: (entry.model ?? []).map(normalizeMessage),
+		...(entry.kind.startsWith("pi.") || entry.data === undefined ? {} : { data: entry.data }),
+	});
+	const rootEntries = await transcriptOf(root);
+	const transcript = rootEntries.map(normalizeEntry);
+	// afterRun summaries, their entries as root transcript positions.
+	const position = (id: unknown) => rootEntries.findIndex((entry: any) => entry.id === id);
+	const afterRun = asked.map((run) => ({ reason: run.reason, first: position(run.first), answer: position(run.answer), last: position(run.last) }));
 	// The root's usage ledger: tokens per model and per tool, input, output,
 	// and cache counts together (the faux provider counts the prompt as
 	// cache reads and writes when a session ID is set).
@@ -439,7 +483,7 @@ export async function runScenario(
 		documents.push(values);
 	}
 	const forked = [];
-	for (const fork of forks) forked.push(await transcriptOf(fork));
+	for (const fork of forks) forked.push((await transcriptOf(fork)).map(normalizeEntry));
 	const settled = [];
 	for (const submission of submissions) {
 		if (submission.refused) {
@@ -459,6 +503,7 @@ export async function runScenario(
 		...(forks.length > 0 ? { forks: forked } : {}),
 		...(docs.size > 0 ? { documents } : {}),
 		...(lives.length > 0 ? { live: lives } : {}),
+		...(scenario.afterRun ? { afterRun } : {}),
 		submissions: settled,
 	};
 }

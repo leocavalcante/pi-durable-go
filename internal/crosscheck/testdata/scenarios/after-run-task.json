@@ -1,0 +1,38 @@
+{
+ "name": "after-run-task",
+ "afterRun": {},
+ "model": [
+  {
+   "text": "one"
+  },
+  {
+   "text": "two"
+  }
+ ],
+ "steps": [
+  {
+   "submit": {
+    "type": "input",
+    "content": "first"
+   }
+  },
+  {
+   "wait": "settled"
+  },
+  {
+   "wait": "idle"
+  },
+  {
+   "submit": {
+    "type": "input",
+    "content": "second"
+   }
+  },
+  {
+   "wait": "settled"
+  },
+  {
+   "wait": "idle"
+  }
+ ]
+}
