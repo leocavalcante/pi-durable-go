@@ -70,5 +70,7 @@
  "tool-streamed-output-truncated",
  "tool-streamed-then-returned",
  "tool-streamed-long-line",
- "tool-streamed-head"
+ "tool-streamed-head",
+ "documents-fork-modes",
+ "documents-retired"
 ]

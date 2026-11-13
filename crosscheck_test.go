@@ -452,7 +452,12 @@ func TestCrosscheckPartialArguments(t *testing.T) {
 type scenarioSpec struct {
 	Name          string `json:"name"`
 	ContextWindow int    `json:"contextWindow,omitempty"`
-	Models        []struct {
+	Documents     []struct {
+		Kind    string `json:"kind"`
+		History string `json:"history"`
+		Fork    string `json:"fork"`
+	} `json:"documents,omitempty"`
+	Models []struct {
 		ID            string `json:"id"`
 		ContextWindow int    `json:"contextWindow,omitempty"`
 		Reasoning     bool   `json:"reasoning,omitempty"`
@@ -586,11 +591,16 @@ type scenarioSpec struct {
 		Fork   *struct {
 			At int `json:"at"`
 		} `json:"fork,omitempty"`
-		Use      json.RawMessage `json:"use,omitempty"`
-		Wait     string          `json:"wait,omitempty"`
-		WaitHeld string          `json:"waitHeld,omitempty"`
-		Release  string          `json:"release,omitempty"`
-		Abort    json.RawMessage `json:"abort,omitempty"`
+		Use json.RawMessage `json:"use,omitempty"`
+		Doc *struct {
+			Kind  string          `json:"kind"`
+			Value json.RawMessage `json:"value"`
+		} `json:"doc,omitempty"`
+		RetireDoc string          `json:"retireDoc,omitempty"`
+		Wait      string          `json:"wait,omitempty"`
+		WaitHeld  string          `json:"waitHeld,omitempty"`
+		Release   string          `json:"release,omitempty"`
+		Abort     json.RawMessage `json:"abort,omitempty"`
 	} `json:"steps"`
 }
 
@@ -985,6 +995,13 @@ func runScenario(t *testing.T, sc scenarioSpec) json.RawMessage {
 	var submissions []submitted
 	var forks []*Conversation
 	current := root
+	// Conversation documents, version 1, starting empty.
+	docs := map[string]DocumentDefinition{}
+	var kinds []string
+	for _, d := range sc.Documents {
+		docs[d.Kind] = DocumentDefinition{Kind: d.Kind, Version: 1, Scope: "conversation", History: d.History, Fork: d.Fork}
+		kinds = append(kinds, d.Kind)
+	}
 	for _, step := range sc.Steps {
 		switch {
 		case step.Reopen:
@@ -1013,6 +1030,16 @@ func runScenario(t *testing.T, sc scenarioSpec) json.RawMessage {
 			}
 			forks = append(forks, fork)
 			current = fork
+		case step.Doc != nil:
+			def, value := docs[step.Doc.Kind], step.Doc.Value
+			if err := h.Commit(ctx, func(tx *Tx) error { return tx.PutDocument(def, uint64(current.ID()), value) }); err != nil {
+				t.Fatal(err)
+			}
+		case step.RetireDoc != "":
+			def := docs[step.RetireDoc]
+			if err := h.Commit(ctx, func(tx *Tx) error { return tx.RetireDocument(def, uint64(current.ID())) }); err != nil {
+				t.Fatal(err)
+			}
 		case len(step.Use) > 0:
 			var which any
 			if err := json.Unmarshal(step.Use, &which); err != nil {
@@ -1156,6 +1183,23 @@ func runScenario(t *testing.T, sc scenarioSpec) json.RawMessage {
 		return transcript
 	}
 	transcript := transcriptOf(root)
+	// Each conversation's documents, the root first; null when absent.
+	var documents []any
+	for _, c := range append([]*Conversation{root}, forks...) {
+		values := map[string]any{}
+		for _, kind := range kinds {
+			value, err := ReadDocument[json.RawMessage](ctx, h, docs[kind], uint64(c.ID()))
+			switch {
+			case errors.Is(err, ErrNotFound):
+				values[kind] = nil
+			case err != nil:
+				t.Fatal(err)
+			default:
+				values[kind] = value
+			}
+		}
+		documents = append(documents, values)
+	}
 	var forked []any
 	for _, fork := range forks {
 		forked = append(forked, transcriptOf(fork))
@@ -1181,6 +1225,9 @@ func runScenario(t *testing.T, sc scenarioSpec) json.RawMessage {
 	report := map[string]any{"requests": requests, "summaryRequests": summaryRequests, "transcript": transcript, "submissions": settled}
 	if len(forks) > 0 {
 		report["forks"] = forked
+	}
+	if len(docs) > 0 {
+		report["documents"] = documents
 	}
 	data, err := json.Marshal(report)
 	if err != nil {

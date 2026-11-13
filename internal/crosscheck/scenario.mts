@@ -281,6 +281,14 @@ export async function runScenario(
 
 	const submissions: any[] = [];
 	const handle = (id: unknown) => harness.submission(id, context);
+	// Conversation documents, version 1, starting empty.
+	const docs = new Map<string, any>();
+	for (const d of scenario.documents ?? []) {
+		docs.set(
+			d.kind,
+			pd.defineDoc({ kind: d.kind, version: 1, scope: "conversation", history: d.history, fork: d.fork, initial: () => ({}), checkpointWhen: () => false }),
+		);
+	}
 	const forks: any[] = [];
 	let current = root;
 	for (const step of scenario.steps ?? []) {
@@ -296,6 +304,14 @@ export async function runScenario(
 			const index = step.fork.at < 0 ? items.length + step.fork.at : step.fork.at;
 			current = await current.fork(items[index].id, { ownership: { kind: "ownerless" } }, context);
 			forks.push(current);
+		} else if (step.doc !== undefined) {
+			await current.commit(async (tx: any) => {
+				const draft = await tx.doc(docs.get(step.doc.kind), current.id);
+				for (const key of Object.keys(draft)) delete draft[key];
+				Object.assign(draft, step.doc.value);
+			}, context);
+		} else if (step.retireDoc !== undefined) {
+			await current.commit((tx: any) => tx.retireDoc(docs.get(step.retireDoc), current.id), context);
 		} else if (step.use !== undefined) {
 			current = step.use === "root" ? root : forks[step.use];
 		} else if (step.submit) {
@@ -350,6 +366,13 @@ export async function runScenario(
 		}));
 	};
 	const transcript = await transcriptOf(root);
+	// Each conversation's documents, the root first; null when absent.
+	const documents = [];
+	for (const conversation of [root, ...forks]) {
+		const values: Record<string, unknown> = {};
+		for (const [kind, token] of docs) values[kind] = (await harness.snapshot(token, conversation.id, context)) ?? null;
+		documents.push(values);
+	}
 	const forked = [];
 	for (const fork of forks) forked.push(await transcriptOf(fork));
 	const settled = [];
@@ -363,5 +386,12 @@ export async function runScenario(
 	}
 	await harness.close(context);
 	if (directory !== undefined) rmSync(directory, { recursive: true, force: true });
-	return { requests, summaryRequests, transcript, ...(forks.length > 0 ? { forks: forked } : {}), submissions: settled };
+	return {
+		requests,
+		summaryRequests,
+		transcript,
+		...(forks.length > 0 ? { forks: forked } : {}),
+		...(docs.size > 0 ? { documents } : {}),
+		submissions: settled,
+	};
 }

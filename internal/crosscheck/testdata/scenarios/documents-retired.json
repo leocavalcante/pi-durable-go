@@ -1,0 +1,102 @@
+{
+ "name": "documents-retired",
+ "documents": [
+  {
+   "kind": "asof",
+   "history": "rewindable",
+   "fork": "asOf"
+  },
+  {
+   "kind": "current",
+   "history": "rewindable",
+   "fork": "current"
+  },
+  {
+   "kind": "latest",
+   "history": "latest",
+   "fork": "current"
+  },
+  {
+   "kind": "initial",
+   "history": "rewindable",
+   "fork": "initial"
+  }
+ ],
+ "model": [
+  {
+   "text": "one"
+  },
+  {
+   "text": "two"
+  }
+ ],
+ "steps": [
+  {
+   "submit": {
+    "type": "input",
+    "content": "first"
+   }
+  },
+  {
+   "wait": "settled"
+  },
+  {
+   "doc": {
+    "kind": "asof",
+    "value": {
+     "v": 1
+    }
+   }
+  },
+  {
+   "doc": {
+    "kind": "current",
+    "value": {
+     "v": 1
+    }
+   }
+  },
+  {
+   "doc": {
+    "kind": "latest",
+    "value": {
+     "v": 1
+    }
+   }
+  },
+  {
+   "doc": {
+    "kind": "initial",
+    "value": {
+     "v": 1
+    }
+   }
+  },
+  {
+   "submit": {
+    "type": "input",
+    "content": "second"
+   }
+  },
+  {
+   "wait": "settled"
+  },
+  {
+   "retireDoc": "asof"
+  },
+  {
+   "retireDoc": "current"
+  },
+  {
+   "retireDoc": "latest"
+  },
+  {
+   "retireDoc": "initial"
+  },
+  {
+   "fork": {
+    "at": -1
+   }
+  }
+ ]
+}

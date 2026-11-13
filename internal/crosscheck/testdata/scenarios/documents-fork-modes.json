@@ -1,0 +1,134 @@
+{
+ "name": "documents-fork-modes",
+ "documents": [
+  {
+   "kind": "asof",
+   "history": "rewindable",
+   "fork": "asOf"
+  },
+  {
+   "kind": "current",
+   "history": "rewindable",
+   "fork": "current"
+  },
+  {
+   "kind": "latest",
+   "history": "latest",
+   "fork": "current"
+  },
+  {
+   "kind": "initial",
+   "history": "rewindable",
+   "fork": "initial"
+  }
+ ],
+ "model": [
+  {
+   "text": "one"
+  },
+  {
+   "text": "two"
+  },
+  {
+   "text": "in fork"
+  }
+ ],
+ "steps": [
+  {
+   "submit": {
+    "type": "input",
+    "content": "first"
+   }
+  },
+  {
+   "wait": "settled"
+  },
+  {
+   "doc": {
+    "kind": "asof",
+    "value": {
+     "v": 1
+    }
+   }
+  },
+  {
+   "doc": {
+    "kind": "current",
+    "value": {
+     "v": 1
+    }
+   }
+  },
+  {
+   "doc": {
+    "kind": "latest",
+    "value": {
+     "v": 1
+    }
+   }
+  },
+  {
+   "doc": {
+    "kind": "initial",
+    "value": {
+     "v": 1
+    }
+   }
+  },
+  {
+   "submit": {
+    "type": "input",
+    "content": "second"
+   }
+  },
+  {
+   "wait": "settled"
+  },
+  {
+   "doc": {
+    "kind": "asof",
+    "value": {
+     "v": 2
+    }
+   }
+  },
+  {
+   "doc": {
+    "kind": "current",
+    "value": {
+     "v": 2
+    }
+   }
+  },
+  {
+   "doc": {
+    "kind": "latest",
+    "value": {
+     "v": 2
+    }
+   }
+  },
+  {
+   "doc": {
+    "kind": "initial",
+    "value": {
+     "v": 2
+    }
+   }
+  },
+  {
+   "fork": {
+    "at": -1
+   }
+  },
+  {
+   "submit": {
+    "type": "input",
+    "content": "fork input"
+   }
+  },
+  {
+   "wait": "settled"
+  }
+ ]
+}
