@@ -1,0 +1,38 @@
+{
+ "name": "hook-rewrites-error-to-retryable",
+ "settings": {
+  "retry": {
+   "enabled": true,
+   "maxRetries": 2,
+   "baseDelayMs": 1,
+   "maxAgentDelayMs": 5
+  }
+ },
+ "extensions": [
+  {
+   "name": "rewrite",
+   "afterResponse": {
+    "errorMessage": "503 Service Unavailable"
+   }
+  }
+ ],
+ "model": [
+  {
+   "error": "400 Bad Request: invalid"
+  },
+  {
+   "text": "recovered"
+  }
+ ],
+ "steps": [
+  {
+   "submit": {
+    "type": "input",
+    "content": "go"
+   }
+  },
+  {
+   "wait": "settled"
+  }
+ ]
+}

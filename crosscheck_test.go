@@ -489,6 +489,7 @@ type scenarioSpec struct {
 			Handoff     string           `json:"handoff,omitempty"`
 			AddTools    []string         `json:"addTools,omitempty"`
 			Diagnostics []ToolDiagnostic `json:"diagnostics,omitempty"`
+			Images      []ImageContent   `json:"images,omitempty"`
 			// Nested calls in order; the result lists theirs.
 			Nested []struct {
 				Tool string          `json:"tool"`
@@ -535,13 +536,24 @@ type scenarioSpec struct {
 		OnYield []struct {
 			Continue *string `json:"continue,omitempty"`
 		} `json:"onYield,omitempty"`
+		BeforeRequest *struct {
+			AppendUser *string `json:"appendUser,omitempty"`
+		} `json:"beforeRequest,omitempty"`
+		AfterResponse *struct {
+			ErrorMessage *string `json:"errorMessage,omitempty"`
+		} `json:"afterResponse,omitempty"`
+		BeforeCompact *struct {
+			Decline bool    `json:"decline,omitempty"`
+			Summary *string `json:"summary,omitempty"`
+		} `json:"beforeCompact,omitempty"`
 	} `json:"extensions,omitempty"`
 	Steps []struct {
 		Submit *struct {
-			Type     string `json:"type"`
-			Content  string `json:"content,omitempty"`
-			WhenBusy string `json:"whenBusy,omitempty"`
-			WhenIdle string `json:"whenIdle,omitempty"`
+			Type string `json:"type"`
+			// A string, or pi-ai content blocks (text and images).
+			Content  json.RawMessage `json:"content,omitempty"`
+			WhenBusy string          `json:"whenBusy,omitempty"`
+			WhenIdle string          `json:"whenIdle,omitempty"`
 			Entry    *struct {
 				Kind string          `json:"kind"`
 				Data json.RawMessage `json:"data,omitempty"`
@@ -625,7 +637,8 @@ func scenarioMessage(m Message) map[string]any {
 		}
 		return out
 	case "tool":
-		return map[string]any{"role": "tool", "id": m.ToolCallID, "name": m.ToolName, "text": text(), "isError": m.IsError}
+		// The text, and the images apart (see the upstream normalizer).
+		return map[string]any{"role": "tool", "id": m.ToolCallID, "name": m.ToolName, "text": m.Content, "images": len(m.Images), "isError": m.IsError}
 	case "system":
 		sections := map[string]any{}
 		for _, section := range m.Sections {
@@ -798,7 +811,7 @@ func runScenario(t *testing.T, sc scenarioSpec) json.RawMessage {
 					}
 					return ToolResult{Content: jsStringifyRaw(encoded)}, nil // JSON.stringify
 				}
-				out := ToolResult{IsError: result.IsError, Diagnostics: result.Diagnostics, Terminate: result.Terminate, Handoff: result.Handoff, AddTools: result.AddTools}
+				out := ToolResult{IsError: result.IsError, Diagnostics: result.Diagnostics, Terminate: result.Terminate, Handoff: result.Handoff, AddTools: result.AddTools, Images: result.Images}
 				if result.Text != nil {
 					out.Content = *result.Text
 				}
@@ -849,6 +862,31 @@ func runScenario(t *testing.T, sc scenarioSpec) json.RawMessage {
 					}
 				}
 				return nil
+			}
+		}
+		if rule := spec.BeforeRequest; rule != nil && rule.AppendUser != nil {
+			extension.Hooks.BeforeRequest = func(_ context.Context, request *ModelRequest, _ *TaskRuntime) error {
+				request.Messages = append(request.Messages, Message{Role: "user", Content: *rule.AppendUser})
+				return nil
+			}
+		}
+		if rule := spec.AfterResponse; rule != nil && rule.ErrorMessage != nil {
+			extension.Hooks.AfterResponse = func(_ context.Context, response *ModelResponse, _ *TaskRuntime) error {
+				if response.StopReason == "error" {
+					response.ErrorMessage = *rule.ErrorMessage
+				}
+				return nil
+			}
+		}
+		if rule := spec.BeforeCompact; rule != nil {
+			extension.Hooks.BeforeCompact = func(context.Context, CompactionRequest, *TaskRuntime) (CompactionDecision, error) {
+				if rule.Decline {
+					return CompactionDecision{Decline: true}, nil
+				}
+				if rule.Summary != nil {
+					return CompactionDecision{Summary: *rule.Summary}, nil
+				}
+				return CompactionDecision{}, nil
 			}
 		}
 		if len(spec.OnYield) > 0 {
@@ -916,7 +954,29 @@ func runScenario(t *testing.T, sc scenarioSpec) json.RawMessage {
 			}
 			open()
 		case step.Submit != nil:
-			request := SubmissionRequest{Type: step.Submit.Type, Content: step.Submit.Content, WhenBusy: step.Submit.WhenBusy, WhenIdle: step.Submit.WhenIdle}
+			request := SubmissionRequest{Type: step.Submit.Type, WhenBusy: step.Submit.WhenBusy, WhenIdle: step.Submit.WhenIdle}
+			if raw := step.Submit.Content; len(raw) > 0 {
+				var blocks []struct {
+					Type     string `json:"type"`
+					Text     string `json:"text"`
+					Data     string `json:"data"`
+					MimeType string `json:"mimeType"`
+				}
+				if err := json.Unmarshal(raw, &request.Content); err != nil {
+					if err := json.Unmarshal(raw, &blocks); err != nil {
+						t.Fatal(err)
+					}
+				}
+				// Blocks: the text, and the images placed at their offsets.
+				for _, block := range blocks {
+					if block.Type == "image" {
+						request.Images = append(request.Images, ImageContent{Data: block.Data, MimeType: block.MimeType})
+						request.ImageOffsets = append(request.ImageOffsets, len(request.Content))
+					} else {
+						request.Content += block.Text
+					}
+				}
+			}
 			if e := step.Submit.Entry; e != nil {
 				request.Entry = &Entry{Kind: e.Kind, Data: e.Data}
 			}

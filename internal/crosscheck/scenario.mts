@@ -37,7 +37,8 @@ export function normalizeMessage(message: any): Record<string, unknown> {
 			// included, as one string.
 			const blocks: any[] = typeof message.content === "string" ? [{ type: "text", text: message.content }] : (message.content ?? []);
 			const joined = blocks.filter((block) => block.type === "text").map((block) => block.text).join("\n");
-			return { role: "tool", id: message.toolCallId, name: message.toolName, text: joined, isError: message.isError === true };
+			const images = blocks.filter((block) => block.type === "image").length;
+			return { role: "tool", id: message.toolCallId, name: message.toolName, text: joined, images, isError: message.isError === true };
 		}
 		case "system":
 			return {
@@ -160,8 +161,9 @@ export async function runScenario(
 					...(result.handoff !== undefined ? { handoff: result.handoff } : {}),
 					...(result.addTools !== undefined ? { addTools: result.addTools } : {}),
 				};
+				const images = (result.images ?? []).map((image: any) => ({ type: "image", data: image.data, mimeType: image.mimeType }));
 				return {
-					output: result.text === undefined ? [] : [{ type: "text", text: result.text }],
+					output: [...(result.text === undefined ? [] : [{ type: "text", text: result.text }]), ...images],
 					...(result.isError ? { isError: true } : {}),
 					...(result.diagnostics !== undefined ? { diagnostics: result.diagnostics } : {}),
 					...(Object.keys(control).length > 0 ? { control } : {}),
@@ -202,6 +204,37 @@ export async function runScenario(
 								},
 							}
 						: {}),
+				}),
+			);
+		}
+		if (ext.beforeRequest || ext.afterResponse) {
+			hooks.push(
+				pd.hook(pd.GenerationTask, {
+					...(ext.beforeRequest
+						? {
+								beforeRequest: (request: any) =>
+									ext.beforeRequest.appendUser === undefined
+										? undefined
+										: { messages: [...request.messages, { role: "user", content: ext.beforeRequest.appendUser, timestamp: 0 }] },
+							}
+						: {}),
+					...(ext.afterResponse
+						? {
+								afterResponse: (message: any) => {
+									if (message.stopReason === "error" && ext.afterResponse.errorMessage !== undefined) {
+										message.errorMessage = ext.afterResponse.errorMessage;
+									}
+								},
+							}
+						: {}),
+				}),
+			);
+		}
+		if (ext.beforeCompact) {
+			hooks.push(
+				pd.hook(pd.CompactionTask, {
+					beforeCompact: () =>
+						ext.beforeCompact.decline ? { decline: true } : ext.beforeCompact.summary !== undefined ? { summary: ext.beforeCompact.summary } : undefined,
 				}),
 			);
 		}

@@ -1,0 +1,67 @@
+{
+ "name": "hook-compaction-summary",
+ "settings": {
+  "compaction": {
+   "keepRecentTokens": 1
+  }
+ },
+ "extensions": [
+  {
+   "name": "summarizer",
+   "beforeCompact": {
+    "summary": "A HOOK SUMMARY"
+   }
+  }
+ ],
+ "model": [
+  {
+   "text": "answer one"
+  },
+  {
+   "text": "answer two"
+  },
+  {
+   "text": "answer three"
+  }
+ ],
+ "summaries": [
+  {
+   "text": "THE SUMMARY"
+  }
+ ],
+ "steps": [
+  {
+   "submit": {
+    "type": "input",
+    "content": "first"
+   }
+  },
+  {
+   "wait": "settled"
+  },
+  {
+   "submit": {
+    "type": "input",
+    "content": "second"
+   }
+  },
+  {
+   "wait": "settled"
+  },
+  {
+   "compact": "keep it short"
+  },
+  {
+   "wait": "idle"
+  },
+  {
+   "submit": {
+    "type": "input",
+    "content": "third"
+   }
+  },
+  {
+   "wait": "settled"
+  }
+ ]
+}

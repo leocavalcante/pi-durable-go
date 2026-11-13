@@ -147,13 +147,14 @@ This table highlights compatibility changes since the previous runtime reference
 
 ## Cross-checks
 
-`make crosscheck` checks behavior against upstream's own 1.5.2 code, run from its TypeScript sources: tool argument coercion and validation, the coding tools, tool search, context ordering, compaction, prompt planning, error classification, and `model.OpenAI`'s requests and responses. It also plays 56 conversation scenarios through upstream's Harness and this one. They cover:
+`make crosscheck` checks behavior against upstream's own 1.5.2 code, run from its TypeScript sources: tool argument coercion and validation, the coding tools, tool search, context ordering, compaction, prompt planning, error classification, and `model.OpenAI`'s requests and responses. It also plays 63 conversation scenarios through upstream's Harness and this one. They cover:
 - tool rounds, parallel and sequential tools, failing and unknown tools, invalid arguments, and a model failure after tool rounds;
 - model errors and retries, turn limits, length stops, and failed-run policies;
 - follow-ups, steering, queue modes, refusals, and aborts;
 - manual, repeated, threshold, background, and overflow compaction;
 - resets, input and write entries, instructions, thinking, and continues;
-- prompt sections, agent changes (models, thinking levels, an unavailable model), and `beforeTool`, `afterTool`, and `onYield` hooks;
+- prompt sections, agent changes (models, thinking levels, an unavailable model), and `beforeRequest`, `afterResponse` (errors rewritten either way), `beforeTool`, `afterTool`, `onYield`, and `beforeCompact` (a summary, a decline) hooks;
+- images in user input and tool results;
 - tool control (terminating rounds, handoffs, added tools), diagnostics, and nested calls and their failures;
 - aborts and reopening during retry backoff, aborts with queued follow-ups, and steering and follow-ups during model requests and tool calls;
 - reopening while idle, during a model request, and during unsafe and replay-safe tool calls.

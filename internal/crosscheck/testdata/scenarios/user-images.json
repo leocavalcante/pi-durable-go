@@ -1,0 +1,38 @@
+{
+ "name": "user-images",
+ "model": [
+  {
+   "text": "I see it"
+  }
+ ],
+ "steps": [
+  {
+   "submit": {
+    "type": "input",
+    "content": [
+     {
+      "type": "text",
+      "text": "look at "
+     },
+     {
+      "type": "image",
+      "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==",
+      "mimeType": "image/png"
+     },
+     {
+      "type": "text",
+      "text": " and this"
+     },
+     {
+      "type": "image",
+      "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==",
+      "mimeType": "image/png"
+     }
+    ]
+   }
+  },
+  {
+   "wait": "settled"
+  }
+ ]
+}

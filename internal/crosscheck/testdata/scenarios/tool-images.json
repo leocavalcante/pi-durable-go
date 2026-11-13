@@ -1,0 +1,47 @@
+{
+ "name": "tool-images",
+ "tools": [
+  {
+   "name": "shot",
+   "parameters": {
+    "type": "object"
+   },
+   "results": [
+    {
+     "text": "a screenshot",
+     "images": [
+      {
+       "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==",
+       "mimeType": "image/png"
+      }
+     ]
+    }
+   ]
+  }
+ ],
+ "model": [
+  {
+   "calls": [
+    {
+     "id": "c1",
+     "name": "shot",
+     "args": {}
+    }
+   ]
+  },
+  {
+   "text": "nice picture"
+  }
+ ],
+ "steps": [
+  {
+   "submit": {
+    "type": "input",
+    "content": "take one"
+   }
+  },
+  {
+   "wait": "settled"
+  }
+ ]
+}

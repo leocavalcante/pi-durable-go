@@ -1,0 +1,38 @@
+{
+ "name": "hook-rewrites-error-to-final",
+ "settings": {
+  "retry": {
+   "enabled": true,
+   "maxRetries": 2,
+   "baseDelayMs": 1,
+   "maxAgentDelayMs": 5
+  }
+ },
+ "extensions": [
+  {
+   "name": "rewrite",
+   "afterResponse": {
+    "errorMessage": "the input was refused"
+   }
+  }
+ ],
+ "model": [
+  {
+   "error": "503 Service Unavailable"
+  },
+  {
+   "text": "never"
+  }
+ ],
+ "steps": [
+  {
+   "submit": {
+    "type": "input",
+    "content": "go"
+   }
+  },
+  {
+   "wait": "settled"
+  }
+ ]
+}

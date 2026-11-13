@@ -38,7 +38,7 @@ For another upstream release, set `PI_DURABLE_UPSTREAM_TAG` with Pi of that vers
 | `model.OpenAI` reasoning | `reasoning_effort` and `clampThinkingLevel` | Ported to equal (24 combinations) |
 | `model.OpenAI` responses | SSE parsing from a local server: usage, stop reasons | Ported to equal; provider error text stays sanitized by design |
 | Tool runtime behavior | `tool.ts`: throws, retained output, structured output contract, nested keys | Ported |
-| Whole conversations | Upstream's `Harness` with pi-ai's faux provider, against this Harness with a scripted model: 56 scenarios (`internal/crosscheck/testdata/scenarios`) | Equal: model requests, transcripts, and settlements. They found three differences, all ported: upstream keeps the agent in a `pi.agent` document rather than transcript entries, a compaction entry carries its summary as a user message, and a nested call's value depends on whether the tool ran or the Harness wrote its result |
+| Whole conversations | Upstream's `Harness` with pi-ai's faux provider, against this Harness with a scripted model: 63 scenarios (`internal/crosscheck/testdata/scenarios`) | Equal: model requests, transcripts, and settlements. They found three differences, all ported: upstream keeps the agent in a `pi.agent` document rather than transcript entries, a compaction entry carries its summary as a user message, and a nested call's value depends on whether the tool ran or the Harness wrote its result |
 
 ## Scenarios
 
@@ -46,7 +46,7 @@ A scenario (`internal/crosscheck/testdata/scenarios/*.json`) is a script that bo
 - **model:** scripted answers (text, thinking, tool calls, stop reasons, errors);
 - **tools:** scripted results, or each call's arguments echoed back;
 - **steps:** submissions, waits, holds and releases of a model answer or a tool call, aborts, compactions, resets, agent changes, and reopening the Harness over the same storage (JSONL upstream, memory here);
-- **extensions:** declarative static sections and hook rules (`beforeTool` blocks or rewrites, `afterTool` replacements, `onYield` continues).
+- **extensions:** declarative static sections and hook rules (`beforeRequest` appended messages, `afterResponse` error rewrites, `beforeTool` blocks or rewrites, `afterTool` replacements, `onYield` continues, `beforeCompact` summaries or declines).
 
 `internal/crosscheck/scenario.mts` plays it on upstream's Harness with pi-ai's faux provider. `TestCrosscheckScenarios` plays it on this one with a scripted model. Both report each model request's model, thinking level, messages, and offered tools, the transcript, and each submission's settlement in one normalized form. Scenarios may register more faux models; the scripted model serves only those (`ModelLookup`). The scripted model reports the usage pi-ai's faux provider estimates (`fauxUsage`), which context estimates prefer over character counts. Summarization requests take their answers from a separate `summaries` queue and are reported apart, so they can run beside the conversation's own requests.
 
@@ -56,7 +56,7 @@ Some outcomes depend on timing in either runtime, and the scenarios avoid relyin
 
 Two representations differ and are compared as an adapter sends them:
 - Upstream's requests carry tools as system-message changes, so its offered tools are pi-ai's `getCurrentTools` fold of them; this port's are `ModelRequest.Tools`.
-- A tool result's text blocks are joined by newlines, as pi-ai's OpenAI completions adapter joins them, since this port keeps one text per message.
+- A tool result's text blocks are joined by newlines, as pi-ai's OpenAI completions adapter joins them, since this port keeps one text per message; its images are counted apart.
 
 To check another flow, add a scenario file and list it in `index.json`.
 

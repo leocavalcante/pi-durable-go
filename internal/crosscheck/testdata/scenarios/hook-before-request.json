@@ -1,0 +1,39 @@
+{
+ "name": "hook-before-request",
+ "extensions": [
+  {
+   "name": "inject",
+   "beforeRequest": {
+    "appendUser": "Remember the rules."
+   }
+  }
+ ],
+ "model": [
+  {
+   "text": "noted"
+  },
+  {
+   "text": "again"
+  }
+ ],
+ "steps": [
+  {
+   "submit": {
+    "type": "input",
+    "content": "go"
+   }
+  },
+  {
+   "wait": "settled"
+  },
+  {
+   "submit": {
+    "type": "input",
+    "content": "more"
+   }
+  },
+  {
+   "wait": "settled"
+  }
+ ]
+}

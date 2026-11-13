@@ -54,5 +54,12 @@
  "nested-call-failures",
  "change-model-and-thinking",
  "unavailable-model",
- "thinking-without-reasoning"
+ "thinking-without-reasoning",
+ "hook-before-request",
+ "hook-rewrites-error-to-retryable",
+ "hook-rewrites-error-to-final",
+ "hook-compaction-summary",
+ "hook-compaction-decline",
+ "user-images",
+ "tool-images"
 ]
