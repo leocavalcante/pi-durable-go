@@ -48,15 +48,17 @@ A scenario (`internal/crosscheck/testdata/scenarios/*.json`) is a script that bo
 - **steps:** submissions, waits, holds and releases of a model answer or a tool call, aborts, compactions, resets, agent changes, and reopening the Harness over the same storage (JSONL upstream, memory here);
 - **extensions:** declarative static sections and hook rules (`beforeTool` blocks or rewrites, `afterTool` replacements, `onYield` continues).
 
-`internal/crosscheck/scenario.mts` plays it on upstream's Harness with pi-ai's faux provider. `TestCrosscheckScenarios` plays it on this one with a scripted model. Both report the messages of each model request, the transcript, and each submission's settlement in one normalized form. The scripted model reports the usage pi-ai's faux provider estimates (`fauxUsage`), which context estimates prefer over character counts. Summarization requests take their answers from a separate `summaries` queue and are reported apart, so they can run beside the conversation's own requests.
+`internal/crosscheck/scenario.mts` plays it on upstream's Harness with pi-ai's faux provider. `TestCrosscheckScenarios` plays it on this one with a scripted model. Both report each model request's messages and offered tools, the transcript, and each submission's settlement in one normalized form. The scripted model reports the usage pi-ai's faux provider estimates (`fauxUsage`), which context estimates prefer over character counts. Summarization requests take their answers from a separate `summaries` queue and are reported apart, so they can run beside the conversation's own requests.
 
 Some outcomes depend on timing in either runtime, and the scenarios avoid relying on them:
 - Parallel tool calls append their results as they finish, so the comparison puts each round's results in call order, as the model sees them.
+- A background compaction's summary is placed whenever it finishes. Scenarios hold its answer, and `wait: compactions` waits until none is listed.
 
 Two representations differ and are compared as an adapter sends them:
 - Upstream's requests carry tools as system-message changes, so its offered tools are pi-ai's `getCurrentTools` fold of them; this port's are `ModelRequest.Tools`.
 - A tool result's text blocks are joined by newlines, as pi-ai's OpenAI completions adapter joins them, since this port keeps one text per message.
-- A background compaction's summary is placed whenever it finishes. Scenarios hold its answer, and `wait: compactions` waits until none is listed. To check another flow, add a scenario file and list it in `index.json`.
+
+To check another flow, add a scenario file and list it in `index.json`.
 
 ## Known remaining differences
 
