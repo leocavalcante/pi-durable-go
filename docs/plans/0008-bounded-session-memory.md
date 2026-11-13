@@ -62,4 +62,5 @@ Each milestone keeps `make check` green and is pushed on its own.
   - A conversation created by an unpublished commit has an absent pre-image.
   - Unloading a conversation keeps its observed documents.
   - Close stops the held-deadline and expiry timers.
-  - Not changed: the concern that a queued held commit's value is stored without a pre-image. `holdable` requires the document in the head State, and eviction skips held keys, so readers find it in memory.
+  - The concern that a held value is stored without a pre-image first looked unreachable: `holdable` requires the document in the head State, and eviction skipped held keys. Since held documents travel with the commits that read them, a commit can take one out of the held set before it is stored. Eviction at an earlier commit's publication could then drop the document, and reads found the older stored value after the newer one was shown. A test reproduced this.
+  - Fix: eviction at a publication now keeps every document whose newest value is not published: held ones, and those the later commits of the batch and the queued commits change (`unpublishedDocumentsLocked`).

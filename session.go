@@ -559,7 +559,10 @@ func (s *Session) writeLoop() {
 				s.cold.forgetDocuments(item.delta)
 				s.cold.forgetConversations(item.delta)
 				s.cold.overlayFrom(laterItems(batch, item))
-				_ = s.cold.keepEntries(item.state, s.laterStates(batch, item), item.delta, s.now(), retention, documentRetention, s.held)
+				// Documents whose newest value is not published yet stay:
+				// evicted, reads would find an older or an unpublished value
+				// in storage.
+				_ = s.cold.keepEntries(item.state, s.laterStates(batch, item), item.delta, s.now(), retention, documentRetention, s.unpublishedDocumentsLocked(laterItems(batch, item)))
 				s.cold.evictConversations(item.state)
 			}
 			s.state = item.state
@@ -847,6 +850,28 @@ func (s *Session) recordCommitted(storeCaughtUp ...bool) {
 			panic(fmt.Sprintf("durable: storage diverged from the committed state: %s", firstDifference(data, held)))
 		}
 	}
+}
+
+// unpublishedDocumentsLocked are the documents eviction must keep while a
+// commit publishes: those held, and those the later commits of its batch
+// (stored, not published) and the queued ones change, held documents they
+// took included.
+func (s *Session) unpublishedDocumentsLocked(later []*pendingCommit) map[string]time.Time {
+	keep := make(map[string]time.Time, len(s.held))
+	for key, deadline := range s.held {
+		keep[key] = deadline
+	}
+	for _, items := range [][]*pendingCommit{later, s.pending} {
+		for _, item := range items {
+			if item.delta == nil {
+				continue
+			}
+			for key := range item.delta.Documents {
+				keep[key] = time.Time{}
+			}
+		}
+	}
+	return keep
 }
 
 // unstoredDocuments are the documents published but not stored yet: held,

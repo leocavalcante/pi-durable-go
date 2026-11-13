@@ -760,3 +760,110 @@ func TestAnUnpublishedConversationIsAbsent(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// gateStorage holds chosen commits before they are stored.
+type gateStorage struct {
+	*MemoryStorage
+	mu      sync.Mutex
+	gates   []chan struct{}
+	entered chan struct{}
+}
+
+func (s *gateStorage) CommitDelta(ctx context.Context, expected uint64, delta *StateDelta) error {
+	s.mu.Lock()
+	var gate chan struct{}
+	if len(s.gates) > 0 {
+		gate, s.gates = s.gates[0], s.gates[1:]
+	}
+	s.mu.Unlock()
+	if gate != nil {
+		s.entered <- struct{}{}
+		<-gate
+	}
+	return s.MemoryStorage.CommitDelta(ctx, expected, delta)
+}
+
+func (s *gateStorage) CommitDeltas(ctx context.Context, expected uint64, deltas []*StateDelta) (int, error) {
+	return commitEach(ctx, s, expected, deltas)
+}
+
+// A held change a commit took with it is not stored until that commit is:
+// meanwhile no eviction may drop the document, or reads would find the older
+// stored value after the newer one was shown.
+func TestAHeldChangeIsShownUntilItIsStored(t *testing.T) {
+	ctx := context.Background()
+	clock := newTestClock()
+	timers := &fakeTimers{}
+	store := &gateStorage{MemoryStorage: NewMemoryStorage(), entered: make(chan struct{}, 4)}
+	h, err := Open(ctx, store, HarnessOptions{Now: clock.Now, SetTimer: timers.SetTimer, Settings: Settings{DocumentRetentionMs: ptr(1000.0)}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer h.Close(ctx)
+	var cid ConversationID
+	if err := h.Commit(ctx, func(tx *Tx) error {
+		created, err := tx.CreateConversation(ConversationOptions{})
+		cid = created
+		if err != nil {
+			return err
+		}
+		return setProgress(cid, 0)(tx)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.CommitWith(ctx, deferredWithin(math.Inf(1)), setProgress(cid, 1)); err != nil {
+		t.Fatal(err)
+	}
+	clock.advance(2 * time.Second) // idle past the document retention
+	first, second := make(chan struct{}), make(chan struct{})
+	var once1, once2 sync.Once
+	release1 := func() { once1.Do(func() { close(first) }) }
+	release2 := func() { once2.Do(func() { close(second) }) }
+	defer release2()
+	defer release1()
+	store.mu.Lock()
+	store.gates = []chan struct{}{first, second}
+	store.mu.Unlock()
+	unrelated := make(chan error, 1)
+	go func() { unrelated <- h.Commit(ctx, touchStorage) }()
+	<-store.entered
+	// This commit reads the held document, so it takes it with it.
+	reading := make(chan error, 1)
+	go func() {
+		reading <- h.Commit(ctx, func(tx *Tx) error {
+			if _, err := tx.Document(progressDocument, uint64(cid)); err != nil {
+				return err
+			}
+			return touchStorage(tx)
+		})
+	}()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		h.session.mu.Lock()
+		taken := len(h.session.held) == 0
+		h.session.mu.Unlock()
+		if taken {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the reading commit was not admitted")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	release1()
+	if err := <-unrelated; err != nil {
+		t.Fatal(err)
+	}
+	<-store.entered // the reading commit waits before it is stored
+	type doc struct{ N int }
+	if got, err := ReadDocument[doc](ctx, h, progressDocument, uint64(cid)); err != nil || got.N != 1 {
+		t.Fatalf("read %+v error=%v, after 1 was shown", got, err)
+	}
+	release2()
+	if err := <-reading; err != nil {
+		t.Fatal(err)
+	}
+	if got := storedProgress(t, store.MemoryStorage, cid); got != `{"n":1}` {
+		t.Fatalf("stored %s", got)
+	}
+}
