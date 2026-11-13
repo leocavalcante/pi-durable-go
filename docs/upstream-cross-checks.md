@@ -25,7 +25,7 @@ For another upstream release, set `PI_DURABLE_UPSTREAM_TAG` with Pi of that vers
 | --- | --- | --- |
 | Tool argument coercion and validation | pi-schema `parse()` with `coerce: true`, pi-ai `validateToolArguments` | Ported; 112 cases equal, including error wording |
 | Edit tool | `edit-diff.ts`: fuzzy normalization, edits, diff, patch, errors | Equal (13 cases) |
-| Read tool | `read.ts` over a Node environment: 23 files and ranges | Equal except fractional continuation notes |
+| Read tool | `read.ts` over a Node environment: 37 files and ranges, fractional and negative numbers included | Ported to equal: lines taken as `Array.prototype.slice` takes them and notes printed with JavaScript's numbers |
 | Coding tool specs | `createReadTool` and the other coding tools' schemas, output schemas, limits | Ported to equal |
 | `tool_search` | `rankDocuments` | Equal (12 queries) |
 | Context ordering | `orderToolResults` | Equal (6 sequences) |
@@ -64,7 +64,6 @@ To check another flow, add a scenario file and list it in `index.json`.
 ## Known remaining differences
 
 - Partial tool arguments: upstream's streaming parser copies its open containers for each snapshot within a work budget, so its preview of a very large open container (thousands of elements) can lag behind the text; every reading here is fresh.
-- `read`: with fractional `offset` or `limit`, upstream's continuation note prints fractions. A negative `limit` selects nothing in Go, where upstream's slice counts it from the end.
 - `model.OpenAI` sanitizes provider error text that pi-ai passes through, and has no provider-specific thinking formats (DeepSeek, OpenRouter, Z.ai, Qwen, Together) or model catalog.
 - Schema coercion keeps no key order for schema objects. Pattern properties apply in sorted order, and RE2 replaces JavaScript regular expressions.
 - A schema with a recursive union whose branches all recurse, for example an `anyOf` that includes a reference to itself, is exponential to check against deep arguments. pi-schema fails such a call with a stack overflow after about 12 seconds at depth 10, and Go needs about 3 seconds at depth 10 and a minute at depth 15. Coercion has a work budget (`maxCoercionSteps`), but the JSON Schema library's own check is not bounded.

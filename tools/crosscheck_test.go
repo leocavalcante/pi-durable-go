@@ -5,6 +5,7 @@ package tools
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -79,6 +80,12 @@ func TestCrosscheckRead(t *testing.T) {
 		{"many.txt", `{"offset":10,"limit":5}`}, {"many.txt", `{"limit":3}`}, {"wide.txt", `{}`}, {"wide.txt", `{"offset":2}`},
 		{"bytes.txt", `{}`}, {"crlf.txt", `{}`}, {"bom.txt", `{}`}, {"utf8.txt", `{}`}, {"utf8.txt", `{"offset":300,"limit":2}`},
 		{"blank.txt", `{}`}, {"three.txt", `{"limit":0}`}, {"three.txt", `{"offset":0}`}, {"three.txt", `{"offset":-2}`},
+		// Fractions and negative ends, as Array.prototype.slice reads them.
+		{"many.txt", `{"offset":2.5,"limit":3.5}`}, {"many.txt", `{"offset":10,"limit":2.25}`}, {"many.txt", `{"limit":-2}`},
+		{"many.txt", `{"offset":3,"limit":-2490}`}, {"many.txt", `{"offset":3,"limit":-2499}`}, {"three.txt", `{"limit":-1}`},
+		{"three.txt", `{"offset":1.5}`}, {"three.txt", `{"offset":3.9}`}, {"three.txt", `{"offset":0.5,"limit":1}`},
+		{"many.txt", `{"offset":1e21}`}, {"many.txt", `{"offset":2400.75,"limit":50}`}, {"wide.txt", `{"offset":1.5}`},
+		{"bytes.txt", `{"offset":0.25}`}, {"many.txt", `{"limit":1.5}`}, {"three.txt", `{"offset":-0.5,"limit":-1.5}`},
 	}
 	input := map[string]any{"dir": dir}
 	var list [][2]any
@@ -98,12 +105,19 @@ func TestCrosscheckRead(t *testing.T) {
 			t.Fatal(err)
 		}
 		a.Path = c.path
-		f, err := os.Open(filepath.Join(dir, c.path))
+		file := filepath.Join(dir, c.path)
+		f, err := os.Open(file)
 		if err != nil {
 			t.Fatal(err)
 		}
-		start, offset, limit := readRange(a)
-		result, err := readText(f, c.path, start, offset, limit)
+		reopen := func() (io.Reader, func(), error) {
+			again, err := os.Open(file)
+			if err != nil {
+				return nil, nil, err
+			}
+			return again, func() { _ = again.Close() }, nil
+		}
+		result, err := readText(f, reopen, c.path, a.Offset, a.Limit)
 		f.Close()
 		if want[i].Error != "" || err != nil {
 			if err == nil || err.Error() != want[i].Error {
