@@ -567,7 +567,11 @@ type scenarioSpec struct {
 			Model         *string `json:"model,omitempty"`
 			ThinkingLevel *string `json:"thinkingLevel,omitempty"`
 		} `json:"configure,omitempty"`
-		Reopen   bool            `json:"reopen,omitempty"`
+		Reopen bool `json:"reopen,omitempty"`
+		Fork   *struct {
+			At int `json:"at"`
+		} `json:"fork,omitempty"`
+		Use      json.RawMessage `json:"use,omitempty"`
 		Wait     string          `json:"wait,omitempty"`
 		WaitHeld string          `json:"waitHeld,omitempty"`
 		Release  string          `json:"release,omitempty"`
@@ -946,13 +950,46 @@ func runScenario(t *testing.T, sc scenarioSpec) json.RawMessage {
 		refused    string
 	}
 	var submissions []submitted
+	var forks []*Conversation
+	current := root
 	for _, step := range sc.Steps {
 		switch {
 		case step.Reopen:
+			if len(forks) > 0 {
+				t.Fatal("reopening with forks is not supported")
+			}
 			if err := h.Close(ctx); err != nil {
 				t.Fatal(err)
 			}
 			open()
+			current = root
+		case step.Fork != nil:
+			// At an entry of the current conversation, by index (negative:
+			// from the end); the fork becomes current.
+			entries, err := current.Entries(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			index := step.Fork.At
+			if index < 0 {
+				index += len(entries)
+			}
+			fork, err := current.Fork(ctx, entries[index].ID, ConversationOptions{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			forks = append(forks, fork)
+			current = fork
+		case len(step.Use) > 0:
+			var which any
+			if err := json.Unmarshal(step.Use, &which); err != nil {
+				t.Fatal(err)
+			}
+			if n, ok := which.(float64); ok {
+				current = forks[int(n)]
+			} else {
+				current = root
+			}
 		case step.Submit != nil:
 			request := SubmissionRequest{Type: step.Submit.Type, WhenBusy: step.Submit.WhenBusy, WhenIdle: step.Submit.WhenIdle}
 			if raw := step.Submit.Content; len(raw) > 0 {
@@ -980,7 +1017,7 @@ func runScenario(t *testing.T, sc scenarioSpec) json.RawMessage {
 			if e := step.Submit.Entry; e != nil {
 				request.Entry = &Entry{Kind: e.Kind, Data: e.Data}
 			}
-			submission, err := root.Submit(ctx, request)
+			submission, err := current.Submit(ctx, request)
 			switch {
 			case errors.Is(err, ErrBusy):
 				submissions = append(submissions, submitted{refused: "ConversationBusy"})
@@ -992,13 +1029,13 @@ func runScenario(t *testing.T, sc scenarioSpec) json.RawMessage {
 				submissions = append(submissions, submitted{submission: submission})
 			}
 		case step.Wait == "idle":
-			if err := root.WaitForIdle(ctx); err != nil {
+			if err := current.WaitForIdle(ctx); err != nil {
 				t.Fatal(err)
 			}
 		case step.Wait == "retrying":
 			deadline := time.Now().Add(10 * time.Second)
 			for {
-				live, err := ReadDocument[LiveState](ctx, h, liveDocument, uint64(root.ID()))
+				live, err := ReadDocument[LiveState](ctx, h, liveDocument, uint64(current.ID()))
 				if err != nil && !errors.Is(err, ErrNotFound) {
 					t.Fatal(err)
 				}
@@ -1013,7 +1050,7 @@ func runScenario(t *testing.T, sc scenarioSpec) json.RawMessage {
 		case step.Wait == "compactions":
 			deadline := time.Now().Add(10 * time.Second)
 			for {
-				live, err := ReadDocument[LiveState](ctx, h, liveDocument, uint64(root.ID()))
+				live, err := ReadDocument[LiveState](ctx, h, liveDocument, uint64(current.ID()))
 				if err != nil && !errors.Is(err, ErrNotFound) {
 					t.Fatal(err)
 				}
@@ -1042,7 +1079,7 @@ func runScenario(t *testing.T, sc scenarioSpec) json.RawMessage {
 		case step.Release != "":
 			close(gates.get(step.Release).released)
 		case len(step.Abort) > 0:
-			if err := root.Abort(ctx, string(step.Abort) == `"background"`); err != nil {
+			if err := current.Abort(ctx, string(step.Abort) == `"background"`); err != nil {
 				t.Fatal(err)
 			}
 		case step.Configure != nil:
@@ -1050,37 +1087,45 @@ func runScenario(t *testing.T, sc scenarioSpec) json.RawMessage {
 			if step.Configure.Model != nil {
 				change.Model = &ModelRef{Provider: "faux", ID: *step.Configure.Model}
 			}
-			if err := root.ChangeAgent(ctx, change); err != nil {
+			if err := current.ChangeAgent(ctx, change); err != nil {
 				t.Fatal(err)
 			}
 		case len(step.Compact) > 0:
 			var instructions string
 			_ = json.Unmarshal(step.Compact, &instructions)
-			if _, err := root.Compact(ctx, instructions); err != nil {
+			if _, err := current.Compact(ctx, instructions); err != nil {
 				t.Fatal(err)
 			}
 		case len(step.Reset) > 0:
 			var note string
 			_ = json.Unmarshal(step.Reset, &note)
-			if _, err := root.Reset(ctx, note); err != nil {
+			if _, err := current.Reset(ctx, note); err != nil {
 				t.Fatal(err)
 			}
 		}
 	}
-	if err := root.WaitForIdle(ctx); err != nil {
-		t.Fatal(err)
-	}
-	entries, err := root.Entries(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	transcript := []any{}
-	for _, e := range entries {
-		messages := []any{}
-		if e.Message != nil {
-			messages = append(messages, scenarioMessage(*e.Message))
+	transcriptOf := func(c *Conversation) []any {
+		if err := c.WaitForIdle(ctx); err != nil {
+			t.Fatal(err)
 		}
-		transcript = append(transcript, map[string]any{"kind": e.Kind, "messages": messages})
+		entries, err := c.Entries(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		transcript := []any{}
+		for _, e := range entries {
+			messages := []any{}
+			if e.Message != nil {
+				messages = append(messages, scenarioMessage(*e.Message))
+			}
+			transcript = append(transcript, map[string]any{"kind": e.Kind, "messages": messages})
+		}
+		return transcript
+	}
+	transcript := transcriptOf(root)
+	var forked []any
+	for _, fork := range forks {
+		forked = append(forked, transcriptOf(fork))
 	}
 	settled := []any{}
 	for _, s := range submissions {
@@ -1100,7 +1145,11 @@ func runScenario(t *testing.T, sc scenarioSpec) json.RawMessage {
 	}
 	mu.Lock()
 	defer mu.Unlock()
-	data, err := json.Marshal(map[string]any{"requests": requests, "summaryRequests": summaryRequests, "transcript": transcript, "submissions": settled})
+	report := map[string]any{"requests": requests, "summaryRequests": summaryRequests, "transcript": transcript, "submissions": settled}
+	if len(forks) > 0 {
+		report["forks"] = forked
+	}
+	data, err := json.Marshal(report)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1134,21 +1183,47 @@ func TestCrosscheckScenarios(t *testing.T) {
 // either runtime, and the model sees them in call order anyway.
 func roundsInCallOrder(t *testing.T, raw json.RawMessage) json.RawMessage {
 	t.Helper()
-	var out struct {
-		Requests        json.RawMessage `json:"requests"`
-		SummaryRequests json.RawMessage `json:"summaryRequests"`
-		Submissions     json.RawMessage `json:"submissions"`
-		Transcript      []struct {
-			Kind     string            `json:"kind"`
-			Messages []json.RawMessage `json:"messages"`
-		} `json:"transcript"`
+	// Every field is kept; the transcripts' rounds are sorted.
+	var all map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &all); err != nil {
+		t.Fatal(err)
 	}
-	if err := json.Unmarshal(raw, &out); err != nil {
+	all["transcript"] = sortedRounds(t, all["transcript"])
+	if forks, ok := all["forks"]; ok {
+		var each []json.RawMessage
+		if err := json.Unmarshal(forks, &each); err != nil {
+			t.Fatal(err)
+		}
+		for i := range each {
+			each[i] = sortedRounds(t, each[i])
+		}
+		data, err := json.Marshal(each)
+		if err != nil {
+			t.Fatal(err)
+		}
+		all["forks"] = data
+	}
+	data, err := json.Marshal(all)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return data
+}
+
+// sortedRounds puts each run of tool-result entries in a transcript in its
+// assistant's call order.
+func sortedRounds(t *testing.T, raw json.RawMessage) json.RawMessage {
+	t.Helper()
+	var transcript []struct {
+		Kind     string            `json:"kind"`
+		Messages []json.RawMessage `json:"messages"`
+	}
+	if err := json.Unmarshal(raw, &transcript); err != nil {
 		t.Fatal(err)
 	}
 	position := map[string]int{}
-	for i := 0; i < len(out.Transcript); i++ {
-		entry := out.Transcript[i]
+	for i := 0; i < len(transcript); i++ {
+		entry := transcript[i]
 		if entry.Kind == "pi.assistant" && len(entry.Messages) > 0 {
 			var assistant struct {
 				Calls []struct {
@@ -1166,23 +1241,23 @@ func roundsInCallOrder(t *testing.T, raw json.RawMessage) json.RawMessage {
 			continue
 		}
 		end := i
-		for end < len(out.Transcript) && out.Transcript[end].Kind == "pi.tool-result" {
+		for end < len(transcript) && transcript[end].Kind == "pi.tool-result" {
 			end++
 		}
 		id := func(k int) int {
 			var result struct {
 				ID string `json:"id"`
 			}
-			if len(out.Transcript[k].Messages) > 0 {
-				_ = json.Unmarshal(out.Transcript[k].Messages[0], &result)
+			if len(transcript[k].Messages) > 0 {
+				_ = json.Unmarshal(transcript[k].Messages[0], &result)
 			}
 			return position[result.ID]
 		}
-		run := out.Transcript[i:end]
+		run := transcript[i:end]
 		sort.SliceStable(run, func(a, b int) bool { return id(i+a) < id(i+b) })
 		i = end - 1
 	}
-	data, err := json.Marshal(out)
+	data, err := json.Marshal(transcript)
 	if err != nil {
 		t.Fatal(err)
 	}

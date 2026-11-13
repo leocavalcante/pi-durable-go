@@ -61,5 +61,7 @@
  "hook-compaction-summary",
  "hook-compaction-decline",
  "user-images",
- "tool-images"
+ "tool-images",
+ "fork-and-continue",
+ "fork-inherits-agent"
 ]

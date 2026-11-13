@@ -1,0 +1,63 @@
+{
+ "name": "fork-and-continue",
+ "model": [
+  {
+   "text": "answer one"
+  },
+  {
+   "text": "answer two"
+  },
+  {
+   "text": "fork answer"
+  },
+  {
+   "text": "root answer"
+  }
+ ],
+ "steps": [
+  {
+   "submit": {
+    "type": "input",
+    "content": "first"
+   }
+  },
+  {
+   "wait": "settled"
+  },
+  {
+   "submit": {
+    "type": "input",
+    "content": "second"
+   }
+  },
+  {
+   "wait": "settled"
+  },
+  {
+   "fork": {
+    "at": 1
+   }
+  },
+  {
+   "submit": {
+    "type": "input",
+    "content": "in the fork"
+   }
+  },
+  {
+   "wait": "settled"
+  },
+  {
+   "use": "root"
+  },
+  {
+   "submit": {
+    "type": "input",
+    "content": "in the root"
+   }
+  },
+  {
+   "wait": "settled"
+  }
+ ]
+}

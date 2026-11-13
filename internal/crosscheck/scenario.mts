@@ -274,22 +274,35 @@ export async function runScenario(
 
 	const submissions: any[] = [];
 	const handle = (id: unknown) => harness.submission(id, context);
+	const forks: any[] = [];
+	let current = root;
 	for (const step of scenario.steps ?? []) {
 		if (step.reopen) {
+			if (forks.length > 0) throw new Error("reopening with forks is not supported");
 			await harness.close(context);
 			({ opened: harness, conversation: root } = await open());
+			current = root;
+		} else if (step.fork !== undefined) {
+			// At an entry of the current conversation, by index (negative:
+			// from the end); the fork becomes current.
+			const items = [...(await current.entries({}, 1000, undefined, context)).items].reverse();
+			const index = step.fork.at < 0 ? items.length + step.fork.at : step.fork.at;
+			current = await current.fork(items[index].id, { ownership: { kind: "ownerless" } }, context);
+			forks.push(current);
+		} else if (step.use !== undefined) {
+			current = step.use === "root" ? root : forks[step.use];
 		} else if (step.submit) {
 			try {
-				submissions.push({ id: (await root.submit(step.submit, context)).id });
+				submissions.push({ id: (await current.submit(step.submit, context)).id });
 			} catch (error: any) {
 				submissions.push({ refused: error?.name ?? "Error" });
 			}
 		} else if (step.wait === "idle") {
-			await root.waitForIdle(context);
+			await current.waitForIdle(context);
 		} else if (step.wait === "retrying") {
 			// Until a generation waits out a retry backoff.
 			for (let i = 0; ; i++) {
-				const live = await harness.snapshot(pd.LiveDoc, root.id, context);
+				const live = await harness.snapshot(pd.LiveDoc, current.id, context);
 				if (live?.generation?.retry !== undefined) break;
 				if (i > 2000) throw new Error("no retry");
 				await new Promise((resolve) => setTimeout(resolve, 5));
@@ -298,7 +311,7 @@ export async function runScenario(
 			// Until no compaction is listed: background ones do not keep a
 			// conversation busy.
 			for (let i = 0; ; i++) {
-				const live = await harness.snapshot(pd.LiveDoc, root.id, context);
+				const live = await harness.snapshot(pd.LiveDoc, current.id, context);
 				if (live?.compactions === undefined || live.compactions.length === 0) break;
 				if (i > 2000) throw new Error("compactions never ended");
 				await new Promise((resolve) => setTimeout(resolve, 5));
@@ -310,23 +323,28 @@ export async function runScenario(
 		} else if (step.release) {
 			gate(step.release).release();
 		} else if (step.abort) {
-			await root.abort(context, { background: step.abort === "background" });
+			await current.abort(context, { background: step.abort === "background" });
 		} else if (step.configure !== undefined) {
 			// A model is named by its faux ID.
 			const { model, ...change } = step.configure;
-			await root.configure({ ...change, ...(model === undefined ? {} : { model: { provider: "faux", modelId: model } }) }, context);
+			await current.configure({ ...change, ...(model === undefined ? {} : { model: { provider: "faux", modelId: model } }) }, context);
 		} else if (step.compact !== undefined) {
-			await root.compact(typeof step.compact === "string" ? step.compact : undefined, context);
+			await current.compact(typeof step.compact === "string" ? step.compact : undefined, context);
 		} else if (step.reset !== undefined) {
-			await root.reset(typeof step.reset === "string" ? step.reset : undefined, context);
+			await current.reset(typeof step.reset === "string" ? step.reset : undefined, context);
 		}
 	}
-	await root.waitForIdle(context);
-	const page = await root.entries({}, 1000, undefined, context);
-	const transcript = [...page.items].reverse().map((entry: any) => ({
-		kind: entry.kind,
-		messages: (entry.model ?? []).map(normalizeMessage),
-	}));
+	const transcriptOf = async (conversation: any) => {
+		await conversation.waitForIdle(context);
+		const page = await conversation.entries({}, 1000, undefined, context);
+		return [...page.items].reverse().map((entry: any) => ({
+			kind: entry.kind,
+			messages: (entry.model ?? []).map(normalizeMessage),
+		}));
+	};
+	const transcript = await transcriptOf(root);
+	const forked = [];
+	for (const fork of forks) forked.push(await transcriptOf(fork));
 	const settled = [];
 	for (const submission of submissions) {
 		if (submission.refused) {
@@ -338,5 +356,5 @@ export async function runScenario(
 	}
 	await harness.close(context);
 	if (directory !== undefined) rmSync(directory, { recursive: true, force: true });
-	return { requests, summaryRequests, transcript, submissions: settled };
+	return { requests, summaryRequests, transcript, ...(forks.length > 0 ? { forks: forked } : {}), submissions: settled };
 }

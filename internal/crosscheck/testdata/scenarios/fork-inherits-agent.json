@@ -1,0 +1,56 @@
+{
+ "name": "fork-inherits-agent",
+ "agent": {
+  "instructions": "Original rules."
+ },
+ "model": [
+  {
+   "text": "one"
+  },
+  {
+   "text": "two"
+  },
+  {
+   "text": "forked"
+  }
+ ],
+ "steps": [
+  {
+   "submit": {
+    "type": "input",
+    "content": "first"
+   }
+  },
+  {
+   "wait": "settled"
+  },
+  {
+   "configure": {
+    "instructions": "Changed rules."
+   }
+  },
+  {
+   "submit": {
+    "type": "input",
+    "content": "second"
+   }
+  },
+  {
+   "wait": "settled"
+  },
+  {
+   "fork": {
+    "at": 1
+   }
+  },
+  {
+   "submit": {
+    "type": "input",
+    "content": "from the fork"
+   }
+  },
+  {
+   "wait": "settled"
+  }
+ ]
+}
