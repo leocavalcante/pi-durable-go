@@ -23,7 +23,7 @@ For another upstream release, set `PI_DURABLE_UPSTREAM_TAG` with Pi of that vers
 
 | Area | Upstream | Result |
 | --- | --- | --- |
-| Tool argument coercion and validation | pi-schema `parse()` with `coerce: true`, pi-ai `validateToolArguments` | Ported; 112 cases equal, including error wording |
+| Tool argument coercion and validation | pi-schema `parse()` with `coerce: true`, pi-ai `validateToolArguments` | Ported; 147 cases equal, including error wording and ECMAScript patterns |
 | Edit tool | `edit-diff.ts`: fuzzy normalization, edits, diff, patch, errors | Equal (13 cases) |
 | Read tool | `read.ts` over a Node environment: 37 files and ranges, fractional and negative numbers included | Ported to equal: lines taken as `Array.prototype.slice` takes them and notes printed with JavaScript's numbers |
 | Coding tool specs | `createReadTool` and the other coding tools' schemas, output schemas, limits | Ported to equal |
@@ -65,5 +65,5 @@ To check another flow, add a scenario file and list it in `index.json`.
 
 - Partial tool arguments: upstream's streaming parser copies its open containers for each snapshot within a work budget, so its preview of a very large open container (thousands of elements) can lag behind the text; every reading here is fresh.
 - `model.OpenAI` sanitizes provider error text that pi-ai passes through, and has no model catalog. Of pi-ai's thinking formats, `chat-template` and `baseten` (which need template settings) are not ported, nor OpenRouter's structured `reasoning_details`.
-- Schema coercion keeps no key order for schema objects. Pattern properties apply in sorted order, and RE2 replaces JavaScript regular expressions.
+- Schema coercion keeps no key order for schema objects, so pattern properties apply in sorted order.
 - A schema with a recursive union whose branches all recurse, for example an `anyOf` that includes a reference to itself, is exponential to check against deep arguments. pi-schema fails such a call with a stack overflow after about 12 seconds at depth 10, and Go needs about 3 seconds at depth 10 and a minute at depth 15. Coercion has a work budget (`maxCoercionSteps`), but the JSON Schema library's own check is not bounded.

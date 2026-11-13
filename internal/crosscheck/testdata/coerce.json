@@ -2241,5 +2241,285 @@
    "1",
    2
   ]
+ },
+ {
+  "schema": {
+   "type": "object",
+   "properties": {
+    "s": {
+     "type": "string",
+     "pattern": "^(?=.*\\d)[a-z0-9]+$"
+    }
+   }
+  },
+  "args": {
+   "s": "abc1"
+  }
+ },
+ {
+  "schema": {
+   "type": "object",
+   "properties": {
+    "s": {
+     "type": "string",
+     "pattern": "^(?=.*\\d)[a-z0-9]+$"
+    }
+   }
+  },
+  "args": {
+   "s": "abc"
+  }
+ },
+ {
+  "schema": {
+   "type": "object",
+   "properties": {
+    "s": {
+     "type": "string",
+     "pattern": "^(a)\\1$"
+    }
+   }
+  },
+  "args": {
+   "s": "aa"
+  }
+ },
+ {
+  "schema": {
+   "type": "object",
+   "properties": {
+    "s": {
+     "type": "string",
+     "pattern": "^(a)\\1$"
+    }
+   }
+  },
+  "args": {
+   "s": "ab"
+  }
+ },
+ {
+  "schema": {
+   "type": "object",
+   "properties": {
+    "s": {
+     "type": "string",
+     "pattern": "("
+    }
+   }
+  },
+  "args": {
+   "s": "x"
+  }
+ },
+ {
+  "schema": {
+   "type": "object",
+   "properties": {
+    "s": {
+     "type": "string",
+     "pattern": "^\\p{L}+$"
+    }
+   }
+  },
+  "args": {
+   "s": "héllo"
+  }
+ },
+ {
+  "schema": {
+   "type": "object",
+   "properties": {
+    "s": {
+     "type": "string",
+     "pattern": "^\\p{L}+$"
+    }
+   }
+  },
+  "args": {
+   "s": "h3"
+  }
+ },
+ {
+  "schema": {
+   "type": "object",
+   "properties": {
+    "s": {
+     "type": "string",
+     "pattern": "^a.b$"
+    }
+   }
+  },
+  "args": {
+   "s": "a\nb"
+  }
+ },
+ {
+  "schema": {
+   "type": "object",
+   "properties": {
+    "s": {
+     "type": "string",
+     "pattern": "^a.b$"
+    }
+   }
+  },
+  "args": {
+   "s": "a b"
+  }
+ },
+ {
+  "schema": {
+   "type": "object",
+   "properties": {
+    "s": {
+     "type": "string",
+     "pattern": "^a.b$"
+    }
+   }
+  },
+  "args": {
+   "s": "a😀b"
+  }
+ },
+ {
+  "schema": {
+   "type": "object",
+   "properties": {
+    "s": {
+     "type": "string",
+     "pattern": "^\\d+$"
+    }
+   }
+  },
+  "args": {
+   "s": "١٢"
+  }
+ },
+ {
+  "schema": {
+   "type": "object",
+   "properties": {
+    "s": {
+     "type": "string",
+     "pattern": "^\\w+$"
+    }
+   }
+  },
+  "args": {
+   "s": "é"
+  }
+ },
+ {
+  "schema": {
+   "type": "object",
+   "properties": {
+    "s": {
+     "type": "string",
+     "pattern": "^[\\u0041-\\u005A]+$"
+    }
+   }
+  },
+  "args": {
+   "s": "ABC"
+  }
+ },
+ {
+  "schema": {
+   "type": "object",
+   "properties": {
+    "s": {
+     "type": "string",
+     "pattern": "^\\u{1F600}$"
+    }
+   }
+  },
+  "args": {
+   "s": "😀"
+  }
+ },
+ {
+  "schema": {
+   "type": "object",
+   "properties": {
+    "s": {
+     "type": "string",
+     "pattern": "\\-"
+    }
+   }
+  },
+  "args": {
+   "s": "a-b"
+  }
+ },
+ {
+  "schema": {
+   "type": "object",
+   "properties": {
+    "s": {
+     "type": "string",
+     "pattern": "^\\/$"
+    }
+   }
+  },
+  "args": {
+   "s": "/"
+  }
+ },
+ {
+  "schema": {
+   "type": "object",
+   "patternProperties": {
+    "^(?!x)": {
+     "type": "number"
+    }
+   }
+  },
+  "args": {
+   "a": "5",
+   "x": "6"
+  }
+ },
+ {
+  "schema": {
+   "type": "object",
+   "properties": {
+    "s": {
+     "type": "string",
+     "pattern": "^(?<word>\\w+)$"
+    }
+   }
+  },
+  "args": {
+   "s": "word"
+  }
+ },
+ {
+  "schema": {
+   "type": "object",
+   "properties": {
+    "s": {
+     "type": "string",
+     "pattern": "[[:alpha:]]"
+    }
+   }
+  },
+  "args": {
+   "s": "a"
+  }
+ },
+ {
+  "schema": {
+   "type": "object",
+   "properties": {
+    "s": {
+     "type": "string",
+     "pattern": "^\\Qa.b\\E$"
+    }
+   }
+  },
+  "args": {
+   "s": "a.b"
+  }
  }
 ]
