@@ -31,8 +31,14 @@ export function normalizeMessage(message: any): Record<string, unknown> {
 			if (message.errorMessage !== undefined) out.error = message.errorMessage;
 			return out;
 		}
-		case "toolResult":
-			return { role: "tool", id: message.toolCallId, name: message.toolName, text: text(message.content), isError: message.isError === true };
+		case "toolResult": {
+			// Text blocks joined by newlines, as pi-ai's adapters that send
+			// one string do: this port keeps a result's text, diagnostics
+			// included, as one string.
+			const blocks: any[] = typeof message.content === "string" ? [{ type: "text", text: message.content }] : (message.content ?? []);
+			const joined = blocks.filter((block) => block.type === "text").map((block) => block.text).join("\n");
+			return { role: "tool", id: message.toolCallId, name: message.toolName, text: joined, isError: message.isError === true };
+		}
 		case "system":
 			return {
 				role: "system",
@@ -95,7 +101,11 @@ export async function runScenario(
 	faux.setResponses(
 		Array.from({ length: answers.length + summaries.length }, () => async (request: any, options: any) => {
 			const summary = isSummary(request.messages);
-			(summary ? summaryRequests : requests).push(request.messages.map(normalizeMessage));
+			(summary ? summaryRequests : requests).push({
+				messages: request.messages.map(normalizeMessage),
+				// What pi-ai's adapters offer: the system messages' tool changes, folded.
+				tools: piAi.getCurrentTools(request.messages).map((tool: any) => tool.name),
+			});
 			const step = (summary ? summaries : answers).shift() ?? { error: "no scripted response" };
 			if (step.hold) await hold(step.hold, options?.signal);
 			const content: any[] = [];
@@ -120,9 +130,16 @@ export async function runScenario(
 				const result = results[Math.min(calls++, results.length - 1)] ?? { text: JSON.stringify(args) };
 				if (result.hold) await hold(result.hold, callContext?.abortSignal);
 				if (result.throw) throw new Error(result.throw);
+				const control = {
+					...(result.terminate !== undefined ? { terminate: result.terminate } : {}),
+					...(result.handoff !== undefined ? { handoff: result.handoff } : {}),
+					...(result.addTools !== undefined ? { addTools: result.addTools } : {}),
+				};
 				return {
 					output: result.text === undefined ? [] : [{ type: "text", text: result.text }],
 					...(result.isError ? { isError: true } : {}),
+					...(result.diagnostics !== undefined ? { diagnostics: result.diagnostics } : {}),
+					...(Object.keys(control).length > 0 ? { control } : {}),
 				};
 			},
 		});
@@ -184,8 +201,14 @@ export async function runScenario(
 	const storage = async () => (directory === undefined ? new pd.MemoryStorage() : openNodeJsonlStorage(directory, context));
 	const open = async () => {
 		const opened = await pd.Harness.open(await storage(), { models, registry, settings: scenario.settings ?? {} }, context);
+		// Tools are named in scenarios and passed as their registrations.
+		const { tools: enabled, ...agent } = scenario.agent ?? {};
 		const conversation = await opened.root(context, {
-			agent: { model: { provider: "faux", modelId: "faux-1" }, ...(scenario.agent ?? {}) },
+			agent: {
+				model: { provider: "faux", modelId: "faux-1" },
+				...agent,
+				...(enabled === undefined ? {} : { tools: enabled.map((name: string) => tools.find((tool: any) => tool.name === name)) }),
+			},
 		});
 		return { opened, conversation };
 	};

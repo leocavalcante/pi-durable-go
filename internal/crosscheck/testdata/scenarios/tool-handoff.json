@@ -1,0 +1,49 @@
+{
+ "name": "tool-handoff",
+ "tools": [
+  {
+   "name": "echo",
+   "parameters": {
+    "type": "object",
+    "properties": {
+     "text": {
+      "type": "string"
+     }
+    }
+   },
+   "results": [
+    {
+     "text": "handing off",
+     "handoff": "Continue from the handoff."
+    }
+   ]
+  }
+ ],
+ "model": [
+  {
+   "calls": [
+    {
+     "id": "c1",
+     "name": "echo",
+     "args": {
+      "text": "x"
+     }
+    }
+   ]
+  },
+  {
+   "text": "after handoff"
+  }
+ ],
+ "steps": [
+  {
+   "submit": {
+    "type": "input",
+    "content": "go"
+   }
+  },
+  {
+   "wait": "settled"
+  }
+ ]
+}

@@ -479,6 +479,11 @@ type scenarioSpec struct {
 			IsError bool    `json:"isError,omitempty"`
 			Throw   string  `json:"throw,omitempty"`
 			Hold    string  `json:"hold,omitempty"`
+			// Control and diagnostics, as upstream's result carries them.
+			Terminate   bool             `json:"terminate,omitempty"`
+			Handoff     string           `json:"handoff,omitempty"`
+			AddTools    []string         `json:"addTools,omitempty"`
+			Diagnostics []ToolDiagnostic `json:"diagnostics,omitempty"`
 		} `json:"results,omitempty"`
 	} `json:"tools,omitempty"`
 	Settings struct {
@@ -495,8 +500,9 @@ type scenarioSpec struct {
 		Compaction     *CompactionSettings `json:"compaction,omitempty"`
 	} `json:"settings"`
 	Agent struct {
-		MaxTurns     int     `json:"maxTurns,omitempty"`
-		Instructions *string `json:"instructions,omitempty"`
+		MaxTurns     int      `json:"maxTurns,omitempty"`
+		Instructions *string  `json:"instructions,omitempty"`
+		Tools        []string `json:"tools,omitempty"`
 	} `json:"agent"`
 	Extensions []struct {
 		Name     string `json:"name"`
@@ -638,12 +644,17 @@ func runScenario(t *testing.T, sc scenarioSpec) json.RawMessage {
 		for _, m := range request.Messages {
 			messages = append(messages, scenarioMessage(m))
 		}
+		offered := []string{}
+		for _, spec := range request.Tools {
+			offered = append(offered, spec.Name)
+		}
+		record := map[string]any{"messages": messages, "tools": offered}
 		// Summarization requests take their answers from Summaries.
 		if len(request.Messages) > 0 && request.Messages[0].Role == "system" && strings.HasPrefix(SystemText(request.Messages[0]), "You are a context summarization assistant") {
 			mu.Lock()
 			i := summaryCalls
 			summaryCalls++
-			summaryRequests = append(summaryRequests, messages)
+			summaryRequests = append(summaryRequests, record)
 			mu.Unlock()
 			if i >= len(sc.Summaries) {
 				return ModelResponse{}, errors.New("no scripted response")
@@ -660,7 +671,7 @@ func runScenario(t *testing.T, sc scenarioSpec) json.RawMessage {
 		mu.Lock()
 		i := calls
 		calls++
-		requests = append(requests, messages)
+		requests = append(requests, record)
 		mu.Unlock()
 		if i >= len(sc.Model) {
 			return ModelResponse{}, errors.New("no scripted response")
@@ -729,7 +740,7 @@ func runScenario(t *testing.T, sc scenarioSpec) json.RawMessage {
 				if result.Throw != "" {
 					return ToolResult{}, errors.New(result.Throw)
 				}
-				out := ToolResult{IsError: result.IsError}
+				out := ToolResult{IsError: result.IsError, Diagnostics: result.Diagnostics, Terminate: result.Terminate, Handoff: result.Handoff, AddTools: result.AddTools}
 				if result.Text != nil {
 					out.Content = *result.Text
 				}
@@ -820,7 +831,7 @@ func runScenario(t *testing.T, sc scenarioSpec) json.RawMessage {
 		if err != nil {
 			t.Fatal(err)
 		}
-		root, err = h.Root(ctx, ConversationOptions{Agent: Agent{Model: ModelRef{Provider: "faux", ID: "faux-1"}, MaxTurns: sc.Agent.MaxTurns, Instructions: sc.Agent.Instructions}})
+		root, err = h.Root(ctx, ConversationOptions{Agent: Agent{Model: ModelRef{Provider: "faux", ID: "faux-1"}, MaxTurns: sc.Agent.MaxTurns, Instructions: sc.Agent.Instructions, Tools: sc.Agent.Tools}})
 		if err != nil {
 			t.Fatal(err)
 		}

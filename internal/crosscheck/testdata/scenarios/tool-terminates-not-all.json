@@ -1,0 +1,59 @@
+{
+ "name": "tool-terminates-not-all",
+ "tools": [
+  {
+   "name": "echo",
+   "parameters": {
+    "type": "object",
+    "properties": {
+     "text": {
+      "type": "string"
+     }
+    }
+   },
+   "results": [
+    {
+     "text": "stop",
+     "terminate": true
+    },
+    {
+     "text": "go on"
+    }
+   ]
+  }
+ ],
+ "model": [
+  {
+   "calls": [
+    {
+     "id": "a",
+     "name": "echo",
+     "args": {
+      "text": "1"
+     }
+    },
+    {
+     "id": "b",
+     "name": "echo",
+     "args": {
+      "text": "2"
+     }
+    }
+   ]
+  },
+  {
+   "text": "continued"
+  }
+ ],
+ "steps": [
+  {
+   "submit": {
+    "type": "input",
+    "content": "go"
+   }
+  },
+  {
+   "wait": "settled"
+  }
+ ]
+}

@@ -38,7 +38,7 @@ For another upstream release, set `PI_DURABLE_UPSTREAM_TAG` with Pi of that vers
 | `model.OpenAI` reasoning | `reasoning_effort` and `clampThinkingLevel` | Ported to equal (24 combinations) |
 | `model.OpenAI` responses | SSE parsing from a local server: usage, stop reasons | Ported to equal; provider error text stays sanitized by design |
 | Tool runtime behavior | `tool.ts`: throws, retained output, structured output contract, nested keys | Ported |
-| Whole conversations | Upstream's `Harness` with pi-ai's faux provider, against this Harness with a scripted model: 41 scenarios (`internal/crosscheck/testdata/scenarios`) | Equal: model requests, transcripts, and settlements. They found two differences, both ported: upstream keeps the agent in a `pi.agent` document rather than transcript entries, and a compaction entry carries its summary as a user message |
+| Whole conversations | Upstream's `Harness` with pi-ai's faux provider, against this Harness with a scripted model: 46 scenarios (`internal/crosscheck/testdata/scenarios`) | Equal: model requests, transcripts, and settlements. They found two differences, both ported: upstream keeps the agent in a `pi.agent` document rather than transcript entries, and a compaction entry carries its summary as a user message |
 
 ## Scenarios
 
@@ -52,6 +52,10 @@ A scenario (`internal/crosscheck/testdata/scenarios/*.json`) is a script that bo
 
 Some outcomes depend on timing in either runtime, and the scenarios avoid relying on them:
 - Parallel tool calls append their results as they finish, so the comparison puts each round's results in call order, as the model sees them.
+
+Two representations differ and are compared as an adapter sends them:
+- Upstream's requests carry tools as system-message changes, so its offered tools are pi-ai's `getCurrentTools` fold of them; this port's are `ModelRequest.Tools`.
+- A tool result's text blocks are joined by newlines, as pi-ai's OpenAI completions adapter joins them, since this port keeps one text per message.
 - A background compaction's summary is placed whenever it finishes. Scenarios hold its answer, and `wait: compactions` waits until none is listed. To check another flow, add a scenario file and list it in `index.json`.
 
 ## Known remaining differences

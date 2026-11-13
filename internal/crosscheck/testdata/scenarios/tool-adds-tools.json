@@ -1,0 +1,71 @@
+{
+ "name": "tool-adds-tools",
+ "tools": [
+  {
+   "name": "echo",
+   "parameters": {
+    "type": "object",
+    "properties": {
+     "text": {
+      "type": "string"
+     }
+    }
+   },
+   "results": [
+    {
+     "text": "loading",
+     "addTools": [
+      "extra"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "extra",
+   "parameters": {
+    "type": "object"
+   }
+  }
+ ],
+ "agent": {
+  "tools": [
+   "echo"
+  ]
+ },
+ "model": [
+  {
+   "calls": [
+    {
+     "id": "c1",
+     "name": "echo",
+     "args": {
+      "text": "x"
+     }
+    }
+   ]
+  },
+  {
+   "calls": [
+    {
+     "id": "c2",
+     "name": "extra",
+     "args": {}
+    }
+   ]
+  },
+  {
+   "text": "done"
+  }
+ ],
+ "steps": [
+  {
+   "submit": {
+    "type": "input",
+    "content": "go"
+   }
+  },
+  {
+   "wait": "settled"
+  }
+ ]
+}

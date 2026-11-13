@@ -39,5 +39,10 @@
  "reopen-idle",
  "reopen-mid-request",
  "reopen-mid-tool-unsafe",
- "reopen-mid-tool-safe"
+ "reopen-mid-tool-safe",
+ "tool-terminates",
+ "tool-terminates-not-all",
+ "tool-handoff",
+ "tool-adds-tools",
+ "tool-diagnostics"
 ]

@@ -1,0 +1,50 @@
+{
+ "name": "tool-terminates",
+ "tools": [
+  {
+   "name": "echo",
+   "parameters": {
+    "type": "object",
+    "properties": {
+     "text": {
+      "type": "string"
+     }
+    }
+   },
+   "results": [
+    {
+     "text": "final",
+     "terminate": true
+    }
+   ]
+  }
+ ],
+ "model": [
+  {
+   "text": "calling",
+   "calls": [
+    {
+     "id": "c1",
+     "name": "echo",
+     "args": {
+      "text": "x"
+     }
+    }
+   ]
+  },
+  {
+   "text": "never"
+  }
+ ],
+ "steps": [
+  {
+   "submit": {
+    "type": "input",
+    "content": "go"
+   }
+  },
+  {
+   "wait": "settled"
+  }
+ ]
+}

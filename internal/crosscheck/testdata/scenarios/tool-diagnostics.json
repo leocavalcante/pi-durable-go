@@ -1,0 +1,59 @@
+{
+ "name": "tool-diagnostics",
+ "tools": [
+  {
+   "name": "echo",
+   "parameters": {
+    "type": "object",
+    "properties": {
+     "text": {
+      "type": "string"
+     }
+    }
+   },
+   "results": [
+    {
+     "text": "partial",
+     "diagnostics": [
+      {
+       "severity": "warn",
+       "message": "output was trimmed",
+       "code": "trimmed"
+      },
+      {
+       "severity": "info",
+       "message": "cached"
+      }
+     ]
+    }
+   ]
+  }
+ ],
+ "model": [
+  {
+   "calls": [
+    {
+     "id": "c1",
+     "name": "echo",
+     "args": {
+      "text": "x"
+     }
+    }
+   ]
+  },
+  {
+   "text": "done"
+  }
+ ],
+ "steps": [
+  {
+   "submit": {
+    "type": "input",
+    "content": "go"
+   }
+  },
+  {
+   "wait": "settled"
+  }
+ ]
+}
