@@ -11,7 +11,6 @@ import (
 	"io/fs"
 	"math"
 	"os"
-	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -157,6 +156,7 @@ func readTool(ctx context.Context, raw json.RawMessage, rt *durable.ToolRuntime,
 		return durable.ToolResult{}, err
 	}
 	var reader io.Reader
+	var reopen func() (io.Reader, func(), error)
 	if opener, ok := e.(FileOpener); ok {
 		file, err := opener.OpenFile(ctx, a.Path)
 		if err != nil {
@@ -164,12 +164,20 @@ func readTool(ctx context.Context, raw json.RawMessage, rt *durable.ToolRuntime,
 		}
 		defer file.Close()
 		reader = file
+		reopen = func() (io.Reader, func(), error) {
+			again, err := opener.OpenFile(ctx, a.Path)
+			if err != nil {
+				return nil, nil, err
+			}
+			return again, func() { _ = again.Close() }, nil
+		}
 	} else {
 		data, err := e.ReadFile(ctx, a.Path)
 		if err != nil {
 			return durable.ToolResult{}, err
 		}
 		reader = bytes.NewReader(data)
+		reopen = func() (io.Reader, func(), error) { return bytes.NewReader(data), func() {}, nil }
 	}
 	// An image is told by its first bytes; anything else is text.
 	size, known := fileSize(reader)
@@ -186,34 +194,7 @@ func readTool(ctx context.Context, raw json.RawMessage, rt *durable.ToolRuntime,
 		}
 		return readImage(image, size, a.Path, mimeType, rt.AcceptsImages(ctx), rt.ImageLimits(ctx), processor)
 	}
-	startLine, offset, limit := readRange(a)
-	return readText(buffered, a.Path, startLine, offset, limit)
-}
-
-// readRange is the selection upstream's read takes from its numbers: a
-// falsy offset starts at the first line, another at max(0, offset - 1), and
-// the end is that start plus the limit; the lines are taken like
-// Array.prototype.slice, which truncates both. A limit that ends at or before
-// the start selects nothing (a negative end, which slice counts from the
-// end, too).
-func readRange(a readArgs) (int, string, *int) {
-	const most = math.MaxInt32
-	start, offset := 0.0, "undefined"
-	if a.Offset != nil {
-		offset = strconv.FormatFloat(*a.Offset, 'f', -1, 64)
-		if *a.Offset != 0 {
-			start = math.Max(0, *a.Offset-1)
-		}
-	}
-	startLine := int(math.Min(math.Trunc(start), most))
-	if a.Limit == nil {
-		return startLine, offset, nil
-	}
-	n := int(math.Min(math.Trunc(start+*a.Limit), most)) - startLine
-	if n < 0 {
-		n = 0
-	}
-	return startLine, offset, &n
+	return readText(buffered, reopen, a.Path, a.Offset, a.Limit)
 }
 
 func writeTool(ctx context.Context, raw json.RawMessage, rt *durable.ToolRuntime) (durable.ToolResult, error) {

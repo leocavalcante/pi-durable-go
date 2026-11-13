@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"io"
 	"strings"
 	"testing"
 )
@@ -30,7 +31,7 @@ func TestReadNotesAreUpstreams(t *testing.T) {
 		"utf8.txt":  {strings.Repeat(strings.Repeat("é", 100)+"\n", 600), "Showing lines 1-254 of 601 (50.0KB limit). Use offset=255 to continue."},
 		"wide.txt":  {strings.Repeat("x", 60000) + "\nsecond\n", "Line 1 is 58.6KB, exceeds the 50.0KB limit; showing its first 50.0KB. Use bash: sed -n '1p' wide.txt | tail -c +51201"},
 	} {
-		result, err := readText(strings.NewReader(c.content), name, 0, "undefined", nil)
+		result, err := readText(strings.NewReader(c.content), reopenText(c.content), name, nil, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -38,4 +39,9 @@ func TestReadNotesAreUpstreams(t *testing.T) {
 			t.Errorf("%s: diagnostics=%+v, want %q", name, result.Diagnostics, c.note)
 		}
 	}
+}
+
+// reopenText opens content again.
+func reopenText(content string) func() (io.Reader, func(), error) {
+	return func() (io.Reader, func(), error) { return strings.NewReader(content), func() {}, nil }
 }

@@ -17,6 +17,8 @@ import (
 	"github.com/santhosh-tekuri/jsonschema/v6/kind"
 	"golang.org/x/text/language"
 	"golang.org/x/text/message"
+
+	"github.com/leocavalcante/pi-durable-go/internal/jsnum"
 )
 
 // Tool arguments are coerced before they are checked, as pi-ai's
@@ -1529,45 +1531,8 @@ func jsNumber(s string) (float64, bool) {
 	return f, true
 }
 
-// jsNumberString is Number.prototype.toString() for a finite number.
-func jsNumberString(f float64) string {
-	switch {
-	case f == 0:
-		return "0"
-	case math.IsNaN(f):
-		return "NaN"
-	case math.IsInf(f, 1):
-		return "Infinity"
-	case math.IsInf(f, -1):
-		return "-Infinity"
-	}
-	sign := ""
-	if f < 0 {
-		sign, f = "-", -f
-	}
-	formatted := strconv.FormatFloat(f, 'e', -1, 64) // d.dddde±x
-	mantissa, exponent, _ := strings.Cut(formatted, "e")
-	digits := strings.Replace(mantissa, ".", "", 1)
-	e, _ := strconv.Atoi(exponent)
-	k, n := len(digits), e+1
-	switch {
-	case k <= n && n <= 21:
-		return sign + digits + strings.Repeat("0", n-k)
-	case 0 < n && n <= 21:
-		return sign + digits[:n] + "." + digits[n:]
-	case -6 < n && n <= 0:
-		return sign + "0." + strings.Repeat("0", -n) + digits
-	}
-	exp := n - 1
-	expText := strconv.Itoa(exp)
-	if exp >= 0 {
-		expText = "+" + expText
-	}
-	if k == 1 {
-		return sign + digits + "e" + expText
-	}
-	return sign + digits[:1] + "." + digits[1:] + "e" + expText
-}
+// jsNumberString is Number.prototype.toString().
+func jsNumberString(f float64) string { return jsnum.String(f) }
 
 // prepareArguments runs a tool's PrepareArguments on a copy of the
 // arguments; a failure makes them invalid.

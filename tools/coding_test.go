@@ -379,30 +379,41 @@ func TestCodingToolSchemasAreUpstreams(t *testing.T) {
 	}
 }
 
+// Expectations are upstream's read tool's (1.5.2) for the same numbers over
+// ten lines: lines taken like Array.prototype.slice, fractions and negative
+// ends included, and notes with the numbers JavaScript prints.
 func TestReadTakesNumbersAsUpstreamDoes(t *testing.T) {
-	for _, c := range []struct {
-		args    string
-		start   int
-		offset  string
-		limit   int
-		limited bool
-	}{
-		{`{"path":"a"}`, 0, "undefined", 0, false},
-		{`{"path":"a","offset":0}`, 0, "0", 0, false},
-		{`{"path":"a","offset":-3}`, 0, "-3", 0, false},
-		{`{"path":"a","offset":2.9,"limit":1.5}`, 1, "2.9", 2, true},
-		{`{"path":"a","offset":2.7,"limit":1.9}`, 1, "2.7", 2, true},
-		{`{"path":"a","offset":5,"limit":0}`, 4, "5", 0, true},
-		{`{"path":"a","limit":-2}`, 0, "undefined", 0, true},
-		{`{"path":"a","unknown":true}`, 0, "undefined", 0, false},
+	const ten = "1\n2\n3\n4\n5\n6\n7\n8\n9\n10"
+	for _, c := range []struct{ args, text, note, err string }{
+		{`{"path":"a"}`, ten, "", ""},
+		{`{"path":"a","offset":0}`, ten, "", ""},
+		{`{"path":"a","offset":-3}`, ten, "", ""},
+		{`{"path":"a","offset":2.9,"limit":1.5}`, "2\n3", "6.6 more lines in file. Use offset=4.4 to continue.", ""},
+		{`{"path":"a","offset":2.7,"limit":1.9}`, "2\n3", "6.4 more lines in file. Use offset=4.6 to continue.", ""},
+		{`{"path":"a","offset":5,"limit":0}`, "", "6 more lines in file. Use offset=5 to continue.", ""},
+		{`{"path":"a","limit":-2}`, "1\n2\n3\n4\n5\n6\n7\n8", "12 more lines in file. Use offset=-1 to continue.", ""},
+		{`{"path":"a","unknown":true}`, ten, "", ""},
+		{`{"path":"a","offset":3,"limit":-4}`, "3\n4\n5\n6\n7\n8", "12 more lines in file. Use offset=-1 to continue.", ""},
+		{`{"path":"a","offset":1.5,"limit":2}`, "1\n2", "7.5 more lines in file. Use offset=3.5 to continue.", ""},
+		{`{"path":"a","offset":11}`, "", "", "Offset 11 is beyond end of file (10 lines total)"},
 	} {
 		var a readArgs
 		if err := decodeArgs(json.RawMessage(c.args), &a); err != nil {
 			t.Fatalf("%s: %v", c.args, err)
 		}
-		start, offset, limit := readRange(a)
-		if start != c.start || offset != c.offset || (limit != nil) != c.limited || limit != nil && *limit != c.limit {
-			t.Fatalf("%s: start=%d offset=%s limit=%v", c.args, start, offset, limit)
+		result, err := readText(strings.NewReader(ten), reopenText(ten), "a", a.Offset, a.Limit)
+		if c.err != "" || err != nil {
+			if err == nil || err.Error() != c.err {
+				t.Errorf("%s: error %v, want %q", c.args, err, c.err)
+			}
+			continue
+		}
+		note := ""
+		if len(result.Diagnostics) > 0 {
+			note = result.Diagnostics[0].Message
+		}
+		if result.Content != c.text || note != c.note {
+			t.Errorf("%s: %q %q, want %q %q", c.args, result.Content, note, c.text, c.note)
 		}
 	}
 }
