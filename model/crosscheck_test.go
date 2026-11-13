@@ -170,3 +170,97 @@ func TestCrosscheckOpenAIResponses(t *testing.T) {
 		}
 	}
 }
+
+// Thinking formats pi-ai detects from the URL or takes from compat, and the
+// replay of an answer's thinking to the model that gave it.
+func TestCrosscheckOpenAIThinkingFormats(t *testing.T) {
+	str := func(s string) *string { return &s }
+	type variant struct {
+		base, format string
+		levels       map[string]*string
+		level        string
+		replay       string // the reasoning field of the earlier answer; "" for none
+		sameModel    bool
+	}
+	var variants []variant
+	bases := []string{"https://api.deepseek.com/v1", "https://api.z.ai/api/paas/v4", "https://api.together.xyz/v1", "https://api.ant-ling.com/v1", "https://openrouter.ai/api/v1", "https://example.test/v1"}
+	maps := []map[string]*string{nil, {"off": nil}, {"off": str("none-please"), "low": str("light")}}
+	for _, base := range bases {
+		for _, levels := range maps {
+			for _, level := range []string{"", "off", "low", "high"} {
+				variants = append(variants, variant{base: base, levels: levels, level: level})
+			}
+		}
+	}
+	for _, format := range []string{"qwen", "qwen-chat-template", "string-thinking", "zai", "deepseek"} {
+		for _, levels := range maps {
+			for _, level := range []string{"off", "low"} {
+				variants = append(variants, variant{base: "https://example.test/v1", format: format, levels: levels, level: level})
+			}
+		}
+	}
+	for _, field := range []string{"reasoning_content", "reasoning", "reasoning_text"} {
+		for _, base := range []string{"https://example.test/v1", "https://api.deepseek.com/v1"} {
+			variants = append(variants, variant{base: base, level: "low", replay: field, sameModel: true}, variant{base: base, level: "low", replay: field})
+		}
+	}
+	var input []map[string]any
+	for _, v := range variants {
+		piModel := map[string]any{"id": "m1", "name": "m1", "api": "openai-completions", "provider": "custom", "baseUrl": v.base,
+			"reasoning": true, "input": []string{"text"}, "cost": map[string]int{"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0},
+			"contextWindow": 128000, "maxTokens": 4096}
+		if v.levels != nil {
+			piLevels := map[string]any{}
+			for k, value := range v.levels {
+				if value == nil {
+					piLevels[k] = nil
+				} else {
+					piLevels[k] = *value
+				}
+			}
+			piModel["thinkingLevelMap"] = piLevels
+		}
+		if v.format != "" {
+			piModel["compat"] = map[string]any{"thinkingFormat": v.format}
+		}
+		answerModel := "other"
+		if v.sameModel {
+			answerModel = "m1"
+		}
+		thinking := map[string]any{"type": "thinking", "thinking": "let me see"}
+		if v.replay != "" {
+			thinking["thinkingSignature"] = v.replay
+		}
+		messages := []any{
+			map[string]any{"role": "user", "content": "hi", "timestamp": 1},
+			map[string]any{"role": "assistant", "content": []any{thinking, map[string]any{"type": "text", "text": "ok"}},
+				"api": "openai-completions", "provider": "custom", "model": answerModel, "stopReason": "stop", "timestamp": 2,
+				"usage": map[string]any{"input": 1, "output": 1, "cacheRead": 0, "cacheWrite": 0, "totalTokens": 2, "cost": map[string]int{"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "total": 0}}},
+			map[string]any{"role": "user", "content": "more", "timestamp": 3},
+		}
+		// As upstream's generation: no reasoning option for off.
+		options := map[string]any{}
+		if v.level != "" && v.level != "off" {
+			options["reasoning"] = v.level
+		}
+		input = append(input, map[string]any{"model": piModel, "messages": messages, "options": options})
+	}
+	var want []json.RawMessage
+	crosscheck.Run(t, "openaiPayload", input, &want)
+	for i, v := range variants {
+		answer := durable.Message{Role: "assistant", Thinking: "let me see", Content: "ok"}
+		if v.replay != "" {
+			model := "other"
+			if v.sameModel {
+				model = "m1"
+			}
+			answer.ProviderData = json.RawMessage(fmt.Sprintf(`{"format":"openai-completions-v1","provider":"custom","model":%q,"reasoningField":%q}`, model, v.replay))
+		}
+		adapter := OpenAI{BaseURL: v.base, MaxTokens: 4096, Window: 128000, Reasoning: true, ThinkingLevelMap: v.levels, ThinkingFormat: v.format, NoImages: true}
+		got := payloadOf(t, adapter, durable.ModelRequest{Model: durable.ModelRef{Provider: "custom", ID: "m1"}, ThinkingLevel: v.level,
+			Messages: []durable.Message{{Role: "user", Content: "hi"}, answer, {Role: "user", Content: "more"}}})
+		if !crosscheck.Same(got, want[i]) {
+			t.Errorf("variant %d %+v:\n got %s\nwant %s", i, v, got, want[i])
+		}
+	}
+}
