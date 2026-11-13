@@ -188,6 +188,8 @@ make check
 
 Runs formatting checks, `go vet`, unit/integration tests, and the race detector. Tests use fake models, temporary files, and local HTTP servers. No provider credentials or paid calls are required. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
+`make crosscheck` compares the port with upstream's own code, the pinned release's TypeScript sources run with Node, on the same cases. It needs Node 22.6+ and the installed Pi of that version. See [docs/upstream-cross-checks.md](docs/upstream-cross-checks.md).
+
 ## License and provenance
 
 [MIT](LICENSE), the same license as Pi and Pi Durable. The original upstream copyright notice is preserved. See [NOTICE](NOTICE) for the original v1.1.0 port base and current v1.5.2 reference, and [DEPENDENCIES.md](DEPENDENCIES.md) for dependency licenses.

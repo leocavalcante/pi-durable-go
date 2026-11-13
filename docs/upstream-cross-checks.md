@@ -1,17 +1,23 @@
 # Cross-checks against upstream sources
 
-Pure behavior of the port is checked against upstream's own code, run from the pinned sources rather than read. This file records how, what was checked, and what still differs. The checks are one-off scripts, not part of `make check`: they need Node and the upstream sources. Their findings are kept as ordinary Go tests whose expectations are upstream's outputs.
+Pure behavior of the port is checked against upstream's own code, run from the pinned sources rather than read. `make crosscheck` runs them. It is not part of `make check`: it needs Node 22.6+ and the upstream sources. Fixed-expectation Go tests keep the results for `make check` too.
 
-## Running upstream's TypeScript
+## Running
 
-Node 22 strips TypeScript types (`--experimental-strip-types`), so upstream modules run from `src/` as they are:
+```sh
+make crosscheck
+```
 
-1. A sparse clone of the release tag at `/tmp/pi-v1.5.2` (`packages/durable`, `packages/ai`, `packages/chord`).
-2. A `node_modules` directory (`/tmp/durable-nm`) linking the dependencies of the installed Pi 1.5.2 (`~/.pi/agent/install/releases/1.5.2/node_modules`, including `@earendil-works/pi-ai/node_modules`). It is linked as `node_modules` into `packages/durable`, `packages/ai`, and `packages/chord`.
-3. A shim package for `@earendil-works/chord` whose `exports` map each subpath to its `source` entry, `src/*.ts`. Chord's `dist` is not built, and `--conditions=source` would also send installed packages to sources they do not ship.
-4. Unexported functions are reached through a temporary copy of the module with `export` added, for example `prompt.ts`'s `planSections` and `planTools`.
+The target has two steps:
+1. `scripts/crosscheck-setup.sh` prepares `.crosscheck/`, which git ignores. It holds three things:
+   - a sparse checkout of the pinned release tag (`PI_DURABLE_UPSTREAM_TAG`, default `v1.5.2`; `PI_DURABLE_UPSTREAM` names an existing checkout instead);
+   - a `node_modules` linking the dependencies of the installed Pi of the same version (`~/.pi/agent/install/releases/<version>/node_modules`, or `PI_DURABLE_PI_MODULES`);
+   - a shim for `@earendil-works/chord`, whose `dist` is not built, mapping its exports to their TypeScript sources.
 
-A script imports the module (`await import("/tmp/pi-v1.5.2/packages/.../x.ts")`), runs it on a set of cases, and prints JSON. A temporary Go test runs the same cases through the port and compares.
+   The script also writes `prompt.crosscheck.ts`, a copy of upstream's `prompt.ts` with the private `planSections` and `planTools` exported.
+2. The Go tests named `TestCrosscheck*`, built with the `crosscheck` tag, send their cases to `internal/crosscheck/oracle.mts`. The oracle runs upstream's functions with Node's type stripping and returns their results, which the tests compare with the port's. Shared case sets are in `internal/crosscheck/testdata`. Without a prepared checkout (`PI_DURABLE_CROSSCHECK_UPSTREAM`), the tests skip.
+
+For another upstream release, set `PI_DURABLE_UPSTREAM_TAG` with Pi of that version installed. The differences found are what the port has to follow.
 
 ## Checked
 

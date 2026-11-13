@@ -1,0 +1,131 @@
+[
+ {
+  "content": "hello world\nsecond line\nthird\n",
+  "edits": [
+   {
+    "oldText": "second line",
+    "newText": "2nd line"
+   }
+  ]
+ },
+ {
+  "content": "a\nb\nc\nd\ne\nf\ng\nh\ni\nj\nk\nl\nm\n",
+  "edits": [
+   {
+    "oldText": "c",
+    "newText": "C"
+   },
+   {
+    "oldText": "k",
+    "newText": "K\nK2"
+   }
+  ]
+ },
+ {
+  "content": "const s = \u201csmart\u201d;\nnext\n",
+  "edits": [
+   {
+    "oldText": "const s = \"smart\";",
+    "newText": "const s = \"plain\";"
+   }
+  ]
+ },
+ {
+  "content": "x = 1   \ny = 2\n",
+  "edits": [
+   {
+    "oldText": "x = 1\ny = 2",
+    "newText": "x = 3\ny = 4"
+   }
+  ]
+ },
+ {
+  "content": "dash \u2014 here\n",
+  "edits": [
+   {
+    "oldText": "dash - here",
+    "newText": "dash -- here"
+   }
+  ]
+ },
+ {
+  "content": "dup\ndup\n",
+  "edits": [
+   {
+    "oldText": "dup",
+    "newText": "x"
+   }
+  ]
+ },
+ {
+  "content": "abc\n",
+  "edits": [
+   {
+    "oldText": "zzz",
+    "newText": "y"
+   }
+  ]
+ },
+ {
+  "content": "abcdef\n",
+  "edits": [
+   {
+    "oldText": "abc",
+    "newText": "1"
+   },
+   {
+    "oldText": "bcd",
+    "newText": "2"
+   }
+  ]
+ },
+ {
+  "content": "same\n",
+  "edits": [
+   {
+    "oldText": "same",
+    "newText": "same"
+   }
+  ]
+ },
+ {
+  "content": "abc\n",
+  "edits": [
+   {
+    "oldText": "",
+    "newText": "y"
+   }
+  ]
+ },
+ {
+  "content": "line1\nline2\nline3\nline4\nline5\nline6\nline7\nline8\nline9\nline10\nline11\nline12\n",
+  "edits": [
+   {
+    "oldText": "line2\nline3",
+    "newText": "two\nthree\nthree-b"
+   },
+   {
+    "oldText": "line11",
+    "newText": ""
+   }
+  ]
+ },
+ {
+  "content": "no newline at end",
+  "edits": [
+   {
+    "oldText": "end",
+    "newText": "END"
+   }
+  ]
+ },
+ {
+  "content": "tabs\there   \nnbsp\u00a0space\n",
+  "edits": [
+   {
+    "oldText": "nbsp space",
+    "newText": "nb space"
+   }
+  ]
+ }
+]

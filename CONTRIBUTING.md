@@ -3,7 +3,7 @@
 Changes should include focused tests and documentation for any changed contract.
 Keep Go APIs idiomatic and preserve upstream MIT attribution.
 
-Run `make check` before submitting. Tests must not call paid providers, use real
+Run `make check` before submitting, and `make crosscheck` after porting upstream behavior (it compares the port with upstream's own code; see docs/upstream-cross-checks.md). Tests must not call paid providers, use real
 credentials, publish messages, or perform external side effects. Use fake models,
 `httptest`, and temporary directories. Add regression coverage for restart,
 cancellation, ownership, and uncertain storage writes when relevant.

@@ -74,7 +74,7 @@ This adapter has no auth resolution/OAuth, provider catalog, provider-specific c
 - the session ID as `prompt_cache_key` on OpenAI's endpoint, or with long cache retention where supported, which also sends `prompt_cache_retention: "24h"`;
 - with `MaxTokens` (pi-ai's `model.maxTokens`), the output limit as `max_completion_tokens`, or `max_tokens` where pi-ai sends that. It is clamped to fit `Window` with pi-ai's margins.
 
-For one conversation with system sections, images, tools, and tool results, the body matches pi-ai 1.5.2's byte for byte. Responses are read as pi-ai reads them:
+A reasoning model's instructions go out as a `developer` message where the endpoint takes that role, as pi-ai sends them. For a conversation with system sections, images, tools, and tool results, the body equals pi-ai 1.5.2's as JSON, with and without reasoning; `make crosscheck` compares them. Responses are read as pi-ai reads them:
 - usage puts cache reads and writes apart from the input, from whichever field the provider uses;
 - a finish reason other than stop, end, length, or tool calls ends the answer as an error, `Provider finish_reason: <reason>`.
 

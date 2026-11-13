@@ -11,3 +11,4 @@ coverage.out
 .env.*
 !.env.example
 /bin/
+.crosscheck/

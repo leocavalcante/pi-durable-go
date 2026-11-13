@@ -1,0 +1,412 @@
+[
+ {
+  "name": "t",
+  "schema": {
+   "type": "object",
+   "properties": {
+    "m": {
+     "enum": [
+      "a",
+      "b"
+     ]
+    }
+   }
+  },
+  "args": {
+   "m": "c"
+  }
+ },
+ {
+  "name": "t",
+  "schema": {
+   "type": "object",
+   "properties": {
+    "c": {
+     "const": "x"
+    }
+   }
+  },
+  "args": {
+   "c": "y"
+  }
+ },
+ {
+  "name": "t",
+  "schema": {
+   "type": "object",
+   "properties": {
+    "u": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "integer"
+      }
+     ]
+    }
+   }
+  },
+  "args": {
+   "u": [
+    1
+   ]
+  }
+ },
+ {
+  "name": "t",
+  "schema": {
+   "type": "object",
+   "properties": {
+    "o": {
+     "oneOf": [
+      {
+       "type": "integer"
+      },
+      {
+       "type": "number"
+      }
+     ]
+    }
+   }
+  },
+  "args": {
+   "o": 5
+  }
+ },
+ {
+  "name": "t",
+  "schema": {
+   "type": "object",
+   "properties": {
+    "p": {
+     "type": "string",
+     "pattern": "^a+$",
+     "minLength": 3
+    }
+   }
+  },
+  "args": {
+   "p": "b"
+  }
+ },
+ {
+  "name": "t",
+  "schema": {
+   "type": "object",
+   "properties": {
+    "n": {
+     "type": "number",
+     "maximum": 2.5,
+     "multipleOf": 0.5
+    }
+   }
+  },
+  "args": {
+   "n": 3.2
+  }
+ },
+ {
+  "name": "t",
+  "schema": {
+   "type": "object",
+   "properties": {
+    "list": {
+     "type": "array",
+     "maxItems": 1,
+     "uniqueItems": true
+    }
+   }
+  },
+  "args": {
+   "list": [
+    1,
+    1
+   ]
+  }
+ },
+ {
+  "name": "t",
+  "schema": {
+   "type": "object",
+   "properties": {
+    "o": {
+     "type": "object",
+     "properties": {
+      "k": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "k",
+      "j"
+     ]
+    }
+   }
+  },
+  "args": {
+   "o": {}
+  }
+ },
+ {
+  "name": "t",
+  "schema": {
+   "type": "object",
+   "properties": {
+    "x": false
+   }
+  },
+  "args": {
+   "x": 1
+  }
+ },
+ {
+  "name": "t",
+  "schema": {
+   "type": "object",
+   "properties": {
+    "x": {
+     "not": {
+      "type": "string"
+     }
+    }
+   }
+  },
+  "args": {
+   "x": "s"
+  }
+ },
+ {
+  "name": "t",
+  "schema": {
+   "type": "object",
+   "properties": {
+    "t": {
+     "type": [
+      "string",
+      "null"
+     ]
+    }
+   }
+  },
+  "args": {
+   "t": {
+    "a": 1
+   }
+  }
+ },
+ {
+  "name": "t",
+  "schema": {
+   "type": "object",
+   "properties": {
+    "n": {
+     "type": "integer",
+     "exclusiveMinimum": 0
+    }
+   }
+  },
+  "args": {
+   "n": 0
+  }
+ },
+ {
+  "name": "t",
+  "schema": {
+   "type": "object",
+   "properties": {
+    "n": {
+     "type": "string"
+    }
+   }
+  },
+  "args": {
+   "n": [
+    1,
+    2
+   ]
+  }
+ },
+ {
+  "name": "t",
+  "schema": {
+   "type": "object",
+   "minProperties": 2
+  },
+  "args": {
+   "a": 1
+  }
+ },
+ {
+  "name": "t",
+  "schema": {
+   "type": "object",
+   "properties": {
+    "shape": {
+     "oneOf": [
+      {
+       "type": "object",
+       "properties": {
+        "kind": {
+         "const": "circle"
+        },
+        "r": {
+         "type": "number"
+        }
+       },
+       "required": [
+        "kind",
+        "r"
+       ]
+      },
+      {
+       "type": "object",
+       "properties": {
+        "kind": {
+         "const": "square"
+        },
+        "side": {
+         "type": "number"
+        }
+       },
+       "required": [
+        "kind",
+        "side"
+       ]
+      }
+     ]
+    }
+   }
+  },
+  "args": {
+   "shape": {
+    "kind": "square",
+    "side": "big"
+   }
+  }
+ },
+ {
+  "name": "t",
+  "schema": {
+   "type": "object",
+   "properties": {
+    "shape": {
+     "oneOf": [
+      {
+       "type": "object",
+       "properties": {
+        "kind": {
+         "const": "circle"
+        },
+        "r": {
+         "type": "number"
+        }
+       },
+       "required": [
+        "kind",
+        "r"
+       ]
+      },
+      {
+       "type": "object",
+       "properties": {
+        "kind": {
+         "const": "square"
+        },
+        "side": {
+         "type": "number"
+        }
+       },
+       "required": [
+        "kind",
+        "side"
+       ]
+      }
+     ]
+    }
+   }
+  },
+  "args": {
+   "shape": {
+    "kind": "triangle"
+   }
+  }
+ },
+ {
+  "name": "t",
+  "schema": {
+   "type": "object",
+   "properties": {
+    "v": {
+     "anyOf": [
+      {
+       "type": "object",
+       "properties": {
+        "a": {
+         "type": "integer"
+        },
+        "b": {
+         "type": "integer"
+        }
+       },
+       "required": [
+        "a",
+        "b"
+       ]
+      },
+      {
+       "type": "object",
+       "properties": {
+        "c": {
+         "type": "string"
+        }
+       },
+       "required": [
+        "c"
+       ]
+      }
+     ]
+    }
+   }
+  },
+  "args": {
+   "v": {
+    "a": 1,
+    "b": "x"
+   }
+  }
+ },
+ {
+  "name": "t",
+  "schema": {
+   "type": "object",
+   "properties": {
+    "v": {
+     "anyOf": [
+      {
+       "type": "array",
+       "items": {
+        "type": "object",
+        "properties": {
+         "deep": {
+          "type": "integer"
+         }
+        }
+       }
+      },
+      {
+       "type": "string"
+      }
+     ]
+    }
+   }
+  },
+  "args": {
+   "v": [
+    {
+     "deep": "x"
+    }
+   ]
+  }
+ }
+]
