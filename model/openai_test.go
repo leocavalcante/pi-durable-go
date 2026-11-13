@@ -292,3 +292,84 @@ func TestOpenAIMalformedArgumentsAreTheModels(t *testing.T) {
 		t.Fatalf("tool calls=%+v", got.ToolCalls)
 	}
 }
+
+// Thinking formats as pi-ai's openai-completions sends them (expectations
+// from TestCrosscheckOpenAIThinkingFormats).
+func TestOpenAIThinkingFormatsArePiAis(t *testing.T) {
+	str := func(s string) *string { return &s }
+	for _, c := range []struct {
+		adapter OpenAI
+		level   string
+		want    map[string]any
+	}{
+		{OpenAI{BaseURL: "https://api.deepseek.com/v1", Reasoning: true}, "low", map[string]any{"thinking": map[string]any{"type": "enabled"}, "reasoning_effort": "low"}},
+		{OpenAI{BaseURL: "https://api.deepseek.com/v1", Reasoning: true}, "", map[string]any{"thinking": map[string]any{"type": "disabled"}}},
+		{OpenAI{BaseURL: "https://api.z.ai/api/paas/v4", Reasoning: true}, "high", map[string]any{"thinking": map[string]any{"type": "enabled", "clear_thinking": false}}},
+		{OpenAI{BaseURL: "https://api.together.xyz/v1", Reasoning: true}, "off", map[string]any{"reasoning": map[string]any{"enabled": false}}},
+		{OpenAI{BaseURL: "https://openrouter.ai/api/v1", Reasoning: true}, "", map[string]any{"reasoning": map[string]any{"effort": "none"}}},
+		{OpenAI{BaseURL: "https://openrouter.ai/api/v1", Reasoning: true, ThinkingLevelMap: map[string]*string{"low": str("light")}}, "low", map[string]any{"reasoning": map[string]any{"effort": "light"}}},
+		{OpenAI{BaseURL: "https://api.ant-ling.com/v1", Reasoning: true, ThinkingLevelMap: map[string]*string{"low": str("light")}}, "low", map[string]any{"reasoning": map[string]any{"effort": "light"}}},
+		{OpenAI{BaseURL: "https://example.test/v1", Reasoning: true, ThinkingFormat: "qwen"}, "low", map[string]any{"enable_thinking": true, "reasoning_effort": "low"}},
+		{OpenAI{BaseURL: "https://example.test/v1", Reasoning: true, ThinkingFormat: "qwen-chat-template"}, "", map[string]any{"chat_template_kwargs": map[string]any{"enable_thinking": false, "preserve_thinking": true}}},
+		{OpenAI{BaseURL: "https://example.test/v1", Reasoning: true, ThinkingFormat: "string-thinking"}, "high", map[string]any{"thinking": "high"}},
+	} {
+		body := sentPayload(t, c.adapter, durable.ModelRequest{Model: durable.ModelRef{Provider: "custom", ID: "m1"}, ThinkingLevel: c.level, Messages: []durable.Message{{Role: "user", Content: "hi"}}})
+		for key, want := range c.want {
+			if !reflect.DeepEqual(body[key], want) {
+				t.Errorf("%s %+v level %q: %s=%v, want %v", c.adapter.BaseURL, c.adapter.ThinkingFormat, c.level, key, body[key], want)
+			}
+		}
+		for _, key := range []string{"thinking", "reasoning", "reasoning_effort", "enable_thinking", "chat_template_kwargs"} {
+			if _, wanted := c.want[key]; !wanted && body[key] != nil {
+				t.Errorf("%s %+v level %q: unexpected %s=%v", c.adapter.BaseURL, c.adapter.ThinkingFormat, c.level, key, body[key])
+			}
+		}
+	}
+}
+
+// An answer's thinking goes back in the field it came in, to the model that
+// gave it only; DeepSeek gets an empty reasoning_content otherwise (pi-ai).
+func TestOpenAIReplaysThinkingToTheSameModel(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte(`data: {"choices":[{"delta":{"reasoning":"weighing"}}]}` + "\n\n"))
+		_, _ = w.Write([]byte(`data: {"choices":[{"delta":{"content":"done"},"finish_reason":"stop"}]}` + "\n\ndata: [DONE]\n\n"))
+	}))
+	defer server.Close()
+	ref := durable.ModelRef{Provider: "custom", ID: "m1"}
+	answer, err := OpenAI{BaseURL: server.URL + "/v1"}.Generate(context.Background(), durable.ModelRequest{Model: ref, Messages: []durable.Message{{Role: "user", Content: "hi"}}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	history := []durable.Message{{Role: "user", Content: "hi"}, {Role: "assistant", Thinking: answer.Thinking, Content: answer.Content, ProviderData: answer.ProviderData}, {Role: "user", Content: "more"}}
+	assistant := func(m OpenAI, ref durable.ModelRef) map[string]any {
+		body := sentPayload(t, m, durable.ModelRequest{Model: ref, Messages: history})
+		return body["messages"].([]any)[1].(map[string]any)
+	}
+	if got := assistant(OpenAI{BaseURL: "https://example.test/v1"}, ref); got["reasoning"] != "weighing" {
+		t.Fatalf("same model: %v", got)
+	}
+	if got := assistant(OpenAI{BaseURL: "https://example.test/v1"}, durable.ModelRef{Provider: "custom", ID: "m2"}); got["reasoning"] != nil {
+		t.Fatalf("another model: %v", got)
+	}
+	if got := assistant(OpenAI{BaseURL: "https://api.deepseek.com/v1", Reasoning: true}, durable.ModelRef{Provider: "custom", ID: "m2"}); got["reasoning_content"] != "" {
+		t.Fatalf("deepseek: %v", got)
+	}
+}
+
+// sentPayload is the body m sends for req, decoded.
+func sentPayload(t *testing.T, m OpenAI, req durable.ModelRequest) map[string]any {
+	t.Helper()
+	var body map[string]any
+	req.OnPayload = func(_ context.Context, _ string, payload json.RawMessage) (json.RawMessage, error) {
+		if err := json.Unmarshal(payload, &body); err != nil {
+			t.Fatal(err)
+		}
+		return nil, errors.New("captured")
+	}
+	_, _ = m.Generate(context.Background(), req, nil)
+	if body == nil {
+		t.Fatal("no request body")
+	}
+	return body
+}

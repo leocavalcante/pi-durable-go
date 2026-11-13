@@ -49,8 +49,15 @@ type OpenAI struct {
 	MaxTokens int
 	// Reasoning marks a reasoning model (pi-ai model.reasoning): the
 	// request's thinking level, clamped to the levels it supports, is sent
-	// as reasoning_effort (pi-ai's OpenAI-style format).
+	// in the endpoint's thinking format.
 	Reasoning bool
+	// ThinkingFormat is pi-ai's compat.thinkingFormat: how a reasoning
+	// model's thinking level is sent. Empty detects it from BaseURL as
+	// pi-ai does: deepseek (DeepSeek), zai (Z.ai), together (Together),
+	// ant-ling (Ant Ling), openrouter (OpenRouter), and otherwise openai
+	// (reasoning_effort). qwen, qwen-chat-template, and string-thinking are
+	// set explicitly; chat-template and baseten are not ported.
+	ThinkingFormat string
 	// ThinkingLevelMap is pi-ai's model.thinkingLevelMap: the value sent
 	// for a level, nil for a level the model does not support; a level it
 	// does not name is sent as it is, except xhigh and max, which a model
@@ -202,6 +209,9 @@ func (o OpenAI) GenerateEvents(ctx context.Context, req durable.ModelRequest, on
 			}
 			msg.ToolCalls = append(msg.ToolCalls, openAIToolCall{ID: call.ID, Type: "function", Function: openAIFunction{Name: call.Name, Arguments: string(args)}})
 		}
+		if role == "assistant" {
+			o.replayThinking(&msg, m, req.Model)
+		}
 		payload.Messages = append(payload.Messages, msg)
 	}
 	flushToolImages()
@@ -305,7 +315,7 @@ func (o OpenAI) GenerateEvents(ctx context.Context, req durable.ModelRequest, on
 		maxBytes = defaultMaxResponseBytes
 	}
 	limited := &limitedReader{r: resp.Body, remaining: maxBytes}
-	response, err := parseSSE(ctx, limited, onEvent, req.Model.Provider)
+	response, err := parseSSE(ctx, limited, onEvent, req.Model)
 	if err != nil {
 		return durable.ModelResponse{}, err
 	}
@@ -321,9 +331,14 @@ type openAIRequest struct {
 	StreamOptions        *streamOptions  `json:"stream_options,omitempty"`
 	Store                *bool           `json:"store,omitempty"`
 	ReasoningEffort      string          `json:"reasoning_effort,omitempty"`
-	MaxCompletionTokens  int             `json:"max_completion_tokens,omitempty"`
-	MaxTokens            int             `json:"max_tokens,omitempty"`
-	Tools                []openAITool    `json:"tools,omitempty"`
+	// Thinking formats other than reasoning_effort (pi-ai thinkingFormat).
+	Thinking            any          `json:"thinking,omitempty"`
+	EnableThinking      *bool        `json:"enable_thinking,omitempty"`
+	ChatTemplateKwargs  any          `json:"chat_template_kwargs,omitempty"`
+	Reasoning           any          `json:"reasoning,omitempty"`
+	MaxCompletionTokens int          `json:"max_completion_tokens,omitempty"`
+	MaxTokens           int          `json:"max_tokens,omitempty"`
+	Tools               []openAITool `json:"tools,omitempty"`
 }
 type streamOptions struct {
 	IncludeUsage bool `json:"include_usage"`
@@ -334,6 +349,11 @@ type openAIMessage struct {
 	Content    any              `json:"content,omitempty"`
 	ToolCallID string           `json:"tool_call_id,omitempty"`
 	ToolCalls  []openAIToolCall `json:"tool_calls,omitempty"`
+	// An assistant message's thinking, replayed in the field it came in
+	// (pi-ai keeps it for the same model only).
+	ReasoningContent *string `json:"reasoning_content,omitempty"`
+	Reasoning        *string `json:"reasoning,omitempty"`
+	ReasoningText    *string `json:"reasoning_text,omitempty"`
 }
 type openAIContentPart struct {
 	Type     string          `json:"type"`
@@ -430,8 +450,11 @@ type streamTool struct {
 	arguments strings.Builder
 }
 
-func parseSSE(ctx context.Context, r io.Reader, onEvent func(durable.StreamEvent) error, provider string) (durable.ModelResponse, error) {
+func parseSSE(ctx context.Context, r io.Reader, onEvent func(durable.StreamEvent) error, model durable.ModelRef) (durable.ModelResponse, error) {
+	provider := model.Provider
 	response := durable.ModelResponse{}
+	// The field the thinking came in, for replaying it to the same model.
+	reasoningField := ""
 	tools := map[int]*streamTool{}
 	emit := func(event durable.StreamEvent) error {
 		if onEvent == nil {
@@ -500,14 +523,17 @@ func parseSSE(ctx context.Context, r io.Reader, onEvent func(durable.StreamEvent
 			}
 			// Reasoning before content: a proxy can send both in one delta,
 			// and the thinking comes first.
-			reasoning := choice.Delta.ReasoningContent
+			reasoning, field := choice.Delta.ReasoningContent, "reasoning_content"
 			if reasoning == "" {
-				reasoning = choice.Delta.Reasoning
+				reasoning, field = choice.Delta.Reasoning, "reasoning"
 			}
 			if reasoning == "" {
-				reasoning = choice.Delta.ReasoningText
+				reasoning, field = choice.Delta.ReasoningText, "reasoning_text"
 			}
 			if reasoning != "" {
+				if reasoningField == "" {
+					reasoningField = field
+				}
 				if thinkingIndex < 0 {
 					thinkingIndex, blocks = blocks, blocks+1
 				}
@@ -622,6 +648,9 @@ func parseSSE(ctx context.Context, r io.Reader, onEvent func(durable.StreamEvent
 		args, argumentsError := durable.ParseToolCallArguments(t.arguments.String())
 		response.ToolCalls = append(response.ToolCalls, durable.ToolCall{ID: t.id, Name: t.name, Arguments: args, ArgumentsError: argumentsError})
 	}
+	if response.Thinking != "" {
+		response.ProviderData, _ = json.Marshal(openAIReplay{Format: openAIReplayFormat, Provider: model.Provider, Model: model.ID, ReasoningField: reasoningField})
+	}
 	if finishError != "" {
 		return response, classifiedError(finishError, finishError, provider)
 	}
@@ -716,23 +745,168 @@ func (o OpenAI) compatFields(payload *openAIRequest, req durable.ModelRequest) {
 	if retention == "long" && longSupported {
 		payload.PromptCacheRetention = "24h"
 	}
-	// OpenAI-style reasoning_effort (pi-ai's default thinking format).
+	// The thinking level, in the endpoint's thinking format.
 	supportsEffort := !(has("api.x.ai") || zai || moonshot || together || cloudflareGateway || nvidia || antLing)
-	if o.Reasoning && supportsEffort {
-		if level := o.clampThinkingLevel(req.ThinkingLevel); level != "off" {
-			payload.ReasoningEffort = level
-			if mapped, ok := o.ThinkingLevelMap[level]; ok && mapped != nil {
-				payload.ReasoningEffort = *mapped
-			}
-		} else if off, ok := o.ThinkingLevelMap["off"]; ok && off != nil {
-			payload.ReasoningEffort = *off
-		}
+	// The Harness sends no reasoning option for off (upstream generation),
+	// so off is never clamped to a level the model supports.
+	level := req.ThinkingLevel
+	if level != "" && level != "off" {
+		level = o.clampThinkingLevel(level)
 	}
+	o.thinkingFields(payload, level, supportsEffort)
 	if n := o.outputLimit(req.Messages); n > 0 {
 		if deepSeek || has("chutes.ai") || moonshot || cloudflareGateway || together || nvidia || antLing || zai {
 			payload.MaxTokens = n
 		} else {
 			payload.MaxCompletionTokens = n
+		}
+	}
+}
+
+// openAIReplay is the ProviderData model.OpenAI stores on an answer with
+// thinking: the model that gave it, and the field the thinking came in.
+type openAIReplay struct {
+	Format         string `json:"format"`
+	Provider       string `json:"provider"`
+	Model          string `json:"model"`
+	ReasoningField string `json:"reasoningField,omitempty"`
+}
+
+const openAIReplayFormat = "openai-completions-v1"
+
+// replayThinking sends an assistant message's thinking back in the field it
+// came in, only to the model that gave it (pi-ai transformMessages drops
+// another model's thinking, and unsigned thinking is not sent). DeepSeek
+// requires reasoning_content on a reasoning model's assistant messages.
+func (o OpenAI) replayThinking(msg *openAIMessage, m durable.Message, model durable.ModelRef) {
+	var replay openAIReplay
+	if strings.TrimSpace(m.Thinking) != "" && json.Unmarshal(m.ProviderData, &replay) == nil &&
+		replay.Format == openAIReplayFormat && replay.Provider == model.Provider && replay.Model == model.ID {
+		thinking := m.Thinking
+		switch replay.ReasoningField {
+		case "reasoning_content":
+			msg.ReasoningContent = &thinking
+		case "reasoning":
+			msg.Reasoning = &thinking
+		case "reasoning_text":
+			msg.ReasoningText = &thinking
+		}
+	}
+	if o.Reasoning && msg.ReasoningContent == nil && o.thinkingFormat() == "deepseek" && strings.Contains(strings.ToLower(o.baseURL()), "deepseek.com") {
+		empty := ""
+		msg.ReasoningContent = &empty
+	}
+}
+
+func (o OpenAI) baseURL() string {
+	if o.BaseURL == "" {
+		return "https://api.openai.com/v1"
+	}
+	return o.BaseURL
+}
+
+// thinkingFormat is ThinkingFormat, or the one pi-ai detects from the URL.
+func (o OpenAI) thinkingFormat() string {
+	if o.ThinkingFormat != "" {
+		return o.ThinkingFormat
+	}
+	base := o.baseURL()
+	switch {
+	case strings.Contains(strings.ToLower(base), "deepseek.com"):
+		return "deepseek"
+	case strings.Contains(base, "api.z.ai") || strings.Contains(base, "open.bigmodel.cn"):
+		return "zai"
+	case strings.Contains(base, "api.together.ai") || strings.Contains(base, "api.together.xyz"):
+		return "together"
+	case strings.Contains(base, "api.ant-ling.com"):
+		return "ant-ling"
+	case strings.Contains(base, "openrouter.ai"):
+		return "openrouter"
+	}
+	return "openai"
+}
+
+// thinkingFields sends the thinking level in the format's fields, as
+// pi-ai's openai-completions buildParams does for a reasoning model.
+func (o OpenAI) thinkingFields(payload *openAIRequest, level string, supportsEffort bool) {
+	if !o.Reasoning {
+		return
+	}
+	effort := ""
+	if level != "off" && level != "" {
+		effort = level
+	}
+	// mapped is thinkingLevelMap[effort] ?? effort.
+	mapped := func(level string) string {
+		if value, ok := o.ThinkingLevelMap[level]; ok && value != nil {
+			return *value
+		}
+		return level
+	}
+	// offValue is thinkingLevelMap.off: absent, null, or a string.
+	offValue, offNamed := o.ThinkingLevelMap["off"]
+	offNull := offNamed && offValue == nil
+	switch o.thinkingFormat() {
+	case "zai":
+		if effort != "" {
+			payload.Thinking = map[string]any{"type": "enabled", "clear_thinking": false}
+			if value, named := o.ThinkingLevelMap[effort]; supportsEffort && !(named && value == nil) {
+				payload.ReasoningEffort = mapped(effort)
+			}
+		} else {
+			payload.Thinking = map[string]any{"type": "disabled"}
+		}
+	case "qwen":
+		on := effort != ""
+		payload.EnableThinking = &on
+		if on && supportsEffort {
+			payload.ReasoningEffort = mapped(effort)
+		}
+	case "qwen-chat-template":
+		payload.ChatTemplateKwargs = map[string]any{"enable_thinking": effort != "", "preserve_thinking": true}
+	case "deepseek":
+		if effort != "" {
+			payload.Thinking = map[string]any{"type": "enabled"}
+		} else if !offNull {
+			payload.Thinking = map[string]any{"type": "disabled"}
+		}
+		if effort != "" && supportsEffort {
+			payload.ReasoningEffort = mapped(effort)
+		}
+	case "openrouter":
+		if effort != "" {
+			payload.Reasoning = map[string]any{"effort": mapped(effort)}
+		} else if !offNull {
+			off := "none"
+			if offValue != nil {
+				off = *offValue
+			}
+			payload.Reasoning = map[string]any{"effort": off}
+		}
+	case "ant-ling":
+		if value, ok := o.ThinkingLevelMap[effort]; effort != "" && ok && value != nil {
+			payload.Reasoning = map[string]any{"effort": *value}
+		}
+	case "together":
+		payload.Reasoning = map[string]any{"enabled": effort != ""}
+		if effort != "" && supportsEffort {
+			payload.ReasoningEffort = mapped(effort)
+		}
+	case "string-thinking":
+		if effort != "" {
+			payload.Thinking = mapped(effort)
+		} else if !offNull {
+			off := "none"
+			if offValue != nil {
+				off = *offValue
+			}
+			payload.Thinking = off
+		}
+	default:
+		if effort != "" && supportsEffort {
+			payload.ReasoningEffort = mapped(effort)
+		} else if effort == "" && supportsEffort && offValue != nil {
+			payload.ReasoningEffort = *offValue
 		}
 	}
 }
