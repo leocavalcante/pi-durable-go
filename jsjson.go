@@ -3,11 +3,13 @@ package durable
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"math"
 	"sort"
 	"strconv"
 	"strings"
+	"unicode/utf16"
 	"unicode/utf8"
 )
 
@@ -168,6 +170,12 @@ func writeJS(out *strings.Builder, value any) {
 func writeJSString(out *strings.Builder, s string) {
 	out.WriteByte('"')
 	for i := 0; i < len(s); {
+		// A lone surrogate (wtf8String) is escaped, as JSON.stringify does.
+		if s[i] == 0xED && i+2 < len(s) && s[i+1] >= 0xA0 && s[i+1] <= 0xBF {
+			fmt.Fprintf(out, `\u%04x`, 0xD000|uint16(s[i+1]&0x3F)<<6|uint16(s[i+2]&0x3F))
+			i += 3
+			continue
+		}
 		r, size := utf8.DecodeRuneInString(s[i:])
 		i += size
 		switch r {
@@ -251,4 +259,24 @@ func writeJSIndent(out *strings.Builder, value any, indent string) {
 	default:
 		writeJS(out, value)
 	}
+}
+
+// wtf8String is JavaScript string text as a Go string: surrogate pairs
+// become their characters, and a lone surrogate keeps its three-byte
+// encoding (WTF-8), which writeJSString escapes as JSON.stringify does.
+func wtf8String(units []uint16) string {
+	var b strings.Builder
+	for i := 0; i < len(units); i++ {
+		u := units[i]
+		switch {
+		case utf16.IsSurrogate(rune(u)) && u < 0xDC00 && i+1 < len(units) && units[i+1] >= 0xDC00 && units[i+1] <= 0xDFFF:
+			b.WriteRune(utf16.DecodeRune(rune(u), rune(units[i+1])))
+			i++
+		case utf16.IsSurrogate(rune(u)):
+			b.Write([]byte{0xE0 | byte(u>>12), 0x80 | byte(u>>6)&0x3F, 0x80 | byte(u)&0x3F})
+		default:
+			b.WriteRune(rune(u))
+		}
+	}
+	return b.String()
 }

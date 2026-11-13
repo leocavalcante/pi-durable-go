@@ -7,9 +7,11 @@ import (
 	"time"
 )
 
-func TestParsePartialJSONFollowsTheStreamingRules(t *testing.T) {
+// Expectations are pi-ai 1.5.2's ToolCallArgumentsStream readings of the
+// same texts (TestCrosscheckStreamedArguments compares more).
+func TestPartialArgumentsFollowTheStreamingRules(t *testing.T) {
 	for _, tc := range []struct{ in, want string }{
-		{``, ``},
+		{``, `{}`},
 		{`{`, `{}`},
 		{`{"pa`, `{}`},
 		{`{"path"`, `{}`},
@@ -18,12 +20,12 @@ func TestParsePartialJSONFollowsTheStreamingRules(t *testing.T) {
 		{`{"path": "a\`, `{"path":"a"}`},
 		{`{"path": "a\u00`, `{"path":"a"}`},
 		{`{"path": "a\u00e9`, `{"path":"aé"}`},
-		{`{"path": "\ud83d`, `{"path":""}`},
+		{`{"path": "\ud83d`, `{"path":"\ud83d"}`},
 		{`{"path": "\ud83d\ude00"`, `{"path":"😀"}`},
 		{`{"path": "a\d"}`, `{"path":"a\\d"}`},
 		{`{"n": 12`, `{"n":12}`},
 		{`{"n": -`, `{}`},
-		{`{"n": 1.`, `{"n":1}`},
+		{`{"n": 1.`, `{}`},
 		{`{"n": 1e`, `{"n":1}`},
 		{`{"ok": tr`, `{"ok":true}`},
 		{`{"ok": nul`, `{"ok":null}`},
@@ -34,14 +36,16 @@ func TestParsePartialJSONFollowsTheStreamingRules(t *testing.T) {
 		{`{"a" 1}`, `{"a":1}`},
 		{`{"a": 1} trailing`, `{"a":1}`},
 		{`{"html": "<b>&</b>"}`, `{"html":"<b>&</b>"}`},
+		{`[1, 2`, `{}`},
+		{`{"n": 01`, `{}`},
+		{`}{"a": 1`, `{"a":1}`},
+		{`{"n": -0`, `{"n":0}`},
+		{`{"n": 1e5}`, `{"n":100000}`},
+		{`{"2": "b", "1": "a"`, `{"1":"a","2":"b"}`},
 	} {
-		got, _ := parsePartialJSON(tc.in)
-		if string(got) != tc.want {
-			t.Errorf("parsePartialJSON(%q)=%s, want %s", tc.in, got, tc.want)
+		if got := partialArguments(tc.in); string(got) != tc.want {
+			t.Errorf("partialArguments(%q)=%s, want %s", tc.in, got, tc.want)
 		}
-	}
-	if got := partialArguments(`[1, 2`); string(got) != `{}` {
-		t.Errorf("a non-object root=%s", got)
 	}
 }
 
