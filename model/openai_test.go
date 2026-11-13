@@ -238,3 +238,37 @@ func TestOpenAIUsageAndStopReasonsArePiAis(t *testing.T) {
 		t.Fatalf("end: %+v error=%v", response, err)
 	}
 }
+
+// A reasoning model's instructions are a developer message where pi-ai
+// sends one.
+func TestOpenAIInstructionRoleIsPiAis(t *testing.T) {
+	rules := "rules"
+	for _, c := range []struct {
+		adapter OpenAI
+		model   string
+		role    string
+	}{
+		{OpenAI{BaseURL: "https://api.openai.com/v1"}, "m", "system"},
+		{OpenAI{BaseURL: "https://api.openai.com/v1", Reasoning: true}, "m", "developer"},
+		{OpenAI{Reasoning: true}, "m", "developer"},
+		{OpenAI{BaseURL: "https://api.deepseek.com/v1", Reasoning: true}, "m", "system"},
+		{OpenAI{BaseURL: "https://openrouter.ai/api/v1", Reasoning: true}, "meta/llama", "system"},
+		{OpenAI{BaseURL: "https://openrouter.ai/api/v1", Reasoning: true}, "openai/o3", "developer"},
+	} {
+		var role string
+		_, _ = c.adapter.Generate(context.Background(), durable.ModelRequest{Model: durable.ModelRef{ID: c.model}, Messages: []durable.Message{{Role: "system", Sections: []durable.SystemSection{{Name: "rules", Text: &rules}}}, {Role: "user", Content: "hi"}},
+			OnPayload: func(_ context.Context, _ string, payload json.RawMessage) (json.RawMessage, error) {
+				var body struct {
+					Messages []struct {
+						Role string `json:"role"`
+					} `json:"messages"`
+				}
+				_ = json.Unmarshal(payload, &body)
+				role = body.Messages[0].Role
+				return nil, errors.New("captured")
+			}}, nil)
+		if role != c.role {
+			t.Errorf("%s %s: %s, want %s", c.adapter.BaseURL, c.model, role, c.role)
+		}
+	}
+}

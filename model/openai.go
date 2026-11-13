@@ -115,12 +115,19 @@ func (o OpenAI) GenerateEvents(ctx context.Context, req durable.ModelRequest, on
 	if durable.HasToolChanges(req.Messages) {
 		tools = durable.CurrentTools(req.Messages)
 	}
+	// pi-ai sends a reasoning model's instructions as a developer message
+	// where the endpoint takes that role.
+	instructionRole := "system"
+	if o.Reasoning && o.supportsDeveloperRole(req.Model.ID) {
+		instructionRole = "developer"
+	}
 	for _, m := range messages {
 		if m.Role == "system" {
 			m.Content = durable.SystemText(m)
 			if m.Content == "" {
 				continue
 			}
+			m.Role = instructionRole
 		}
 		role := m.Role
 		switch role {
@@ -231,10 +238,14 @@ func (o OpenAI) GenerateEvents(ctx context.Context, req durable.ModelRequest, on
 			payload.Tools = append(payload.Tools, openAITool{Type: "function", Function: definition})
 		}
 	}
-	body, err := json.Marshal(payload)
-	if err != nil {
+	// Written as JSON.stringify writes it: <, >, and & as they are.
+	var encoded bytes.Buffer
+	encoder := json.NewEncoder(&encoded)
+	encoder.SetEscapeHTML(false)
+	if err := encoder.Encode(payload); err != nil {
 		return durable.ModelResponse{}, sanitizedError("cannot encode model request", false)
 	}
+	body := bytes.TrimSuffix(encoded.Bytes(), []byte("\n"))
 	// Hooks see the body as built, in pi-ai's API name for this format.
 	if req.OnPayload != nil {
 		replaced, err := req.OnPayload(ctx, "openai-completions", body)
@@ -668,6 +679,9 @@ func userAgent(identity *durable.ClientIdentity) string {
 // long retention where supported), and the output limit.
 func (o OpenAI) compatFields(payload *openAIRequest, req durable.ModelRequest) {
 	base := o.BaseURL
+	if base == "" {
+		base = "https://api.openai.com/v1"
+	}
 	has := func(parts ...string) bool {
 		for _, part := range parts {
 			if strings.Contains(base, part) {
@@ -681,8 +695,7 @@ func (o OpenAI) compatFields(payload *openAIRequest, req durable.ModelRequest) {
 	nvidia, antLing := has("integrate.api.nvidia.com"), has("api.ant-ling.com")
 	cloudflareWorkers, cloudflareGateway := has("api.cloudflare.com"), has("gateway.ai.cloudflare.com")
 	zai, moonshot := has("api.z.ai", "open.bigmodel.cn"), has("api.moonshot.")
-	nonStandard := nvidia || has("cerebras.ai", "api.x.ai", "chutes.ai", "opencode.ai") || together || deepSeek || zai || moonshot || cloudflareWorkers || cloudflareGateway || antLing
-	if !nonStandard {
+	if !nonStandardEndpoint(base) {
 		off := false
 		payload.Store = &off
 	}
@@ -799,4 +812,30 @@ func (o OpenAI) clampThinkingLevel(level string) string {
 		}
 	}
 	return first
+}
+
+// supportsDeveloperRole is pi-ai's detected compat.supportsDeveloperRole:
+// standard endpoints other than OpenRouter, and OpenRouter for Anthropic and
+// OpenAI models.
+func (o OpenAI) supportsDeveloperRole(modelID string) bool {
+	base := o.BaseURL
+	if base == "" {
+		base = "https://api.openai.com/v1"
+	}
+	if strings.Contains(base, "openrouter.ai") {
+		return strings.HasPrefix(modelID, "anthropic/") || strings.HasPrefix(modelID, "openai/")
+	}
+	return !nonStandardEndpoint(base)
+}
+
+// nonStandardEndpoint is pi-ai's isNonStandard: endpoints that take no store
+// field or developer role.
+func nonStandardEndpoint(base string) bool {
+	for _, part := range []string{"integrate.api.nvidia.com", "cerebras.ai", "api.x.ai", "api.together.ai", "api.together.xyz", "chutes.ai",
+		"api.z.ai", "open.bigmodel.cn", "api.moonshot.", "opencode.ai", "api.cloudflare.com", "gateway.ai.cloudflare.com", "api.ant-ling.com"} {
+		if strings.Contains(base, part) {
+			return true
+		}
+	}
+	return strings.Contains(strings.ToLower(base), "deepseek.com")
 }
