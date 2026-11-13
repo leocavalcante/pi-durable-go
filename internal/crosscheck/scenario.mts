@@ -169,8 +169,20 @@ export async function runScenario(
 				const text = result.repeat ? result.repeat.text.repeat(result.repeat.times) : result.text;
 				const images = (result.images ?? []).map((image: any) => ({ type: "image", data: image.data, mimeType: image.mimeType }));
 				const output = [...(text === undefined ? [] : [{ type: "text", text }]), ...images];
+				const usage =
+					result.usage === undefined
+						? undefined
+						: {
+								input: result.usage.input ?? 0,
+								output: result.usage.output ?? 0,
+								cacheRead: 0,
+								cacheWrite: 0,
+								totalTokens: (result.usage.input ?? 0) + (result.usage.output ?? 0),
+								cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+							};
 				return {
 					...(output.length > 0 ? { output } : {}),
+					...(usage === undefined ? {} : { usage }),
 					...(result.isError ? { isError: true } : {}),
 					...(result.diagnostics !== undefined ? { diagnostics: result.diagnostics } : {}),
 					...(Object.keys(control).length > 0 ? { control } : {}),
@@ -366,6 +378,13 @@ export async function runScenario(
 		}));
 	};
 	const transcript = await transcriptOf(root);
+	// The root's usage ledger: tokens per model and per tool, input, output,
+	// and cache counts together (the faux provider counts the prompt as
+	// cache reads and writes when a session ID is set).
+	const ledger = (await harness.snapshot(pd.UsageDoc, root.id, context)) ?? { models: {}, tools: {} };
+	const tokens = (bucket: Record<string, any>) =>
+		Object.fromEntries(Object.entries(bucket).map(([key, u]) => [key, u.input + u.output + u.cacheRead + u.cacheWrite]));
+	const usage = { models: tokens(ledger.models), tools: tokens(ledger.tools) };
 	// Each conversation's documents, the root first; null when absent.
 	const documents = [];
 	for (const conversation of [root, ...forks]) {
@@ -390,6 +409,7 @@ export async function runScenario(
 		requests,
 		summaryRequests,
 		transcript,
+		usage,
 		...(forks.length > 0 ? { forks: forked } : {}),
 		...(docs.size > 0 ? { documents } : {}),
 		submissions: settled,

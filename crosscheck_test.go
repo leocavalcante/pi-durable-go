@@ -495,6 +495,10 @@ type scenarioSpec struct {
 			AddTools    []string         `json:"addTools,omitempty"`
 			Diagnostics []ToolDiagnostic `json:"diagnostics,omitempty"`
 			Images      []ImageContent   `json:"images,omitempty"`
+			Usage       *struct {
+				Input  int64 `json:"input"`
+				Output int64 `json:"output"`
+			} `json:"usage,omitempty"`
 			// Running output, and text built by repetition.
 			Stream       []string `json:"stream,omitempty"`
 			StreamRepeat *struct {
@@ -743,7 +747,8 @@ func runScenario(t *testing.T, sc scenarioSpec) json.RawMessage {
 			}
 		}
 		if step.Error != "" {
-			return ModelResponse{}, errors.New(step.Error)
+			// A failed answer has usage too, as the faux provider's does.
+			return ModelResponse{Usage: fauxUsage(request.Messages, ModelResponse{})}, errors.New(step.Error)
 		}
 		response := ModelResponse{Content: step.Text, Thinking: step.Thinking, StopReason: step.Stop}
 		for _, call := range step.Calls {
@@ -858,6 +863,9 @@ func runScenario(t *testing.T, sc scenarioSpec) json.RawMessage {
 				}
 				if r := result.Repeat; r != nil {
 					out.Content = strings.Repeat(r.Text, r.Times)
+				}
+				if u := result.Usage; u != nil {
+					out.Usage = Usage{InputTokens: u.Input, OutputTokens: u.Output}
 				}
 				return out, nil
 			}}
@@ -1183,6 +1191,19 @@ func runScenario(t *testing.T, sc scenarioSpec) json.RawMessage {
 		return transcript
 	}
 	transcript := transcriptOf(root)
+	// The root's usage ledger: tokens per model and per tool.
+	ledger, err := ReadDocument[UsageState](ctx, h, usageDocument, uint64(root.ID()))
+	if err != nil && !errors.Is(err, ErrNotFound) {
+		t.Fatal(err)
+	}
+	tokens := func(bucket map[string]Usage) map[string]int64 {
+		out := map[string]int64{}
+		for key, u := range bucket {
+			out[key] = u.InputTokens + u.OutputTokens + u.CacheReadTokens + u.CacheWriteTokens
+		}
+		return out
+	}
+	usage := map[string]any{"models": tokens(ledger.Models), "tools": tokens(ledger.Tools)}
 	// Each conversation's documents, the root first; null when absent.
 	var documents []any
 	for _, c := range append([]*Conversation{root}, forks...) {
@@ -1222,7 +1243,7 @@ func runScenario(t *testing.T, sc scenarioSpec) json.RawMessage {
 	}
 	mu.Lock()
 	defer mu.Unlock()
-	report := map[string]any{"requests": requests, "summaryRequests": summaryRequests, "transcript": transcript, "submissions": settled}
+	report := map[string]any{"requests": requests, "summaryRequests": summaryRequests, "transcript": transcript, "usage": usage, "submissions": settled}
 	if len(forks) > 0 {
 		report["forks"] = forked
 	}

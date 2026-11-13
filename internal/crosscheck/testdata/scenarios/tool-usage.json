@@ -1,0 +1,100 @@
+{
+ "name": "tool-usage",
+ "tools": [
+  {
+   "name": "spender",
+   "parameters": {
+    "type": "object"
+   },
+   "results": [
+    {
+     "text": "spent",
+     "usage": {
+      "input": 5,
+      "output": 7
+     }
+    }
+   ]
+  },
+  {
+   "name": "plain",
+   "parameters": {
+    "type": "object"
+   },
+   "results": [
+    {
+     "text": "free"
+    }
+   ]
+  },
+  {
+   "name": "outer",
+   "parameters": {
+    "type": "object"
+   },
+   "results": [
+    {
+     "nested": [
+      {
+       "tool": "inner",
+       "args": {}
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "inner",
+   "parameters": {
+    "type": "object"
+   },
+   "callers": [
+    "tools"
+   ],
+   "results": [
+    {
+     "text": "inner spent",
+     "usage": {
+      "input": 2,
+      "output": 1
+     }
+    }
+   ]
+  }
+ ],
+ "model": [
+  {
+   "calls": [
+    {
+     "id": "a",
+     "name": "spender",
+     "args": {}
+    },
+    {
+     "id": "b",
+     "name": "plain",
+     "args": {}
+    },
+    {
+     "id": "c",
+     "name": "outer",
+     "args": {}
+    }
+   ]
+  },
+  {
+   "text": "done"
+  }
+ ],
+ "steps": [
+  {
+   "submit": {
+    "type": "input",
+    "content": "go"
+   }
+  },
+  {
+   "wait": "settled"
+  }
+ ]
+}

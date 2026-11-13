@@ -72,5 +72,6 @@
  "tool-streamed-long-line",
  "tool-streamed-head",
  "documents-fork-modes",
- "documents-retired"
+ "documents-retired",
+ "tool-usage"
 ]
