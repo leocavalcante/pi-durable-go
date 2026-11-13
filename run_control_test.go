@@ -174,6 +174,52 @@ func TestRunControlFailureReasons(t *testing.T) {
 			t.Fatalf("runFailure=%+v", live.RunFailure)
 		}
 	})
+	// Upstream failNoModel: an agent without a model, and a model the
+	// Harness's model does not serve, in runs and in compactions.
+	t.Run("no_model without an agent model", func(t *testing.T) {
+		h, _ := runHarness(t, toolThenEcho(), Settings{})
+		ctx := context.Background()
+		bare, err := h.CreateConversation(ctx, ConversationOptions{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		record := waitSettled(t, h, submit(t, bare, SubmissionRequest{Content: "hi"}))
+		if record.Status != "unanswered" || record.Reason != RunNoModel {
+			t.Fatalf("submission=%+v", record)
+		}
+		if live := readLiveState(t, h, bare.ID()); live.RunFailure == nil || live.RunFailure.Detail != "No model is configured" {
+			t.Fatalf("runFailure=%+v", live.RunFailure)
+		}
+		id, err := bare.Compact(ctx, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if task, err := h.WaitTask(ctx, id); err != nil || task.Outcome.Status != OutcomeFailed || task.Outcome.Error != "No model is configured" {
+			t.Fatalf("compaction=%+v err=%v", task.Outcome, err)
+		}
+	})
+	t.Run("no_model for a model it does not serve", func(t *testing.T) {
+		h, root := runHarness(t, servingOnly{Model: toolThenEcho(), id: "model"}, Settings{})
+		ctx := context.Background()
+		missing := ModelRef{Provider: "fake", ID: "missing"}
+		if err := root.ChangeAgent(ctx, AgentChange{Model: &missing}); err != nil {
+			t.Fatal(err)
+		}
+		record := waitSettled(t, h, submit(t, root, SubmissionRequest{Content: "hi"}))
+		if record.Status != "unanswered" || record.Reason != RunNoModel {
+			t.Fatalf("submission=%+v", record)
+		}
+		if live := readLiveState(t, h, root.ID()); live.RunFailure == nil || live.RunFailure.Detail != "Model fake/missing is not available" {
+			t.Fatalf("runFailure=%+v", live.RunFailure)
+		}
+		id, err := root.Compact(ctx, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if task, err := h.WaitTask(ctx, id); err != nil || task.Outcome.Status != OutcomeFailed || task.Outcome.Error != "Model fake/missing is not available" {
+			t.Fatalf("compaction=%+v err=%v", task.Outcome, err)
+		}
+	})
 	t.Run("nothing_to_answer", func(t *testing.T) {
 		h, root := runHarness(t, toolThenEcho(), Settings{})
 		if record := waitSettled(t, h, submit(t, root, SubmissionRequest{Content: "hi"})); record.Status != "done" {
@@ -565,3 +611,11 @@ func TestPartialProgressIsThrottledPresentation(t *testing.T) {
 		t.Fatalf("the answer left its partial: %+v", live.Generation)
 	}
 }
+
+// servingOnly serves one model ID (ModelLookup).
+type servingOnly struct {
+	Model
+	id string
+}
+
+func (m servingOnly) HasModel(ref ModelRef) bool { return ref.ID == m.id }

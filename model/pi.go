@@ -69,21 +69,37 @@ type catalogEntry struct {
 // catalog caches catalog entries per installation and model.
 var catalog sync.Map
 
+// errUnknownModel: Pi's catalog has no such model.
+var errUnknownModel = errors.New("pi: unknown model")
+
 // entry reads the model's catalog entry once per package, agent directory,
 // and model through the bridge, without a provider call.
 func (p Pi) entry(ref durable.ModelRef) (catalogEntry, bool) {
+	entry, err := p.lookup(ref)
+	return entry, err == nil
+}
+
+func (p Pi) lookup(ref durable.ModelRef) (catalogEntry, error) {
 	key := p.packageDir() + "\x00" + p.AgentDir + "\x00" + ref.Provider + "\x00" + ref.ID
 	if cached, ok := catalog.Load(key); ok {
-		return cached.(catalogEntry), true
+		return cached.(catalogEntry), nil
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	entry, err := p.describe(ctx, ref)
 	if err != nil {
-		return catalogEntry{}, false // not cached: a later call may succeed
+		return catalogEntry{}, err // not cached: a later call may succeed
 	}
 	catalog.Store(key, entry)
-	return entry, true
+	return entry, nil
+}
+
+// HasModel reports whether Pi's catalog has the model (durable.ModelLookup),
+// so a run for one it lacks ends no_model, as upstream's does. True when the
+// catalog cannot be read: the request then says why.
+func (p Pi) HasModel(ref durable.ModelRef) bool {
+	_, err := p.lookup(ref)
+	return !errors.Is(err, errUnknownModel)
 }
 
 // ContextWindow reports the model's context window from Pi's catalog; 0 when
@@ -119,11 +135,15 @@ func (p Pi) describe(ctx context.Context, ref durable.ModelRef) (catalogEntry, e
 	}
 	var event struct {
 		Type          string              `json:"type"`
+		Code          string              `json:"code"`
 		ContextWindow int                 `json:"contextWindow"`
 		Images        *bool               `json:"images"`
 		ImageLimits   durable.ImageLimits `json:"imageLimits"`
 	}
 	if err := json.Unmarshal(bytes.TrimSpace(out), &event); err != nil || event.Type != "model" {
+		if err == nil && event.Type == "error" && event.Code == "model" {
+			return catalogEntry{}, errUnknownModel
+		}
 		return catalogEntry{}, errors.New("pi: cannot describe model")
 	}
 	return catalogEntry{window: event.ContextWindow, images: event.Images == nil || *event.Images, limits: event.ImageLimits}, nil

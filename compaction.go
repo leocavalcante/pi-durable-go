@@ -170,8 +170,8 @@ func runCompaction(ctx context.Context, r *TaskRuntime, task TaskRecord) error {
 	}
 	switch checkpoint.Phase {
 	case "request":
-		if r.h.model() == nil {
-			return failCompaction(ctx, r, task, "No model is configured", RunNoModel)
+		if message := r.h.modelUnavailable(input.Request.Model); message != "" {
+			return failCompaction(ctx, r, task, message, RunNoModel)
 		}
 		response, err := r.h.generate(ctx, input.Request, func(string) error { return nil })
 		if err != nil {
@@ -351,9 +351,6 @@ func failCompaction(ctx context.Context, r *TaskRuntime, task TaskRecord, messag
 // selectCompaction selects an old prefix of the model context to summarize,
 // keeping KeepRecentTokens; with nothing to compact, it completes.
 func selectCompaction(ctx context.Context, r *TaskRuntime, task TaskRecord, input compactionInput) error {
-	if r.h.model() == nil {
-		return failCompaction(ctx, r, task, "No model is configured", RunNoModel)
-	}
 	state, err := r.h.read(ctx)
 	if err != nil {
 		return err
@@ -363,6 +360,9 @@ func selectCompaction(ctx context.Context, r *TaskRuntime, task TaskRecord, inpu
 		return ErrNotFound
 	}
 	conv = cloneRecord(conv)
+	if message := r.h.modelUnavailable(conv.Agent.Model); message != "" {
+		return failCompaction(ctx, r, task, message, RunNoModel)
+	}
 	policy := resolveCompaction(r.h.settings().Compaction, conv.Agent.Compaction, conv.Agent.Model)
 	view, err := deriveContextView(state, task.Conversation, 0)
 	if err != nil {
@@ -434,8 +434,8 @@ func completeCompaction(ctx context.Context, r *TaskRuntime, task TaskRecord) er
 // summarizeCompaction requests the summary of the pinned range: the context
 // as of Tail, before FirstKept, serialized as a transcript.
 func summarizeCompaction(ctx context.Context, r *TaskRuntime, task TaskRecord, input compactionInput, cp compactionCheckpoint) error {
-	if r.h.model() == nil {
-		return failCompaction(ctx, r, task, "No model is configured", RunNoModel)
+	if message := r.h.modelUnavailable(cp.Model); message != "" {
+		return failCompaction(ctx, r, task, message, RunNoModel)
 	}
 	state, err := r.h.read(ctx)
 	if err != nil {

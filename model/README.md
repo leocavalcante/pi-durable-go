@@ -37,7 +37,7 @@ go run ./examples/chat -provider openai-codex -model YOUR_PI_MODEL_ID -prompt 'H
 go run ./examples/chat -pi-agent-dir /private/pi-agent -provider anthropic -model YOUR_PI_MODEL_ID -prompt 'Hello'
 ```
 
-The model must be in Pi's bundled catalog or `models.json`. The bridge does not refresh remote catalogs or perform unrelated provider availability checks. It loads no `AgentSession`, project settings, extensions, tools, MCP servers, skills, or Pi sessions. Extension-registered providers are therefore unavailable; configure a compatible provider in `models.json` when possible. Pi's UI settings/default model are not imported. Configure `Agent.Model` and `Agent.ThinkingLevel` explicitly. As before, reopening an existing root preserves its stored Agent rather than reconfiguring it from example flags; use `Conversation.Configure` or a new state directory to change it.
+The model must be in Pi's bundled catalog or `models.json`; `Pi.HasModel` (`durable.ModelLookup`) reads the catalog, so a run for a model it lacks ends `no_model` as upstream's does. The bridge does not refresh remote catalogs or perform unrelated provider availability checks. It loads no `AgentSession`, project settings, extensions, tools, MCP servers, skills, or Pi sessions. Extension-registered providers are therefore unavailable; configure a compatible provider in `models.json` when possible. Pi's UI settings/default model are not imported. Configure `Agent.Model` and `Agent.ThinkingLevel` explicitly. As before, reopening an existing root preserves its stored Agent rather than reconfiguring it from example flags; use `Conversation.Configure` or a new state directory to change it.
 
 ### Mapping and limits
 

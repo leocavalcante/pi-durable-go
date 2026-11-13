@@ -183,9 +183,6 @@ func runGeneration(ctx context.Context, r *TaskRuntime, task TaskRecord) error {
 // request. A retry prepares again, so agent, section, and settings changes
 // made during its backoff apply.
 func prepareGeneration(ctx context.Context, r *TaskRuntime, task TaskRecord, cp generationCheckpoint) error {
-	if r.h.model() == nil {
-		return failNoModel(ctx, r, task)
-	}
 	state, err := r.h.read(ctx)
 	if err != nil {
 		return err
@@ -195,6 +192,9 @@ func prepareGeneration(ctx context.Context, r *TaskRuntime, task TaskRecord, cp 
 		return ErrNotFound
 	}
 	c = cloneRecord(c) // its agent reaches extension code
+	if message := r.h.modelUnavailable(c.Agent.Model); message != "" {
+		return failNoModel(ctx, r, task, message)
+	}
 	// The model owes an answer only to a context ending in a user message or
 	// tool results; otherwise the run ends before any request.
 	messages, err := contextFromState(state, task.Conversation)
@@ -282,9 +282,6 @@ func requestGeneration(ctx context.Context, r *TaskRuntime, task TaskRecord, cp 
 	if task.Restarts > 0 {
 		return chargeInterruptedRequest(ctx, r, task, cp)
 	}
-	if r.h.model() == nil {
-		return failNoModel(ctx, r, task)
-	}
 	// A partial left by an interrupted attempt becomes an aborted entry, and
 	// the attempt shown is presentation, in pi.live, stored like progress
 	// (upstream PROGRESS_COMMIT); converting a partial appends an entry,
@@ -314,6 +311,10 @@ func requestGeneration(ctx context.Context, r *TaskRuntime, task TaskRecord, cp 
 		return err
 	}
 	cp.Partial = ""
+	// After the attempt is shown, as upstream checks it.
+	if message := r.h.modelUnavailable(cp.Request.Model); message != "" {
+		return failNoModel(ctx, r, task, message)
+	}
 	stream := newPartialStream(r, task, attempt)
 	started := time.Now()
 	request := cp.Request
@@ -482,6 +483,9 @@ func pollGeneration(ctx context.Context, r *TaskRuntime, task TaskRecord, cp gen
 		return r.Commit(ctx, func(*Tx) (TaskTransition, error) {
 			return TaskTransition{Status: "sleeping", Checkpoint: task.Checkpoint, WakeAt: &wake}, nil
 		})
+	}
+	if message := r.h.modelUnavailable(cp.Request.Model); message != "" {
+		return failNoModel(ctx, r, task, message)
 	}
 	model, ok := r.h.model().(DeferredModel)
 	if !ok {
@@ -1152,10 +1156,9 @@ func abortedMessage(partial *Message, thinkingLevel string) *Message {
 		Aborted: true, StopReason: "aborted", ThinkingLevel: thinkingLevel}
 }
 
-// failNoModel ends the run: no model is configured. Its inputs settle
-// unanswered with reason no_model and no detail.
-func failNoModel(ctx context.Context, r *TaskRuntime, task TaskRecord) error {
-	const message = "No model is configured"
+// failNoModel ends the run: no model is configured, or the configured one is
+// not available. Its inputs settle unanswered with reason no_model.
+func failNoModel(ctx context.Context, r *TaskRuntime, task TaskRecord, message string) error {
 	return failRun(ctx, r, task, runEnd{reason: RunNoModel, detail: message, settlement: &runSettlement{reason: RunNoModel}}, message, true)
 }
 

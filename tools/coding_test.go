@@ -46,7 +46,7 @@ func runCoding(t *testing.T, dir, name, args string) (durable.Message, string) {
 		t.Fatal(err)
 	}
 	defer h.Close(context.Background())
-	root, err := h.Root(ctx, durable.ConversationOptions{Agent: durable.Agent{Cwd: dir}})
+	root, err := h.Root(ctx, durable.ConversationOptions{Agent: durable.Agent{Cwd: dir, Model: durable.ModelRef{Provider: "fake", ID: "coding"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -261,7 +261,7 @@ func TestPowerShellToolTriesProgramsInOrder(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer h.Close(context.Background())
-	root, err := h.Root(ctx, durable.ConversationOptions{Agent: durable.Agent{Cwd: dir}})
+	root, err := h.Root(ctx, durable.ConversationOptions{Agent: durable.Agent{Cwd: dir, Model: durable.ModelRef{Provider: "fake", ID: "coding"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -321,7 +321,7 @@ func TestCodingToolsGiveProgramsStructuredOutput(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer h.Close(context.Background())
-	root, err := h.Root(ctx, durable.ConversationOptions{Agent: durable.Agent{Cwd: dir}})
+	root, err := h.Root(ctx, durable.ConversationOptions{Agent: durable.Agent{Cwd: dir, Model: durable.ModelRef{Provider: "fake", ID: "coding"}}})
 	if err != nil {
 		t.Fatal(err)
 	}

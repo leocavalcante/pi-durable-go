@@ -74,6 +74,7 @@ How these areas behave in Go, with the differences that remain:
 - A generation's phases are `prepare`, `request`, `retry`, `poll`, `tools`, `finish`, and `drain`. With `Settings.Stream.Deferred`, a capable provider answers with a `DeferredHandle` (`StopReason: "deferred"`); the generation sleeps until its poll (`pollAfterMs`, default 5000, shown in `pi.live.generation.deferred`), fetches it with `DeferredModel.FetchDeferred`, polls again while it is not ready, charges a poll a crash cut off as a failed attempt that polls again after its backoff, and cancels the provider's job when an abort, a cut-off, or an interrupted poll without a retry ends the run.
 - Tool diagnostics are a flat list on `ToolResult` rendered in upstream's `<harness>` block. Upstream appends the block as a second text block; here it follows the content after a newline in the message's one text, which is what adapters that join text blocks (pi-ai's OpenAI completions) send either way. Results are bounded by `ToolDefinition.OutputLimits` (default 50 KiB and 2000 lines, head or tail) with a `truncated` warning; running output keeps its trailing 50 KiB and counts what it dropped (`DroppedBytes`, `DroppedLines`, reported as a `truncated` warning on results built from the slot), and its commits are throttled to `Settings.Progress.OutputIntervalMs` (default 100 ms), flushed when the call settles.
 - Model context windows come from an optional `ContextWindowModel`: `model.Pi` reads Pi's catalog through the bridge, while `model.OpenAI` reports its `Window` field.
+- As upstream, a run or compaction for an agent without a model fails `no_model` ("No model is configured"), and one for a model the Harness's model does not serve fails `no_model` ("Model provider/id is not available"). Models say which they serve through an optional `ModelLookup` (upstream's model registry lookup); `model.Pi` answers from Pi's catalog, and a model without it serves every reference.
 - Partials carry text, thinking, and tool calls whose arguments are parsed as they stream (`EventModel`, pi-ai's `parseStreamingJson` rules); each partial commit writes the whole partial message rather than upstream's appended changes. Deferred commits follow upstream's held documents: a held document is stored with the next commit that reads or writes it (transactions track their document reads), at its deadline, or at close; a window of 0 stores at once. Deadlines and context expiry run on the host's clock and timer (`HarnessOptions.Now`, `HarnessOptions.SetTimer`), as upstream's do. As upstream's, a generation's attempt marker, a tool slot's running status, and a nested slot's final arguments are progress commits too.
 
 ## Deliberate differences and remaining work
@@ -146,18 +147,18 @@ This table highlights compatibility changes since the previous runtime reference
 
 ## Cross-checks
 
-`make crosscheck` checks behavior against upstream's own 1.5.2 code, run from its TypeScript sources: tool argument coercion and validation, the coding tools, tool search, context ordering, compaction, prompt planning, error classification, and `model.OpenAI`'s requests and responses. It also plays 53 conversation scenarios through upstream's Harness and this one. They cover:
+`make crosscheck` checks behavior against upstream's own 1.5.2 code, run from its TypeScript sources: tool argument coercion and validation, the coding tools, tool search, context ordering, compaction, prompt planning, error classification, and `model.OpenAI`'s requests and responses. It also plays 56 conversation scenarios through upstream's Harness and this one. They cover:
 - tool rounds, parallel and sequential tools, failing and unknown tools, invalid arguments, and a model failure after tool rounds;
 - model errors and retries, turn limits, length stops, and failed-run policies;
 - follow-ups, steering, queue modes, refusals, and aborts;
 - manual, repeated, threshold, background, and overflow compaction;
 - resets, input and write entries, instructions, thinking, and continues;
-- prompt sections, agent changes, and `beforeTool`, `afterTool`, and `onYield` hooks;
+- prompt sections, agent changes (models, thinking levels, an unavailable model), and `beforeTool`, `afterTool`, and `onYield` hooks;
 - tool control (terminating rounds, handoffs, added tools), diagnostics, and nested calls and their failures;
 - aborts and reopening during retry backoff, aborts with queued follow-ups, and steering and follow-ups during model requests and tool calls;
 - reopening while idle, during a model request, and during unsafe and replay-safe tool calls.
 
-Each compares the model's requests (messages and offered tools; summarization requests apart), the transcript, and the submissions' settlements. [docs/upstream-cross-checks.md](docs/upstream-cross-checks.md) has the method, the results, and the differences that remain.
+Each compares the model's requests (model, thinking level, messages, and offered tools; summarization requests apart), the transcript, and the submissions' settlements. [docs/upstream-cross-checks.md](docs/upstream-cross-checks.md) has the method, the results, and the differences that remain.
 
 ## Provenance
 

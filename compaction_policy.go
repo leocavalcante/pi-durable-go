@@ -29,6 +29,28 @@ type compactionPolicy struct {
 
 // ContextWindowModel is implemented by models that know a model's context
 // window in tokens; zero means unknown, which disables threshold compaction.
+// ModelLookup is implemented by models that know which references they
+// serve (upstream ModelRegistry.getModel). A generation, poll, or compaction
+// for a model it does not serve fails with no_model: "Model provider/id is
+// not available". A model without it serves every reference.
+type ModelLookup interface {
+	HasModel(ModelRef) bool
+}
+
+// modelUnavailable says why ref cannot be used, or "": no model is
+// configured (no Model, or an agent without a model), or the Model does not
+// serve it (upstream failNoModel's messages).
+func (h *Harness) modelUnavailable(ref ModelRef) string {
+	model := h.model()
+	if model == nil || ref == (ModelRef{}) {
+		return "No model is configured"
+	}
+	if lookup, ok := model.(ModelLookup); ok && !lookup.HasModel(ref) {
+		return fmt.Sprintf("Model %s/%s is not available", ref.Provider, ref.ID)
+	}
+	return ""
+}
+
 type ContextWindowModel interface {
 	ContextWindow(ModelRef) int
 }

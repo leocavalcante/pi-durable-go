@@ -33,7 +33,7 @@ func TestCloseTimeoutCanBeJoinedAndSealsAdmission(t *testing.T) {
 		defer cancel()
 		_ = h.Close(cleanupCtx)
 	}()
-	root, err := h.Root(context.Background(), ConversationOptions{})
+	root, err := h.Root(context.Background(), ConversationOptions{Agent: Agent{Model: ModelRef{Provider: "fake", ID: "model"}}})
 	if err != nil {
 		t.Fatal(err)
 	}

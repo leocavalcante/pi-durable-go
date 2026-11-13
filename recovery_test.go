@@ -169,7 +169,7 @@ func TestRestartPreparedModelRequestAndCommittedPartial(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	root, err := h.Root(ctx, durable.ConversationOptions{})
+	root, err := h.Root(ctx, durable.ConversationOptions{Agent: durable.Agent{Model: durable.ModelRef{Provider: "fake", ID: "model"}}})
 	if err != nil {
 		t.Fatal(err)
 	}

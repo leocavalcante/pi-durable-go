@@ -215,7 +215,7 @@ func TestHarnessFailureEndsPendingWaitsAndObservers(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer h.Close(context.Background())
-	root, err := h.Root(ctx, ConversationOptions{})
+	root, err := h.Root(ctx, ConversationOptions{Agent: Agent{Model: ModelRef{Provider: "fake", ID: "model"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -329,7 +329,7 @@ func TestFailureShutdownJoinsNonCooperativeCode(t *testing.T) {
 	}
 	var once sync.Once
 	defer func() { once.Do(func() { close(model.release) }); _ = h.Close(context.Background()) }()
-	root, err := h.Root(ctx, ConversationOptions{})
+	root, err := h.Root(ctx, ConversationOptions{Agent: Agent{Model: ModelRef{Provider: "fake", ID: "model"}}})
 	if err != nil {
 		t.Fatal(err)
 	}

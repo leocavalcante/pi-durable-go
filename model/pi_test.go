@@ -314,6 +314,21 @@ func TestPiContextWindowFromCatalog(t *testing.T) {
 	}
 }
 
+// A model the catalog lacks is not available (upstream getModel), so a run
+// for it ends no_model; one it has, or a catalog it cannot read, is.
+func TestPiHasTheModelsOfItsCatalog(t *testing.T) {
+	p := fakePi(t)
+	var _ durable.ModelLookup = p
+	if !p.HasModel(durable.ModelRef{Provider: "fake", ID: "small-window"}) || p.HasModel(durable.ModelRef{Provider: "fake", ID: "unknown"}) {
+		t.Fatal("catalog lookup")
+	}
+	broken := p
+	broken.NodePath = filepath.Join(t.TempDir(), "missing-node")
+	if !broken.HasModel(durable.ModelRef{Provider: "fake", ID: "elsewhere"}) {
+		t.Fatal("an unreadable catalog must not make a model unavailable")
+	}
+}
+
 func TestPiStreamsThinkingAndToolCallEvents(t *testing.T) {
 	var events []durable.StreamEvent
 	response, err := fakePi(t).GenerateEvents(context.Background(), durable.ModelRequest{Model: durable.ModelRef{Provider: "fake", ID: "events"}}, func(event durable.StreamEvent) error {
