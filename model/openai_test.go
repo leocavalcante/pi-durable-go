@@ -272,3 +272,23 @@ func TestOpenAIInstructionRoleIsPiAis(t *testing.T) {
 		}
 	}
 }
+
+// Malformed arguments are the model's: the answer stands and the call
+// carries pi-ai's argumentsError, which tool validation reports back.
+func TestOpenAIMalformedArgumentsAreTheModels(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte(`data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call-1","type":"function","function":{"name":"lookup","arguments":"{\"q\":\"x\""}}]}}]}` + "\n\n"))
+		_, _ = w.Write([]byte(`data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}` + "\n\ndata: [DONE]\n\n"))
+	}))
+	defer server.Close()
+	got, err := OpenAI{BaseURL: server.URL + "/v1"}.Generate(context.Background(), durable.ModelRequest{Model: durable.ModelRef{ID: "m"}, Messages: []durable.Message{{Role: "user", Content: "hi"}}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// pi-ai's argumentsError for the same text.
+	want := "Expected ',' or '}' after property value in JSON at position 8 (line 1 column 9)\n\nReceived arguments:\n{\"q\":\"x\""
+	if len(got.ToolCalls) != 1 || string(got.ToolCalls[0].Arguments) != "{}" || got.ToolCalls[0].ArgumentsError != want {
+		t.Fatalf("tool calls=%+v", got.ToolCalls)
+	}
+}

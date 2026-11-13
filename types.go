@@ -228,6 +228,11 @@ type ToolCall struct {
 	ID        string          `json:"id"`
 	Name      string          `json:"name"`
 	Arguments json.RawMessage `json:"arguments"`
+	// ArgumentsError is set when the model's complete arguments text was not
+	// a JSON object (pi-ai's argumentsError, from ParseToolCallArguments);
+	// Arguments is then {}. Validation fails the call with it, so the model
+	// gets an invalid_arguments result instead of the run failing.
+	ArgumentsError string `json:"argumentsError,omitempty"`
 }
 type Usage struct {
 	InputTokens      int64   `json:"inputTokens"`

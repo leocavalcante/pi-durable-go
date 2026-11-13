@@ -258,10 +258,13 @@ func runTool(ctx context.Context, r *TaskRuntime, task TaskRecord) error {
 		}
 		// Repaired, then coerced and checked (pi-ai validateToolArguments):
 		// hooks and the tool see the coerced arguments; the transcript keeps
-		// the model's.
+		// the model's. Arguments the model sent malformed fail the check.
 		prepared, err := prepareArguments(def, runtime.Call.Arguments)
 		if err != nil {
 			return reject(harnessError("invalid_arguments", err.Error()))
+		}
+		if input.Call.ArgumentsError != "" {
+			return reject(harnessError("invalid_arguments", fmt.Sprintf("Invalid arguments for tool %q: %s", name, input.Call.ArgumentsError)))
 		}
 		checked, err := validateToolArguments(def.ToolSpec, prepared)
 		if err != nil {

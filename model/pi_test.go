@@ -123,9 +123,21 @@ func inspectPi(t *testing.T, p Pi, req durable.ModelRequest) piInspection {
 	return value
 }
 
+// pi-ai's argumentsError reaches the tool call, whose validation reports it
+// to the model (upstream), instead of failing the response.
+func TestPiForwardsArgumentsErrors(t *testing.T) {
+	response, err := fakePi(t).Generate(context.Background(), piRequest("bad-arguments"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(response.ToolCalls) != 1 || response.ToolCalls[0].ArgumentsError != "bad JSON" {
+		t.Fatalf("tool calls=%+v", response.ToolCalls)
+	}
+}
+
 func TestPiSanitizedFailures(t *testing.T) {
 	p := fakePi(t)
-	for _, id := range []string{"fail", "error", "unknown", "bad-arguments"} {
+	for _, id := range []string{"fail", "error", "unknown"} {
 		t.Run(id, func(t *testing.T) {
 			_, err := p.Generate(context.Background(), piRequest(id), nil)
 			if err == nil || strings.Contains(err.Error(), "secret") || strings.Contains(err.Error(), "sensitive") {

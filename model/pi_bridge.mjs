@@ -71,10 +71,11 @@ function project(message) {
       case "text": content += block.text; break;
       case "thinking": thinking += block.thinking; break;
       case "toolCall":
-        // pi-ai may replace invalid JSON with {} and attach argumentsError.
-        // Never execute those repaired arguments as a successful tool request.
-        if (block.argumentsError) throw new Error("invalid tool arguments");
-        toolCalls.push({ id: block.id, name: block.name, arguments: block.arguments });
+        // pi-ai replaces malformed arguments with {} and attaches
+        // argumentsError; the Harness's validation reports it to the model
+        // and never runs the call.
+        toolCalls.push({ id: block.id, name: block.name, arguments: block.arguments,
+          ...(block.argumentsError ? { argumentsError: block.argumentsError } : {}) });
         break;
       default: throw new Error("unsupported assistant content");
     }

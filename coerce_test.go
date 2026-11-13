@@ -368,3 +368,31 @@ func TestValidationFailuresShowArgumentsInTheirOrder(t *testing.T) {
 		t.Fatalf("error=%v", err)
 	}
 }
+
+// A call whose arguments the model sent malformed is never run: its result
+// is pi-ai's invalid-arguments error, and the run goes on (upstream).
+func TestMalformedArgumentsAreReportedToTheModel(t *testing.T) {
+	ran := false
+	requests := 0
+	model := taskModelFunc(func(ctx context.Context, request ModelRequest, _ func(string) error) (ModelResponse, error) {
+		requests++
+		if hasToolResult(request) {
+			return ModelResponse{Content: "done"}, nil
+		}
+		return ModelResponse{ToolCalls: []ToolCall{{ID: "c1", Name: "echo", Arguments: json.RawMessage(`{}`), ArgumentsError: "Unexpected end of JSON input\n\nReceived arguments:\n{"}}}, nil
+	})
+	echo := ToolDefinition{ToolSpec: ToolSpec{Name: "echo", Parameters: json.RawMessage(`{"type":"object"}`)},
+		Execute: func(context.Context, json.RawMessage, *ToolRuntime) (ToolResult, error) {
+			ran = true
+			return ToolResult{Content: "ran"}, nil
+		}}
+	h, root := runHarness(t, model, Settings{}, Extension{Name: "tools", Tools: []ToolDefinition{echo}})
+	if record := waitSettled(t, h, submit(t, root, SubmissionRequest{Content: "go"})); record.Status != "done" {
+		t.Fatalf("submission=%+v", record)
+	}
+	result := toolResultEntry(t, h, root.ID())
+	want := "<harness>\n[error] Invalid arguments for tool \"echo\": Unexpected end of JSON input\n\nReceived arguments:\n{\n</harness>"
+	if ran || requests != 2 || !result.Message.IsError || result.Message.Content != want {
+		t.Fatalf("ran=%v requests=%d result=%q", ran, requests, result.Message.Content)
+	}
+}

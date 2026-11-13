@@ -617,14 +617,10 @@ func parseSSE(ctx context.Context, r io.Reader, onEvent func(durable.StreamEvent
 	}
 	for _, i := range indices {
 		t := tools[i]
-		args := strings.TrimSpace(t.arguments.String())
-		if args == "" {
-			args = "{}"
-		}
-		if !json.Valid([]byte(args)) {
-			return durable.ModelResponse{}, sanitizedError(fmt.Sprintf("tool call %q has invalid JSON arguments", t.name), false)
-		}
-		response.ToolCalls = append(response.ToolCalls, durable.ToolCall{ID: t.id, Name: t.name, Arguments: json.RawMessage(args)})
+		// Malformed arguments are the model's error, reported back to it by
+		// tool validation (pi-ai parseToolCallArguments).
+		args, argumentsError := durable.ParseToolCallArguments(t.arguments.String())
+		response.ToolCalls = append(response.ToolCalls, durable.ToolCall{ID: t.id, Name: t.name, Arguments: args, ArgumentsError: argumentsError})
 	}
 	if finishError != "" {
 		return response, classifiedError(finishError, finishError, provider)
