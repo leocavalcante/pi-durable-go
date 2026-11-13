@@ -607,8 +607,9 @@ const (
 )
 
 // boundOutput keeps whole lines from the head or the tail of text within
-// the limits, and reports how many lines and bytes it dropped. A single line
-// longer than the byte limit is cut at a rune boundary.
+// the limits, and reports how many lines and bytes it dropped (upstream
+// chord boundOutput). A single line longer than the byte limit is cut at a
+// rune boundary, and counts as kept.
 func boundOutput(text string, limits OutputLimits) (string, int, int) {
 	maxBytes, maxLines := limits.MaxBytes, limits.MaxLines
 	if maxBytes <= 0 {
@@ -656,10 +657,7 @@ func boundOutput(text string, limits OutputLimits) (string, int, int) {
 			kept[i], kept[j] = kept[j], kept[i]
 		}
 	}
+	// A line kept in part is kept (upstream chord's lineCount difference).
 	bounded := strings.Join(kept, "")
-	droppedLines := len(lines) - len(kept)
-	if droppedLines == 0 && len(bounded) < len(text) {
-		droppedLines = 1 // part of a line
-	}
-	return bounded, droppedLines, len(text) - len(bounded)
+	return bounded, len(lines) - len(kept), len(text) - len(bounded)
 }
