@@ -237,7 +237,7 @@ func validateToolArguments(spec ToolSpec, args json.RawMessage) (json.RawMessage
 	}
 	coerced, changed := v.coerce(value)
 	if err := v.schema.Validate(coerced); err != nil {
-		return nil, v.validationFailure(spec.Name, err, coerced, value)
+		return nil, v.validationFailure(spec.Name, err, coerced, args)
 	}
 	if !changed {
 		return args, nil
@@ -251,7 +251,7 @@ func validateToolArguments(spec ToolSpec, args json.RawMessage) (json.RawMessage
 
 // validationFailure is pi-ai's message: each failure at its dotted path in
 // pi-schema's words, then the arguments received.
-func (v *toolValidator) validationFailure(name string, err error, checked, received any) error {
+func (v *toolValidator) validationFailure(name string, err error, checked any, received json.RawMessage) error {
 	var lines []string
 	if failure, ok := err.(*jsonschema.ValidationError); ok {
 		seen := map[string]bool{}
@@ -266,7 +266,11 @@ func (v *toolValidator) validationFailure(name string, err error, checked, recei
 	if len(lines) == 0 {
 		lines = append(lines, "  - root: "+err.Error())
 	}
-	shown, _ := json.MarshalIndent(received, "", "  ")
+	// JSON.stringify(arguments, null, 2): their own key order.
+	shown := string(received)
+	if parsed, err := parseJS(received); err == nil {
+		shown = jsStringifyIndent(parsed)
+	}
 	return fmt.Errorf("Validation failed for tool %q:\n%s\n\nReceived arguments:\n%s", name, strings.Join(lines, "\n"), shown)
 }
 

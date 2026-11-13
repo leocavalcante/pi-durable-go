@@ -358,3 +358,13 @@ func TestCoercionReviewCases(t *testing.T) {
 		t.Fatal("a recursive union did not finish")
 	}
 }
+
+// The received arguments are shown as JSON.stringify(arguments, null, 2)
+// shows them, in their own key order.
+func TestValidationFailuresShowArgumentsInTheirOrder(t *testing.T) {
+	_, err := validateToolArguments(ToolSpec{Name: "t", Parameters: json.RawMessage(`{"type":"object","properties":{"n":{"type":"integer"}}}`)}, json.RawMessage(`{"z":[1,{}],"n":"x","a":{"b":[]}}`))
+	want := "Received arguments:\n{\n  \"z\": [\n    1,\n    {}\n  ],\n  \"n\": \"x\",\n  \"a\": {\n    \"b\": []\n  }\n}"
+	if err == nil || !strings.HasSuffix(err.Error(), want) {
+		t.Fatalf("error=%v", err)
+	}
+}

@@ -207,3 +207,48 @@ func jsStringifyRaw(raw json.RawMessage) string {
 	}
 	return jsStringify(value)
 }
+
+// jsStringifyIndent is JSON.stringify(value, null, 2) of a parsed value.
+func jsStringifyIndent(value any) string {
+	var out strings.Builder
+	writeJSIndent(&out, value, "")
+	return out.String()
+}
+
+func writeJSIndent(out *strings.Builder, value any, indent string) {
+	inner := indent + "  "
+	switch v := value.(type) {
+	case []any:
+		if len(v) == 0 {
+			out.WriteString("[]")
+			return
+		}
+		out.WriteString("[\n")
+		for i, item := range v {
+			if i > 0 {
+				out.WriteString(",\n")
+			}
+			out.WriteString(inner)
+			writeJSIndent(out, item, inner)
+		}
+		out.WriteString("\n" + indent + "]")
+	case *jsObject:
+		if len(v.keys) == 0 {
+			out.WriteString("{}")
+			return
+		}
+		out.WriteString("{\n")
+		for i, key := range v.keys {
+			if i > 0 {
+				out.WriteString(",\n")
+			}
+			out.WriteString(inner)
+			writeJSString(out, key)
+			out.WriteString(": ")
+			writeJSIndent(out, v.values[key], inner)
+		}
+		out.WriteString("\n" + indent + "}")
+	default:
+		writeJS(out, value)
+	}
+}
