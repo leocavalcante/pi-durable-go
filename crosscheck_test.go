@@ -123,7 +123,35 @@ func TestCrosscheckToolArguments(t *testing.T) {
 		if err == nil && !crosscheck.Same(got, want[i].Value) {
 			t.Errorf("%s with %s: %s, upstream %s", c.Schema, c.Args, got, want[i].Value)
 		}
+		// Keys in upstream's order: pi-schema coerces in place.
+		if err == nil && strings.Join(keySequence(got), ",") != strings.Join(keySequence(want[i].Value), ",") {
+			t.Errorf("%s with %s: keys %v, upstream %v", c.Schema, c.Args, keySequence(got), keySequence(want[i].Value))
+		}
 	}
+}
+
+// keySequence is every object key of a JSON value with its path, in
+// document order.
+func keySequence(raw json.RawMessage) []string {
+	var out []string
+	var walk func(value any, path string)
+	walk = func(value any, path string) {
+		switch node := value.(type) {
+		case *jsObject:
+			for _, key := range node.Keys {
+				out = append(out, path+"/"+key)
+				walk(node.Values[key], path+"/"+key)
+			}
+		case []any:
+			for i, item := range node {
+				walk(item, fmt.Sprintf("%s/%d", path, i))
+			}
+		}
+	}
+	if value, err := parseJS(raw); err == nil {
+		walk(value, "")
+	}
+	return out
 }
 
 func TestCrosscheckToolArgumentErrors(t *testing.T) {

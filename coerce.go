@@ -303,11 +303,72 @@ func validateToolArguments(spec ToolSpec, args json.RawMessage) (json.RawMessage
 	if !changed {
 		return args, nil
 	}
-	out, err := json.Marshal(coerced)
+	// pi-schema coerces in place: the arguments keep the model's key order.
+	out, err := marshalInOrder(coerced, keyOrders(args), "")
 	if err != nil {
 		return nil, fmt.Errorf("invalid tool arguments: %w", err)
 	}
 	return out, nil
+}
+
+// marshalInOrder writes a JSON value with its objects' keys in the order
+// orders has for them by JSON pointer, then any others sorted.
+func marshalInOrder(value any, orders map[string][]string, pointer string) (json.RawMessage, error) {
+	switch v := value.(type) {
+	case map[string]any:
+		keys := make([]string, 0, len(v))
+		known := map[string]bool{}
+		for _, key := range orders[pointer] {
+			if _, present := v[key]; present && !known[key] {
+				keys = append(keys, key)
+			}
+			known[key] = true
+		}
+		var extra []string
+		for key := range v {
+			if !known[key] {
+				extra = append(extra, key)
+			}
+		}
+		sort.Strings(extra)
+		keys = append(keys, extra...)
+		var out bytes.Buffer
+		out.WriteByte('{')
+		for i, key := range keys {
+			if i > 0 {
+				out.WriteByte(',')
+			}
+			name, err := json.Marshal(key)
+			if err != nil {
+				return nil, err
+			}
+			member, err := marshalInOrder(v[key], orders, pointerTo(pointer, key))
+			if err != nil {
+				return nil, err
+			}
+			out.Write(name)
+			out.WriteByte(':')
+			out.Write(member)
+		}
+		out.WriteByte('}')
+		return out.Bytes(), nil
+	case []any:
+		var out bytes.Buffer
+		out.WriteByte('[')
+		for i, item := range v {
+			if i > 0 {
+				out.WriteByte(',')
+			}
+			member, err := marshalInOrder(item, orders, pointerTo(pointer, strconv.Itoa(i)))
+			if err != nil {
+				return nil, err
+			}
+			out.Write(member)
+		}
+		out.WriteByte(']')
+		return out.Bytes(), nil
+	}
+	return json.Marshal(value)
 }
 
 // validationFailure is pi-ai's message: each failure at its dotted path in

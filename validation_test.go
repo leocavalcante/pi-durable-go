@@ -53,3 +53,13 @@ func TestValidationListsFailuresInPiSchemasOrder(t *testing.T) {
 		}
 	}
 }
+
+// Coerced arguments keep the model's key order, as pi-schema coerces them
+// in place.
+func TestCoercedArgumentsKeepTheirKeyOrder(t *testing.T) {
+	got, err := validateToolArguments(ToolSpec{Name: "t", Parameters: json.RawMessage(`{"type":"object","properties":{"b":{"type":"number"},"n":{"type":"object","properties":{"y":{"type":"boolean"}}}}}`)},
+		json.RawMessage(`{"z":1,"b":"2","n":{"y":"true","x":[{"k":1,"a":2}]},"a":null}`))
+	if err != nil || string(got) != `{"z":1,"b":2,"n":{"y":true,"x":[{"k":1,"a":2}]},"a":null}` {
+		t.Fatalf("got %s, %v", got, err)
+	}
+}
