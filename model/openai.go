@@ -344,7 +344,7 @@ func (o OpenAI) GenerateEvents(ctx context.Context, req durable.ModelRequest, on
 		maxBytes = defaultMaxResponseBytes
 	}
 	limited := &limitedReader{r: resp.Body, remaining: maxBytes}
-	response, err := parseSSE(ctx, limited, onEvent, req.Model)
+	response, err := parseSSE(ctx, limited, onEvent, req.Model, c.supportsFinishReason)
 	if err != nil {
 		return durable.ModelResponse{}, err
 	}
@@ -520,7 +520,10 @@ type streamTool struct {
 	arguments strings.Builder
 }
 
-func parseSSE(ctx context.Context, r io.Reader, onEvent func(durable.StreamEvent) error, model durable.ModelRef) (durable.ModelResponse, error) {
+// parseSSE reads a Chat Completions stream as pi-ai does. The answer ends
+// with the stream: its finish reason says how, and without one it is an
+// error, or with supportsFinishReason false a stop or a tool use.
+func parseSSE(ctx context.Context, r io.Reader, onEvent func(durable.StreamEvent) error, model durable.ModelRef, supportsFinishReason bool) (durable.ModelResponse, error) {
 	provider := model.Provider
 	response := durable.ModelResponse{}
 	// The field the thinking came in, for replaying it to the same model.
@@ -539,6 +542,7 @@ func parseSSE(ctx context.Context, r io.Reader, onEvent func(durable.StreamEvent
 	scanner.Buffer(make([]byte, 4096), maxSSELineBytes)
 	var data []string
 	gotDone := false
+	hasFinishReason := false
 	finishError := ""
 	process := func() error {
 		if len(data) == 0 {
@@ -576,9 +580,10 @@ func parseSSE(ctx context.Context, r io.Reader, onEvent func(durable.StreamEvent
 			response.Usage.CacheReadTokens, response.Usage.CacheWriteTokens = read, write
 		}
 		for _, choice := range chunk.Choices {
-			if choice.FinishReason != nil {
+			if choice.FinishReason != nil && *choice.FinishReason != "" {
 				// pi-ai mapStopReason: other reasons end the answer as an
 				// error.
+				hasFinishReason = true
 				finishError = ""
 				switch *choice.FinishReason {
 				case "length":
@@ -690,10 +695,6 @@ func parseSSE(ctx context.Context, r io.Reader, onEvent func(durable.StreamEvent
 		if err := process(); err != nil {
 			return durable.ModelResponse{}, err
 		}
-		if !gotDone {
-			// pi-ai: "Stream ended without finish_reason", a transient ending.
-			return durable.ModelResponse{}, sanitizedError("model stream ended before [DONE]", true)
-		}
 	}
 	indices := make([]int, 0, len(tools))
 	for i := range tools {
@@ -721,8 +722,18 @@ func parseSSE(ctx context.Context, r io.Reader, onEvent func(durable.StreamEvent
 	if response.Thinking != "" {
 		response.ProviderData, _ = json.Marshal(openAIReplay{Format: openAIReplayFormat, Provider: model.Provider, Model: model.ID, ReasoningField: reasoningField})
 	}
+	if !hasFinishReason && !supportsFinishReason {
+		response.StopReason = "stop"
+		if len(response.ToolCalls) > 0 {
+			response.StopReason = "toolUse"
+		}
+	}
 	if finishError != "" {
 		return response, classifiedError(finishError, finishError, provider)
+	}
+	if !hasFinishReason && supportsFinishReason {
+		// pi-ai's error for a stream that ended early: transient.
+		return durable.ModelResponse{}, sanitizedError("Stream ended without finish_reason", true)
 	}
 	return response, nil
 }

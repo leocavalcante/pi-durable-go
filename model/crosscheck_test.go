@@ -113,7 +113,17 @@ func TestCrosscheckOpenAIResponses(t *testing.T) {
 		{`data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_m","type":"function","function":{"name":"lookup","arguments":"{\"q\":\"x\""}}]}}]}`, `data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}`, `data: [DONE]`},
 		{`data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_r","type":"function","function":{"name":"lookup","arguments":"{\"q\":\"line\nbreak\"}"}}]}}]}`, `data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}`, `data: [DONE]`},
 		{`data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_n","type":"function","function":{"name":"lookup","arguments":"[1,2]"}}]}}]}`, `data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}`, `data: [DONE]`},
+		// The answer ends with the stream: no [DONE] needed, a finish reason
+		// is, unless the compat says the provider sends none.
+		{`data: {"choices":[{"delta":{"content":"no done"},"finish_reason":"stop"}]}`},
+		{`data: {"choices":[{"delta":{"content":"no reason"}}]}`, `data: [DONE]`},
+		{`data: {"choices":[{"delta":{"content":"inferred"}}]}`},
+		{`data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_i","type":"function","function":{"name":"lookup","arguments":"{}"}}]}}]}`},
 	}
+	// Per stream, the compat of its model (nil: none).
+	noFinishReason := map[string]any{"supportsFinishReason": false}
+	compats := make([]map[string]any, len(streams))
+	compats[len(streams)-2], compats[len(streams)-1] = noFinishReason, noFinishReason
 	var want []struct {
 		StopReason   string  `json:"stopReason"`
 		ErrorMessage *string `json:"errorMessage"`
@@ -129,7 +139,7 @@ func TestCrosscheckOpenAIResponses(t *testing.T) {
 			Input, Output, CacheRead, CacheWrite int64
 		} `json:"usage"`
 	}
-	crosscheck.Run(t, "openaiStream", map[string]any{"streams": streams}, &want)
+	crosscheck.Run(t, "openaiStream", map[string]any{"streams": streams, "compats": compats}, &want)
 	current := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
@@ -139,7 +149,11 @@ func TestCrosscheckOpenAIResponses(t *testing.T) {
 	}))
 	defer server.Close()
 	for current = range streams {
-		response, err := (OpenAI{BaseURL: server.URL + "/v1"}).Generate(context.Background(), durable.ModelRequest{Model: durable.ModelRef{ID: "m"}, Messages: []durable.Message{{Role: "user", Content: "hi"}}}, nil)
+		adapter := OpenAI{BaseURL: server.URL + "/v1"}
+		if compats[current] != nil {
+			adapter.Compat = openAICompatOf(t, compats[current])
+		}
+		response, err := adapter.Generate(context.Background(), durable.ModelRequest{Model: durable.ModelRef{ID: "m"}, Messages: []durable.Message{{Role: "user", Content: "hi"}}}, nil)
 		w := want[current]
 		if w.StopReason == "error" {
 			// Answers that end as errors are errors here; provider text stays
@@ -290,6 +304,7 @@ func openAICompatOf(t *testing.T, compat map[string]any) OpenAICompat {
 	}
 	c.SupportsStore, c.SupportsDeveloperRole, c.SupportsReasoningEffort = flag("supportsStore"), flag("supportsDeveloperRole"), flag("supportsReasoningEffort")
 	c.SupportsUsageInStreaming, c.RequiresToolResultName = flag("supportsUsageInStreaming"), flag("requiresToolResultName")
+	c.SupportsFinishReason = flag("supportsFinishReason")
 	c.RequiresAssistantAfterToolResult, c.RequiresNonNullAssistantContent = flag("requiresAssistantAfterToolResult"), flag("requiresNonNullAssistantContent")
 	c.RequiresToolsWithToolHistory, c.RequiresThinkingAsText = flag("requiresToolsWithToolHistory"), flag("requiresThinkingAsText")
 	c.RequiresReasoningContentOnAssistantMessages, c.ZaiToolStream = flag("requiresReasoningContentOnAssistantMessages"), flag("zaiToolStream")

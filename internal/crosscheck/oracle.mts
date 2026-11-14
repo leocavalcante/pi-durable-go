@@ -231,7 +231,7 @@ const ops: Record<string, (input: any) => Promise<unknown>> = {
 	},
 
 	/** openai-completions answers to SSE streams served locally. */
-	async openaiStream({ streams }: { streams: string[][] }) {
+	async openaiStream({ streams, compats }: { streams: string[][]; compats?: (Record<string, unknown> | null)[] }) {
 		const oai = await ai("api/openai-completions.ts");
 		let current = 0;
 		const server = createServer((request, response) => {
@@ -259,8 +259,9 @@ const ops: Record<string, (input: any) => Promise<unknown>> = {
 		const out: unknown[] = [];
 		try {
 			for (current = 0; current < streams.length; current++) {
+				const compat = compats?.[current];
 				const message = await oai
-					.streamSimple(model, { messages: [{ role: "user", content: "hi", timestamp: 1 }] }, { apiKey: "t", maxRetries: 0 })
+					.streamSimple(compat ? { ...model, compat } : model, { messages: [{ role: "user", content: "hi", timestamp: 1 }] }, { apiKey: "t", maxRetries: 0 })
 					.result();
 				out.push({
 					stopReason: message.stopReason,

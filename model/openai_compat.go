@@ -23,6 +23,9 @@ type OpenAICompat struct {
 	SupportsReasoningEffort *bool
 	// SupportsUsageInStreaming false sends no stream_options.
 	SupportsUsageInStreaming *bool
+	// SupportsFinishReason false reads a stream without a finish reason as
+	// a stop, or a tool use when it has tool calls, instead of an error.
+	SupportsFinishReason *bool
 	// MaxTokensField is max_completion_tokens or max_tokens.
 	MaxTokensField string
 	// RequiresToolResultName sends a tool result's tool name.
@@ -83,6 +86,7 @@ type GatewayRouting struct {
 // completionsCompat is the compat a request uses (pi-ai getCompat).
 type completionsCompat struct {
 	supportsStore, supportsDeveloperRole, supportsReasoningEffort, supportsUsageInStreaming   bool
+	supportsFinishReason                                                                      bool
 	maxTokensField                                                                            string
 	requiresToolResultName, requiresAssistantAfterToolResult, requiresNonNullAssistantContent bool
 	requiresToolsWithToolHistory, requiresThinkingAsText, requiresReasoningContent            bool
@@ -128,6 +132,7 @@ func (o OpenAI) compat(ref durable.ModelRef) completionsCompat {
 			!nonStandard && !isOpenRouter,
 		supportsReasoningEffort:    !isGrok && !isZai && !isMoonshot && !isTogether && !isAIGateway && !isNvidia && !isAntLing,
 		supportsUsageInStreaming:   true,
+		supportsFinishReason:       true,
 		maxTokensField:             "max_completion_tokens",
 		requiresReasoningContent:   isDeepSeek,
 		thinkingFormat:             "openai",
@@ -159,6 +164,7 @@ func (o OpenAI) compat(ref durable.ModelRef) completionsCompat {
 	}{
 		{&c.supportsStore, x.SupportsStore}, {&c.supportsDeveloperRole, x.SupportsDeveloperRole},
 		{&c.supportsReasoningEffort, x.SupportsReasoningEffort}, {&c.supportsUsageInStreaming, x.SupportsUsageInStreaming},
+		{&c.supportsFinishReason, x.SupportsFinishReason},
 		{&c.requiresToolResultName, x.RequiresToolResultName}, {&c.requiresAssistantAfterToolResult, x.RequiresAssistantAfterToolResult},
 		{&c.requiresNonNullAssistantContent, x.RequiresNonNullAssistantContent}, {&c.requiresToolsWithToolHistory, x.RequiresToolsWithToolHistory},
 		{&c.requiresThinkingAsText, x.RequiresThinkingAsText}, {&c.requiresReasoningContent, x.RequiresReasoningContentOnAssistantMessages},

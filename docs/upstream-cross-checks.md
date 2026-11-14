@@ -38,7 +38,7 @@ For another upstream release, set `PI_DURABLE_UPSTREAM_TAG` with Pi of that vers
 | `model.OpenAI` requests | pi-ai `openai-completions` `streamSimple` payload via `onPayload` | Ported to equal for messages, tools, cache key, store, and output limit |
 | `model.OpenAI` reasoning | `reasoning_effort` and `clampThinkingLevel`; thinking formats detected from the URL or set in compat; thinking replayed to the same model | Ported to equal (about 140 combinations) |
 | `model.OpenAI` compat | pi-ai's `model.compat` settings and provider detection, one variant each (38) | Ported to equal |
-| `model.OpenAI` responses | SSE parsing from a local server: usage, stop reasons, malformed and repaired tool arguments | Ported to equal; provider error text stays sanitized by design |
+| `model.OpenAI` responses | SSE parsing from a local server: usage, stop reasons, malformed and repaired tool arguments, streams ending without `[DONE]` or a finish reason | Ported to equal; provider error text stays sanitized by design |
 | Tool runtime behavior | `tool.ts`: throws, retained output, structured output contract, nested keys | Ported |
 | Whole conversations | Upstream's `Harness` with pi-ai's faux provider, against this Harness with a scripted model: 89 scenarios (`internal/crosscheck/testdata/scenarios`) | Equal: model requests, transcripts, and settlements. They found five differences, all ported: upstream keeps the agent in a `pi.agent` document rather than transcript entries, a compaction entry carries its summary as a user message, a nested call's value depends on whether the tool ran or the Harness wrote its result, a line kept in part is not counted as dropped, and only tool results with usage enter the usage ledger |
 
@@ -65,6 +65,6 @@ To check another flow, add a scenario file and list it in `index.json`.
 ## Known remaining differences
 
 - Partial tool arguments: upstream's streaming parser copies its open containers for each snapshot within a work budget, so its preview of a very large open container (thousands of elements) can lag behind the text; every reading here is fresh.
-- `model.OpenAI` sanitizes provider error text that pi-ai passes through, and has no model catalog: compat is set by hand. Of pi-ai's compat, grammar-constrained custom tools, mid-conversation system messages, inferring a missing finish reason, and session-affinity headers are not ported, nor OpenRouter's structured `reasoning_details`.
+- `model.OpenAI` sanitizes provider error text that pi-ai passes through, and has no model catalog: compat is set by hand. Of pi-ai's compat, grammar-constrained custom tools, mid-conversation system messages, and session-affinity headers are not ported, nor OpenRouter's structured `reasoning_details`.
 - Schema coercion keeps no key order for schema objects, so pattern properties apply in sorted order.
 - A schema with a recursive union whose branches all recurse, for example an `anyOf` that includes a reference to itself, is exponential to check against deep arguments. pi-schema fails such a call with a stack overflow after about 12 seconds at depth 10, and Go needs about 3 seconds at depth 10 and a minute at depth 15. Coercion has a work budget (`maxCoercionSteps`), but the JSON Schema library's own check is not bounded.

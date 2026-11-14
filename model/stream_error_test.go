@@ -9,7 +9,7 @@ import (
 )
 
 func TestSSEErrorEventIsNotSuccessfulEmptyAnswer(t *testing.T) {
-	_, err := parseSSE(context.Background(), strings.NewReader("data: {\"error\":{\"message\":\"synthetic private detail\"}}\n\ndata: [DONE]\n\n"), nil, durable.ModelRef{})
+	_, err := parseSSE(context.Background(), strings.NewReader("data: {\"error\":{\"message\":\"synthetic private detail\"}}\n\ndata: [DONE]\n\n"), nil, durable.ModelRef{}, true)
 	if err == nil {
 		t.Fatal("stream error reported success")
 	}

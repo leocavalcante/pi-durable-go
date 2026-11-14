@@ -77,8 +77,43 @@ func TestOpenAIRejectsTruncatedSSE(t *testing.T) {
 	}))
 	defer server.Close()
 	_, err := (OpenAI{BaseURL: server.URL}).Generate(context.Background(), durable.ModelRequest{Model: durable.ModelRef{ID: "m"}}, nil)
-	if err == nil || !strings.Contains(err.Error(), "before [DONE]") {
+	if err == nil || err.Error() != "Stream ended without finish_reason" || !durable.IsRetryableModelError(err) {
 		t.Fatalf("error=%v", err)
+	}
+}
+
+// The answer ends with the stream, its finish reason saying how (pi-ai):
+// [DONE] is not needed, and a provider without finish reasons
+// (SupportsFinishReason false) ends with a stop or a tool use.
+func TestOpenAIStreamsEndAsPiAis(t *testing.T) {
+	no := false
+	for _, c := range []struct {
+		lines  []string
+		compat OpenAICompat
+		stop   string
+		err    string
+	}{
+		{[]string{`data: {"choices":[{"delta":{"content":"hi"},"finish_reason":"stop"}]}`}, OpenAICompat{}, "stop", ""},
+		{[]string{`data: {"choices":[{"delta":{"content":"hi"}}]}`, `data: [DONE]`}, OpenAICompat{}, "", "Stream ended without finish_reason"},
+		{[]string{`data: {"choices":[{"delta":{"content":"hi"}}]}`, `data: [DONE]`}, OpenAICompat{SupportsFinishReason: &no}, "stop", ""},
+		{[]string{`data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"c1","type":"function","function":{"name":"f","arguments":"{}"}}]}}]}`}, OpenAICompat{SupportsFinishReason: &no}, "toolUse", ""},
+	} {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			for _, line := range c.lines {
+				_, _ = w.Write([]byte(line + "\n\n"))
+			}
+		}))
+		got, err := (OpenAI{BaseURL: server.URL, Compat: c.compat}).Generate(context.Background(), durable.ModelRequest{Model: durable.ModelRef{ID: "m"}}, nil)
+		server.Close()
+		if c.err != "" {
+			if err == nil || err.Error() != c.err {
+				t.Errorf("%v: error=%v", c.lines, err)
+			}
+			continue
+		}
+		if err != nil || got.StopReason != c.stop {
+			t.Errorf("%v: stop=%q err=%v", c.lines, got.StopReason, err)
+		}
 	}
 }
 
