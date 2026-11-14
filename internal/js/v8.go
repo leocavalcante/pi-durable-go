@@ -1,18 +1,18 @@
-package durable
+package js
 
 import (
 	"fmt"
 	"unicode/utf16"
 )
 
-// v8JSONParseError is the message V8's JSON.parse throws for text, or ""
+// ParseError is the message V8's JSON.parse throws for text, or ""
 // when text is JSON. pi-ai passes these messages to the model in a tool
 // call's argumentsError, so they are ported from V8's json-parser.cc: the
 // expected-token messages at the cursor with its line and column, the end of
 // input where a value is due, and other unexpected characters quoted with
 // the source around them. Positions count UTF-16 code units, as JavaScript
 // strings do.
-func v8JSONParseError(text string) string {
+func ParseError(text string) string {
 	p := &v8JSONParser{s: utf16.Encode([]rune(text))}
 	p.skipWhitespace()
 	if p.parseValue() {
@@ -224,7 +224,7 @@ func (p *v8JSONParser) parseString() bool {
 			case 'u':
 				for i := 0; i < 4; i++ {
 					p.pos++
-					if p.atEnd() || !isHexDigit(p.s[p.pos]) {
+					if p.atEnd() || !IsHexDigit(p.s[p.pos]) {
 						p.fail("Bad Unicode escape in JSON")
 						return false
 					}
@@ -243,7 +243,8 @@ func (p *v8JSONParser) parseString() bool {
 	}
 }
 
-func isHexDigit(c uint16) bool {
+// IsHexDigit reports whether c is an ASCII hex digit.
+func IsHexDigit(c uint16) bool {
 	return c >= '0' && c <= '9' || c >= 'a' && c <= 'f' || c >= 'A' && c <= 'F'
 }
 

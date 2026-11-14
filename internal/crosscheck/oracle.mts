@@ -323,6 +323,57 @@ const ops: Record<string, (input: any) => Promise<unknown>> = {
 		return out;
 	},
 
+	/**
+	 * Code mode's pure functions: pi-codemode's identifiers, declarations, and source parsing, and durable's
+	 * description, section, and result formatting. Result files are written to a stub that records them.
+	 */
+	async codemode(input: {
+		identifiers: string[];
+		types: { schema: unknown; maxChars?: number }[];
+		samples: { name: string; description?: string; inputSchema?: unknown; outputSchema?: unknown }[];
+		sources: string[];
+		descriptions: boolean[];
+		sections: { tools: any[]; namespaces: any[]; budget: number }[];
+		results: { result: any; options: any; failWrites?: boolean }[];
+	}) {
+		const declarations = await installed("@earendil-works/pi-codemode/dist/declarations.js");
+		const source = await installed("@earendil-works/pi-codemode/dist/source.js");
+		const describe = await durable("codemode/describe.ts");
+		const output = await durable("codemode/output.ts");
+		const attempt = (run: () => unknown) => {
+			try {
+				return { ok: true, value: run() };
+			} catch (error: any) {
+				return { ok: false, error: String(error?.message ?? error) };
+			}
+		};
+		const results = [];
+		for (const { result, options, failWrites } of input.results) {
+			const writes: { name: string; size: number; text?: string }[] = [];
+			const write = async (name: string, data: string | Uint8Array) => {
+				writes.push({ name, size: data.length, ...(typeof data === "string" ? { text: data } : {}) });
+				return failWrites ? { error: "disk full" } : { path: `/out/${name}` };
+			};
+			try {
+				const formatted = await output.formatResult(result, { ...options, write });
+				results.push({ ok: true, value: formatted, writes });
+			} catch (error: any) {
+				results.push({ ok: false, error: String(error?.message ?? error), writes });
+			}
+		}
+		return {
+			identifiers: input.identifiers.map((name) => declarations.toCodemodeIdentifier(name)),
+			types: input.types.map(({ schema, maxChars }) =>
+				declarations.schemaToType(schema, maxChars === undefined ? {} : { maxChars }),
+			),
+			samples: input.samples.map((tool) => declarations.renderToolSample(tool)),
+			sources: input.sources.map((text) => attempt(() => source.parseCodemodeSource(text))),
+			descriptions: input.descriptions.map((models) => describe.codemodeDescription(models)),
+			sections: input.sections.map(({ tools, namespaces, budget }) => describe.codemodeSection(tools, namespaces, budget) ?? null),
+			results,
+		};
+	},
+
 	/** A scripted conversation run by upstream's Harness. */
 	async scenario(scenario: unknown) {
 		const { runScenario } = await import(new URL("./scenario.mts", import.meta.url).href);

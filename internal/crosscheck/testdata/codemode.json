@@ -1,0 +1,2127 @@
+{
+ "identifiers": [
+  "read",
+  "my-tool",
+  "mcp__docs__search",
+  "9lives",
+  "",
+  "héllo",
+  "a.b",
+  "$x",
+  "😀tool",
+  "_",
+  "a1"
+ ],
+ "types": [
+  {
+   "schema": true
+  },
+  {
+   "schema": false
+  },
+  {
+   "schema": null
+  },
+  {
+   "schema": [
+    1
+   ]
+  },
+  {
+   "schema": {
+    "type": "string"
+   }
+  },
+  {
+   "schema": {
+    "type": "integer"
+   }
+  },
+  {
+   "schema": {
+    "type": "null"
+   }
+  },
+  {
+   "schema": {
+    "type": "boolean"
+   }
+  },
+  {
+   "schema": {
+    "type": "weird"
+   }
+  },
+  {
+   "schema": {
+    "type": null
+   }
+  },
+  {
+   "schema": {}
+  },
+  {
+   "schema": {
+    "const": {
+     "b": 1,
+     "a": [
+      1,
+      "x"
+     ],
+     "2": true
+    }
+   }
+  },
+  {
+   "schema": {
+    "const": null
+   }
+  },
+  {
+   "schema": {
+    "enum": [
+     "a",
+     1,
+     null,
+     {
+      "k": "v"
+     },
+     "a"
+    ]
+   }
+  },
+  {
+   "schema": {
+    "enum": []
+   }
+  },
+  {
+   "schema": {
+    "anyOf": [
+     {
+      "type": "string"
+     },
+     {
+      "type": "number"
+     },
+     {
+      "type": "string"
+     }
+    ]
+   }
+  },
+  {
+   "schema": {
+    "oneOf": [
+     {
+      "type": "string"
+     },
+     {}
+    ]
+   }
+  },
+  {
+   "schema": {
+    "allOf": [
+     {
+      "type": "object",
+      "properties": {
+       "a": {
+        "type": "string"
+       }
+      }
+     },
+     {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     {}
+    ]
+   }
+  },
+  {
+   "schema": {
+    "allOf": [
+     {},
+     true
+    ]
+   }
+  },
+  {
+   "schema": {
+    "type": [
+     "string",
+     "null"
+    ]
+   }
+  },
+  {
+   "schema": {
+    "type": [
+     "object",
+     "null"
+    ],
+    "properties": {
+     "x": {
+      "type": "integer"
+     }
+    },
+    "required": [
+     "x"
+    ]
+   }
+  },
+  {
+   "schema": {
+    "type": "array",
+    "items": {
+     "type": "string"
+    }
+   }
+  },
+  {
+   "schema": {
+    "type": "array"
+   }
+  },
+  {
+   "schema": {
+    "type": "array",
+    "items": [
+     {
+      "type": "string"
+     },
+     {
+      "type": "number"
+     }
+    ]
+   }
+  },
+  {
+   "schema": {
+    "type": "array",
+    "prefixItems": [
+     {
+      "type": "boolean"
+     }
+    ],
+    "items": {
+     "type": "string"
+    }
+   }
+  },
+  {
+   "schema": {
+    "prefixItems": [
+     {
+      "type": "null"
+     }
+    ]
+   }
+  },
+  {
+   "schema": {
+    "items": null
+   }
+  },
+  {
+   "schema": {
+    "type": "object"
+   }
+  },
+  {
+   "schema": {
+    "type": "object",
+    "additionalProperties": false
+   }
+  },
+  {
+   "schema": {
+    "type": "object",
+    "additionalProperties": true,
+    "properties": {
+     "a": {
+      "type": "string"
+     }
+    }
+   }
+  },
+  {
+   "schema": {
+    "type": "object",
+    "additionalProperties": {
+     "type": "number"
+    }
+   }
+  },
+  {
+   "schema": {
+    "type": "object",
+    "additionalProperties": null
+   }
+  },
+  {
+   "schema": {
+    "required": [
+     "z"
+    ]
+   }
+  },
+  {
+   "schema": {
+    "type": "object",
+    "properties": {
+     "b": {
+      "type": "string"
+     },
+     "a": {
+      "type": "number"
+     },
+     "B": {},
+     "a-b": {
+      "type": "string"
+     },
+     "🙂": {
+      "type": "string"
+     },
+     "_ok$": {
+      "type": "string"
+     },
+     "9x": {},
+     "é": {}
+    },
+    "required": [
+     "a",
+     "9x",
+     1
+    ]
+   }
+  },
+  {
+   "schema": {
+    "type": "object",
+    "properties": {
+     "path": {
+      "type": "string",
+      "description": "  The file path.\nRelative to cwd. Third line.  "
+     },
+     "limit": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 2000,
+      "default": 200,
+      "description": "Lines to read"
+     },
+     "offset": {
+      "anyOf": [
+       {
+        "type": "integer",
+        "minimum": 0,
+        "exclusiveMinimum": -1
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null
+     },
+     "ratio": {
+      "type": "number",
+      "minimum": 0,
+      "exclusiveMinimum": true,
+      "maximum": 1,
+      "exclusiveMaximum": true,
+      "multipleOf": 0.25
+     },
+     "name": {
+      "type": "string",
+      "minLength": 2,
+      "maxLength": 40,
+      "pattern": "^[a-z]+\n$",
+      "format": "hostname"
+     },
+     "tags": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      },
+      "minItems": 1,
+      "maxItems": 5,
+      "uniqueItems": true
+     },
+     "old": {
+      "type": "boolean",
+      "deprecated": true
+     },
+     "big": {
+      "type": "string",
+      "default": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+     },
+     "both": {
+      "oneOf": [
+       {
+        "type": "string",
+        "minLength": 3,
+        "pattern": "a"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "minLength": 5,
+      "pattern": "b",
+      "format": "email"
+     },
+     "obj": {
+      "type": "object",
+      "default": {
+       "z": 1,
+       "a": {
+        "q": [
+         1,
+         2
+        ]
+       }
+      }
+     },
+     "num": {
+      "type": [
+       "integer",
+       "null"
+      ],
+      "maximum": 1e+21,
+      "minimum": -1e-06
+     }
+    },
+    "required": [
+     "path"
+    ]
+   }
+  },
+  {
+   "schema": {
+    "type": "object",
+    "properties": {
+     "inner": {
+      "type": "object",
+      "properties": {
+       "x": {
+        "type": "string",
+        "description": "deep"
+       }
+      }
+     }
+    },
+    "required": [
+     "inner"
+    ]
+   }
+  },
+  {
+   "schema": {
+    "$defs": {
+     "Item": {
+      "type": "object",
+      "properties": {
+       "id": {
+        "type": "string"
+       },
+       "child": {
+        "$ref": "#/$defs/Item"
+       }
+      }
+     }
+    },
+    "type": "array",
+    "items": {
+     "$ref": "#/$defs/Item"
+    }
+   }
+  },
+  {
+   "schema": {
+    "definitions": {
+     "a/b": {
+      "type": "string"
+     },
+     "c~d": {
+      "type": "number"
+     },
+     "e%f": {
+      "type": "boolean"
+     }
+    },
+    "anyOf": [
+     {
+      "$ref": "#/definitions/a~1b"
+     },
+     {
+      "$ref": "#/definitions/c~0d"
+     },
+     {
+      "$ref": "#/definitions/e%25f"
+     },
+     {
+      "$ref": "#/definitions/%zz"
+     },
+     {
+      "$ref": "#/definitions/missing"
+     },
+     {
+      "$ref": "http://example.com/s"
+     },
+     {
+      "$ref": "#"
+     }
+    ]
+   }
+  },
+  {
+   "schema": {
+    "$ref": "#/properties/a",
+    "properties": {
+     "a": {
+      "type": "string"
+     }
+    }
+   }
+  },
+  {
+   "schema": {
+    "type": "object",
+    "properties": {
+     "p0": {
+      "type": "string",
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "minLength": 1
+     },
+     "p1": {
+      "type": "string",
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "minLength": 1
+     },
+     "p2": {
+      "type": "string",
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "minLength": 1
+     },
+     "p3": {
+      "type": "string",
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "minLength": 1
+     },
+     "p4": {
+      "type": "string",
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "minLength": 1
+     },
+     "p5": {
+      "type": "string",
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "minLength": 1
+     },
+     "p6": {
+      "type": "string",
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "minLength": 1
+     },
+     "p7": {
+      "type": "string",
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "minLength": 1
+     },
+     "p8": {
+      "type": "string",
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "minLength": 1
+     },
+     "p9": {
+      "type": "string",
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "minLength": 1
+     }
+    }
+   },
+   "maxChars": 600
+  },
+  {
+   "schema": {
+    "type": "object",
+    "properties": {
+     "p0": {
+      "type": "string",
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "minLength": 1
+     },
+     "p1": {
+      "type": "string",
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "minLength": 1
+     },
+     "p2": {
+      "type": "string",
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "minLength": 1
+     },
+     "p3": {
+      "type": "string",
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "minLength": 1
+     },
+     "p4": {
+      "type": "string",
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "minLength": 1
+     },
+     "p5": {
+      "type": "string",
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "minLength": 1
+     },
+     "p6": {
+      "type": "string",
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "minLength": 1
+     },
+     "p7": {
+      "type": "string",
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "minLength": 1
+     },
+     "p8": {
+      "type": "string",
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "minLength": 1
+     },
+     "p9": {
+      "type": "string",
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "minLength": 1
+     }
+    }
+   },
+   "maxChars": 200
+  },
+  {
+   "schema": {
+    "type": "object",
+    "properties": {
+     "p0": {
+      "type": "string",
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "minLength": 1
+     },
+     "p1": {
+      "type": "string",
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "minLength": 1
+     },
+     "p2": {
+      "type": "string",
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "minLength": 1
+     },
+     "p3": {
+      "type": "string",
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "minLength": 1
+     },
+     "p4": {
+      "type": "string",
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "minLength": 1
+     },
+     "p5": {
+      "type": "string",
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "minLength": 1
+     },
+     "p6": {
+      "type": "string",
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "minLength": 1
+     },
+     "p7": {
+      "type": "string",
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "minLength": 1
+     },
+     "p8": {
+      "type": "string",
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "minLength": 1
+     },
+     "p9": {
+      "type": "string",
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "minLength": 1
+     }
+    }
+   },
+   "maxChars": 20
+  },
+  {
+   "schema": {
+    "type": "object",
+    "properties": {
+     "p": {
+      "type": "string",
+      "pattern": "a b c\rd",
+      "description": "one two"
+     }
+    }
+   }
+  }
+ ],
+ "samples": [
+  {
+   "name": "read",
+   "description": "  Read a file.  ",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "path": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "path"
+    ]
+   },
+   "outputSchema": {
+    "type": "string"
+   }
+  },
+  {
+   "name": "my-tool",
+   "description": "Has a dash.",
+   "inputSchema": {
+    "type": "object"
+   },
+   "outputSchema": {
+    "type": "object",
+    "properties": {
+     "output": {
+      "type": "string"
+     },
+     "exitCode": {
+      "type": "number"
+     }
+    },
+    "required": [
+     "output"
+    ]
+   }
+  },
+  {
+   "name": "bare"
+  },
+  {
+   "name": "mcp__docs__search",
+   "description": "Search docs.\n\nWith detail.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "q": {
+      "type": "string",
+      "description": "query"
+     }
+    }
+   }
+  }
+ ],
+ "sources": [
+  "",
+  "   \n\t",
+  "return 1;",
+  "// @options: {\"max_output_tokens\": 100}\nreturn 1;",
+  "// @options: {\"timeout_ms\": 5000, \"max_output_tokens\": 0}\nreturn 1;",
+  "// @options: {bad}\nreturn 1;",
+  "// @options: [1]\nreturn 1;",
+  "// @options: {\"other\": 1}\nreturn 1;",
+  "// @options: {\"5\": 1, \"max_output_tokens\": 1}\nx",
+  "// @options: {\"max_output_tokens\": -1}\nx",
+  "// @options: {\"max_output_tokens\": 1.5}\nx",
+  "// @options: {\"max_output_tokens\": \"1\"}\nx",
+  "// @options: {\"timeout_ms\": 0}\nx",
+  "// @options: {\"timeout_ms\": 2147483648}\nx",
+  "// @options: {\"timeout_ms\": 1e3}\nx",
+  "// @options: {}",
+  "// @options: {}\n   \n",
+  "return 1;\n// @options: {}",
+  "return 1;\n  // @options: {}",
+  "// @options: {}\r\nreturn 1;",
+  "   // @options: {\"max_output_tokens\": 5}\nx",
+  "// @options:\nx",
+  "// @options: {} trailing\nx",
+  "// @options: {\"max_output_tokens\": 9007199254740992}\nx",
+  "// @options: {\"max_output_tokens\": -0}\nx",
+  "// @options:{}\nx",
+  "// @options: {\"max_output_tokens\": 1, \"max_output_tokens\": 2}\nx",
+  "// @options: {\"max_output_tokens\": 1} x"
+ ],
+ "descriptions": [
+  true,
+  false
+ ],
+ "sections": [
+  {
+   "tools": [],
+   "namespaces": [],
+   "budget": 3000
+  },
+  {
+   "tools": [
+    {
+     "name": "read",
+     "description": "Read files.",
+     "parameters": {
+      "type": "object",
+      "properties": {
+       "a": {
+        "type": "string"
+       }
+      }
+     }
+    },
+    {
+     "name": "write",
+     "description": "Write files.",
+     "parameters": {
+      "type": "object",
+      "properties": {
+       "a": {
+        "type": "string"
+       }
+      }
+     },
+     "structuredOutputSchema": {
+      "type": "object",
+      "properties": {
+       "ok": {
+        "type": "boolean"
+       }
+      }
+     }
+    }
+   ],
+   "namespaces": [],
+   "budget": 3000
+  },
+  {
+   "tools": [
+    {
+     "name": "plain",
+     "description": "d",
+     "parameters": {
+      "type": "object",
+      "properties": {
+       "a": {
+        "type": "string"
+       }
+      }
+     }
+    },
+    {
+     "name": "my-tool",
+     "description": "dash",
+     "parameters": {
+      "type": "object",
+      "properties": {
+       "a": {
+        "type": "string"
+       }
+      }
+     }
+    },
+    {
+     "name": "beta_one",
+     "description": "first beta",
+     "parameters": {
+      "type": "object",
+      "properties": {
+       "a": {
+        "type": "string"
+       }
+      }
+     }
+    },
+    {
+     "name": "beta_two",
+     "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+     "parameters": {
+      "type": "object",
+      "properties": {
+       "a": {
+        "type": "string"
+       }
+      }
+     }
+    },
+    {
+     "name": "alpha_a",
+     "description": "d",
+     "parameters": {
+      "type": "object",
+      "properties": {
+       "a": {
+        "type": "string"
+       }
+      }
+     }
+    },
+    {
+     "name": "alpha_long_b",
+     "description": "longer prefix",
+     "parameters": {
+      "type": "object",
+      "properties": {
+       "a": {
+        "type": "string"
+       }
+      }
+     }
+    },
+    {
+     "name": "u_x",
+     "description": "d",
+     "parameters": {
+      "type": "object",
+      "properties": {
+       "a": {
+        "type": "string"
+       }
+      }
+     }
+    },
+    {
+     "name": "z_y",
+     "description": "d",
+     "parameters": {
+      "type": "object",
+      "properties": {
+       "a": {
+        "type": "string"
+       }
+      }
+     },
+     "structuredOutputSchema": {
+      "type": "object"
+     }
+    }
+   ],
+   "namespaces": [
+    {
+     "name": "beta",
+     "prefix": "beta_",
+     "description": "  Beta tools.  "
+    },
+    {
+     "name": "Alpha",
+     "prefix": "alpha_"
+    },
+    {
+     "name": "_under",
+     "prefix": "u_"
+    },
+    {
+     "name": "zeta",
+     "prefix": "z_",
+     "instructions": "x"
+    },
+    {
+     "name": "alpha-long",
+     "prefix": "alpha_long_",
+     "description": "Longer."
+    }
+   ],
+   "budget": 3000
+  },
+  {
+   "tools": [
+    {
+     "name": "plain",
+     "description": "d",
+     "parameters": {
+      "type": "object",
+      "properties": {
+       "a": {
+        "type": "string"
+       }
+      }
+     }
+    },
+    {
+     "name": "my-tool",
+     "description": "dash",
+     "parameters": {
+      "type": "object",
+      "properties": {
+       "a": {
+        "type": "string"
+       }
+      }
+     }
+    },
+    {
+     "name": "beta_one",
+     "description": "first beta",
+     "parameters": {
+      "type": "object",
+      "properties": {
+       "a": {
+        "type": "string"
+       }
+      }
+     }
+    },
+    {
+     "name": "beta_two",
+     "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+     "parameters": {
+      "type": "object",
+      "properties": {
+       "a": {
+        "type": "string"
+       }
+      }
+     }
+    },
+    {
+     "name": "alpha_a",
+     "description": "d",
+     "parameters": {
+      "type": "object",
+      "properties": {
+       "a": {
+        "type": "string"
+       }
+      }
+     }
+    },
+    {
+     "name": "alpha_long_b",
+     "description": "longer prefix",
+     "parameters": {
+      "type": "object",
+      "properties": {
+       "a": {
+        "type": "string"
+       }
+      }
+     }
+    },
+    {
+     "name": "u_x",
+     "description": "d",
+     "parameters": {
+      "type": "object",
+      "properties": {
+       "a": {
+        "type": "string"
+       }
+      }
+     }
+    },
+    {
+     "name": "z_y",
+     "description": "d",
+     "parameters": {
+      "type": "object",
+      "properties": {
+       "a": {
+        "type": "string"
+       }
+      }
+     },
+     "structuredOutputSchema": {
+      "type": "object"
+     }
+    }
+   ],
+   "namespaces": [
+    {
+     "name": "beta",
+     "prefix": "beta_",
+     "description": "  Beta tools.  "
+    },
+    {
+     "name": "Alpha",
+     "prefix": "alpha_"
+    },
+    {
+     "name": "_under",
+     "prefix": "u_"
+    },
+    {
+     "name": "zeta",
+     "prefix": "z_",
+     "instructions": "x"
+    },
+    {
+     "name": "alpha-long",
+     "prefix": "alpha_long_",
+     "description": "Longer."
+    }
+   ],
+   "budget": 200
+  },
+  {
+   "tools": [
+    {
+     "name": "plain",
+     "description": "d",
+     "parameters": {
+      "type": "object",
+      "properties": {
+       "a": {
+        "type": "string"
+       }
+      }
+     }
+    },
+    {
+     "name": "my-tool",
+     "description": "dash",
+     "parameters": {
+      "type": "object",
+      "properties": {
+       "a": {
+        "type": "string"
+       }
+      }
+     }
+    },
+    {
+     "name": "beta_one",
+     "description": "first beta",
+     "parameters": {
+      "type": "object",
+      "properties": {
+       "a": {
+        "type": "string"
+       }
+      }
+     }
+    },
+    {
+     "name": "beta_two",
+     "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+     "parameters": {
+      "type": "object",
+      "properties": {
+       "a": {
+        "type": "string"
+       }
+      }
+     }
+    },
+    {
+     "name": "alpha_a",
+     "description": "d",
+     "parameters": {
+      "type": "object",
+      "properties": {
+       "a": {
+        "type": "string"
+       }
+      }
+     }
+    },
+    {
+     "name": "alpha_long_b",
+     "description": "longer prefix",
+     "parameters": {
+      "type": "object",
+      "properties": {
+       "a": {
+        "type": "string"
+       }
+      }
+     }
+    },
+    {
+     "name": "u_x",
+     "description": "d",
+     "parameters": {
+      "type": "object",
+      "properties": {
+       "a": {
+        "type": "string"
+       }
+      }
+     }
+    },
+    {
+     "name": "z_y",
+     "description": "d",
+     "parameters": {
+      "type": "object",
+      "properties": {
+       "a": {
+        "type": "string"
+       }
+      }
+     },
+     "structuredOutputSchema": {
+      "type": "object"
+     }
+    }
+   ],
+   "namespaces": [
+    {
+     "name": "beta",
+     "prefix": "beta_",
+     "description": "  Beta tools.  "
+    },
+    {
+     "name": "Alpha",
+     "prefix": "alpha_"
+    },
+    {
+     "name": "_under",
+     "prefix": "u_"
+    },
+    {
+     "name": "zeta",
+     "prefix": "z_",
+     "instructions": "x"
+    },
+    {
+     "name": "alpha-long",
+     "prefix": "alpha_long_",
+     "description": "Longer."
+    }
+   ],
+   "budget": 60
+  },
+  {
+   "tools": [
+    {
+     "name": "plain",
+     "description": "d",
+     "parameters": {
+      "type": "object",
+      "properties": {
+       "a": {
+        "type": "string"
+       }
+      }
+     }
+    },
+    {
+     "name": "my-tool",
+     "description": "dash",
+     "parameters": {
+      "type": "object",
+      "properties": {
+       "a": {
+        "type": "string"
+       }
+      }
+     }
+    },
+    {
+     "name": "beta_one",
+     "description": "first beta",
+     "parameters": {
+      "type": "object",
+      "properties": {
+       "a": {
+        "type": "string"
+       }
+      }
+     }
+    },
+    {
+     "name": "beta_two",
+     "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+     "parameters": {
+      "type": "object",
+      "properties": {
+       "a": {
+        "type": "string"
+       }
+      }
+     }
+    },
+    {
+     "name": "alpha_a",
+     "description": "d",
+     "parameters": {
+      "type": "object",
+      "properties": {
+       "a": {
+        "type": "string"
+       }
+      }
+     }
+    },
+    {
+     "name": "alpha_long_b",
+     "description": "longer prefix",
+     "parameters": {
+      "type": "object",
+      "properties": {
+       "a": {
+        "type": "string"
+       }
+      }
+     }
+    },
+    {
+     "name": "u_x",
+     "description": "d",
+     "parameters": {
+      "type": "object",
+      "properties": {
+       "a": {
+        "type": "string"
+       }
+      }
+     }
+    },
+    {
+     "name": "z_y",
+     "description": "d",
+     "parameters": {
+      "type": "object",
+      "properties": {
+       "a": {
+        "type": "string"
+       }
+      }
+     },
+     "structuredOutputSchema": {
+      "type": "object"
+     }
+    }
+   ],
+   "namespaces": [
+    {
+     "name": "beta",
+     "prefix": "beta_",
+     "description": "  Beta tools.  "
+    },
+    {
+     "name": "Alpha",
+     "prefix": "alpha_"
+    },
+    {
+     "name": "_under",
+     "prefix": "u_"
+    },
+    {
+     "name": "zeta",
+     "prefix": "z_",
+     "instructions": "x"
+    },
+    {
+     "name": "alpha-long",
+     "prefix": "alpha_long_",
+     "description": "Longer."
+    }
+   ],
+   "budget": 0
+  }
+ ],
+ "results": [
+  {
+   "result": {
+    "ok": true,
+    "output": [],
+    "calls": [],
+    "storeWrites": {
+     "set": {},
+     "delete": []
+    },
+    "value": "hello"
+   },
+   "options": {
+    "generatedImages": 0,
+    "wallMs": 1234.5,
+    "maxOutputTokens": 10000,
+    "calls": [],
+    "limits": {
+     "maxBytes": 4194304,
+     "maxLines": 100000
+    }
+   }
+  },
+  {
+   "result": {
+    "ok": true,
+    "output": [
+     {
+      "type": "text",
+      "text": "one"
+     },
+     {
+      "type": "text",
+      "text": "log 1",
+      "console": true
+     },
+     {
+      "type": "text",
+      "text": "two"
+     },
+     {
+      "type": "text",
+      "text": "log 2",
+      "console": true
+     }
+    ],
+    "calls": [],
+    "storeWrites": {
+     "set": {},
+     "delete": []
+    },
+    "value": {
+     "b": 1,
+     "a": [
+      1,
+      2
+     ],
+     "2": "x"
+    }
+   },
+   "options": {
+    "generatedImages": 0,
+    "wallMs": 1250,
+    "maxOutputTokens": 10000,
+    "calls": [],
+    "limits": {
+     "maxBytes": 4194304,
+     "maxLines": 100000
+    }
+   }
+  },
+  {
+   "result": {
+    "ok": true,
+    "output": [
+     {
+      "type": "text",
+      "text": "only"
+     }
+    ],
+    "calls": [],
+    "storeWrites": {
+     "set": {},
+     "delete": []
+    }
+   },
+   "options": {
+    "generatedImages": 0,
+    "wallMs": 50,
+    "maxOutputTokens": 10000,
+    "calls": [],
+    "limits": {
+     "maxBytes": 4194304,
+     "maxLines": 100000
+    }
+   }
+  },
+  {
+   "result": {
+    "ok": true,
+    "output": [],
+    "calls": [],
+    "storeWrites": {
+     "set": {},
+     "delete": []
+    }
+   },
+   "options": {
+    "generatedImages": 0,
+    "wallMs": 0,
+    "maxOutputTokens": 10000,
+    "calls": [],
+    "limits": {
+     "maxBytes": 4194304,
+     "maxLines": 100000
+    }
+   }
+  },
+  {
+   "result": {
+    "ok": true,
+    "output": [
+     {
+      "type": "text",
+      "text": "ends without newline"
+     },
+     {
+      "type": "text",
+      "text": ""
+     }
+    ],
+    "calls": [],
+    "storeWrites": {
+     "set": {},
+     "delete": []
+    },
+    "value": 0
+   },
+   "options": {
+    "generatedImages": 0,
+    "wallMs": 1234.5,
+    "maxOutputTokens": 10000,
+    "calls": [],
+    "limits": {
+     "maxBytes": 4194304,
+     "maxLines": 100000
+    }
+   }
+  },
+  {
+   "result": {
+    "ok": true,
+    "output": [
+     {
+      "type": "text",
+      "text": "a\n"
+     },
+     {
+      "type": "text",
+      "text": "b"
+     }
+    ],
+    "calls": [],
+    "storeWrites": {
+     "set": {},
+     "delete": []
+    },
+    "value": ""
+   },
+   "options": {
+    "generatedImages": 0,
+    "wallMs": 1234.5,
+    "maxOutputTokens": 10000,
+    "calls": [],
+    "limits": {
+     "maxBytes": 4194304,
+     "maxLines": 100000
+    }
+   }
+  },
+  {
+   "result": {
+    "ok": false,
+    "error": {
+     "kind": "script",
+     "message": "boom",
+     "name": "TypeError",
+     "stack": "TypeError: boom\n    at codemode.js:2:7"
+    },
+    "output": [
+     {
+      "type": "text",
+      "text": "before"
+     }
+    ],
+    "calls": []
+   },
+   "options": {
+    "generatedImages": 0,
+    "wallMs": 1234.5,
+    "maxOutputTokens": 10000,
+    "calls": [
+     {
+      "id": 1,
+      "name": "read",
+      "args": "{}",
+      "status": "ok"
+     },
+     {
+      "id": 2,
+      "name": "bash",
+      "args": "{}",
+      "status": "error"
+     }
+    ],
+    "limits": {
+     "maxBytes": 4194304,
+     "maxLines": 100000
+    }
+   }
+  },
+  {
+   "result": {
+    "ok": false,
+    "error": {
+     "kind": "script",
+     "message": "no stack"
+    },
+    "output": [],
+    "calls": []
+   },
+   "options": {
+    "generatedImages": 0,
+    "wallMs": 1234.5,
+    "maxOutputTokens": 10000,
+    "calls": [],
+    "limits": {
+     "maxBytes": 4194304,
+     "maxLines": 100000
+    }
+   }
+  },
+  {
+   "result": {
+    "ok": false,
+    "error": {
+     "kind": "timeout",
+     "message": "Execution timed out after 200 ms"
+    },
+    "output": [],
+    "calls": []
+   },
+   "options": {
+    "generatedImages": 0,
+    "wallMs": 1234.5,
+    "maxOutputTokens": 10000,
+    "calls": [
+     {
+      "id": 1,
+      "name": "slow",
+      "args": "{}",
+      "status": "cancelled"
+     }
+    ],
+    "limits": {
+     "maxBytes": 4194304,
+     "maxLines": 100000
+    }
+   }
+  },
+  {
+   "result": {
+    "ok": false,
+    "error": {
+     "kind": "aborted",
+     "message": "Sandbox closed"
+    },
+    "output": [],
+    "calls": []
+   },
+   "options": {
+    "generatedImages": 0,
+    "wallMs": 1234.5,
+    "maxOutputTokens": 10000,
+    "calls": [],
+    "limits": {
+     "maxBytes": 4194304,
+     "maxLines": 100000
+    }
+   }
+  },
+  {
+   "result": {
+    "ok": false,
+    "error": {
+     "kind": "sandbox",
+     "message": "Worker exited"
+    },
+    "output": [],
+    "calls": []
+   },
+   "options": {
+    "generatedImages": 0,
+    "wallMs": 1234.5,
+    "maxOutputTokens": 10000,
+    "calls": [],
+    "limits": {
+     "maxBytes": 4194304,
+     "maxLines": 100000
+    }
+   }
+  },
+  {
+   "result": {
+    "ok": true,
+    "output": [
+     {
+      "type": "text",
+      "text": "look"
+     },
+     {
+      "type": "image",
+      "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+      "mimeType": "image/png"
+     },
+     {
+      "type": "text",
+      "text": "again"
+     },
+     {
+      "type": "image",
+      "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+      "mimeType": "image/png"
+     },
+     {
+      "type": "image",
+      "data": "/9j/4AAQSkZJRgABAQ==",
+      "mimeType": "image/jpeg"
+     },
+     {
+      "type": "image",
+      "data": "aGVs bG8=",
+      "mimeType": "image/x-unknown"
+     }
+    ],
+    "calls": [],
+    "storeWrites": {
+     "set": {},
+     "delete": []
+    }
+   },
+   "options": {
+    "generatedImages": 0,
+    "wallMs": 1234.5,
+    "maxOutputTokens": 10000,
+    "calls": [],
+    "limits": {
+     "maxBytes": 4194304,
+     "maxLines": 100000
+    }
+   }
+  },
+  {
+   "result": {
+    "ok": true,
+    "output": [
+     {
+      "type": "image",
+      "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+      "mimeType": "image/png"
+     }
+    ],
+    "calls": [],
+    "storeWrites": {
+     "set": {},
+     "delete": []
+    }
+   },
+   "options": {
+    "generatedImages": 0,
+    "wallMs": 1234.5,
+    "maxOutputTokens": 10000,
+    "calls": [],
+    "limits": {
+     "maxBytes": 4194304,
+     "maxLines": 100000
+    }
+   },
+   "failWrites": true
+  },
+  {
+   "result": {
+    "ok": true,
+    "output": [
+     {
+      "type": "image",
+      "data": "@@@",
+      "mimeType": "image/png"
+     }
+    ],
+    "calls": [],
+    "storeWrites": {
+     "set": {},
+     "delete": []
+    }
+   },
+   "options": {
+    "generatedImages": 0,
+    "wallMs": 1234.5,
+    "maxOutputTokens": 10000,
+    "calls": [],
+    "limits": {
+     "maxBytes": 4194304,
+     "maxLines": 100000
+    }
+   }
+  },
+  {
+   "result": {
+    "ok": true,
+    "output": [
+     {
+      "type": "text",
+      "text": "line 000 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 001 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 002 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 003 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 004 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 005 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 006 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 007 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 008 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 009 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 010 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 011 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 012 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 013 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 014 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 015 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 016 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 017 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 018 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 019 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 020 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 021 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 022 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 023 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 024 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 025 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 026 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 027 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 028 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 029 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 030 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 031 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 032 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 033 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 034 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 035 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 036 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 037 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 038 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 039 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 040 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 041 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 042 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 043 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 044 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 045 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 046 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 047 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 048 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 049 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 050 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 051 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 052 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 053 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 054 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 055 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 056 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 057 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 058 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 059 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+     },
+     {
+      "type": "image",
+      "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+      "mimeType": "image/png"
+     },
+     {
+      "type": "text",
+      "text": "tail text"
+     }
+    ],
+    "calls": [],
+    "storeWrites": {
+     "set": {},
+     "delete": []
+    }
+   },
+   "options": {
+    "generatedImages": 0,
+    "wallMs": 1234.5,
+    "maxOutputTokens": 100,
+    "calls": [],
+    "limits": {
+     "maxBytes": 4194304,
+     "maxLines": 100000
+    }
+   }
+  },
+  {
+   "result": {
+    "ok": true,
+    "output": [
+     {
+      "type": "text",
+      "text": "line 000 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 001 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 002 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 003 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 004 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 005 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 006 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 007 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 008 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 009 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 010 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 011 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 012 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 013 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 014 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 015 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 016 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 017 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 018 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 019 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 020 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 021 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 022 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 023 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 024 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 025 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 026 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 027 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 028 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 029 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 030 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 031 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 032 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 033 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 034 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 035 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 036 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 037 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 038 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 039 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 040 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 041 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 042 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 043 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 044 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 045 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 046 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 047 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 048 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 049 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 050 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 051 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 052 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 053 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 054 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 055 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 056 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 057 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 058 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 059 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+     }
+    ],
+    "calls": [],
+    "storeWrites": {
+     "set": {},
+     "delete": []
+    }
+   },
+   "options": {
+    "generatedImages": 0,
+    "wallMs": 1234.5,
+    "maxOutputTokens": 100,
+    "calls": [],
+    "limits": {
+     "maxBytes": 4194304,
+     "maxLines": 100000
+    }
+   },
+   "failWrites": true
+  },
+  {
+   "result": {
+    "ok": true,
+    "output": [
+     {
+      "type": "text",
+      "text": "l0\nl1\nl2\nl3\nl4\nl5\nl6\nl7\nl8\nl9\nl10\nl11\nl12\nl13\nl14\nl15\nl16\nl17\nl18\nl19\nl20\nl21\nl22\nl23\nl24\nl25\nl26\nl27\nl28\nl29"
+     }
+    ],
+    "calls": [],
+    "storeWrites": {
+     "set": {},
+     "delete": []
+    }
+   },
+   "options": {
+    "generatedImages": 0,
+    "wallMs": 1234.5,
+    "maxOutputTokens": 10000,
+    "calls": [],
+    "limits": {
+     "maxBytes": 4194304,
+     "maxLines": 120
+    }
+   }
+  },
+  {
+   "result": {
+    "ok": true,
+    "output": [
+     {
+      "type": "text",
+      "text": "short"
+     }
+    ],
+    "calls": [],
+    "storeWrites": {
+     "set": {},
+     "delete": []
+    }
+   },
+   "options": {
+    "generatedImages": 0,
+    "wallMs": 1234.5,
+    "maxOutputTokens": 0,
+    "calls": [],
+    "limits": {
+     "maxBytes": 4194304,
+     "maxLines": 100000
+    }
+   }
+  },
+  {
+   "result": {
+    "ok": true,
+    "output": [
+     {
+      "type": "text",
+      "text": "ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀"
+     }
+    ],
+    "calls": [],
+    "storeWrites": {
+     "set": {},
+     "delete": []
+    }
+   },
+   "options": {
+    "generatedImages": 0,
+    "wallMs": 1234.5,
+    "maxOutputTokens": 25,
+    "calls": [],
+    "limits": {
+     "maxBytes": 4194304,
+     "maxLines": 100000
+    }
+   }
+  },
+  {
+   "result": {
+    "ok": true,
+    "output": [
+     {
+      "type": "text",
+      "text": "no images"
+     }
+    ],
+    "calls": [],
+    "storeWrites": {
+     "set": {},
+     "delete": []
+    }
+   },
+   "options": {
+    "generatedImages": 2,
+    "wallMs": 1234.5,
+    "maxOutputTokens": 10000,
+    "calls": [],
+    "limits": {
+     "maxBytes": 4194304,
+     "maxLines": 100000
+    }
+   }
+  },
+  {
+   "result": {
+    "ok": true,
+    "output": [
+     {
+      "type": "image",
+      "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+      "mimeType": "image/png"
+     }
+    ],
+    "calls": [],
+    "storeWrites": {
+     "set": {},
+     "delete": []
+    }
+   },
+   "options": {
+    "generatedImages": 1,
+    "wallMs": 1234.5,
+    "maxOutputTokens": 10000,
+    "calls": [],
+    "limits": {
+     "maxBytes": 4194304,
+     "maxLines": 100000
+    }
+   }
+  },
+  {
+   "result": {
+    "ok": true,
+    "output": [],
+    "calls": [],
+    "storeWrites": {
+     "set": {},
+     "delete": []
+    }
+   },
+   "options": {
+    "generatedImages": 1,
+    "wallMs": 1234.5,
+    "maxOutputTokens": 10000,
+    "calls": [],
+    "limits": {
+     "maxBytes": 4194304,
+     "maxLines": 100000
+    }
+   }
+  },
+  {
+   "result": {
+    "ok": true,
+    "output": [
+     {
+      "type": "text",
+      "text": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+     }
+    ],
+    "calls": [],
+    "storeWrites": {
+     "set": {},
+     "delete": []
+    }
+   },
+   "options": {
+    "generatedImages": 0,
+    "wallMs": 1234.5,
+    "maxOutputTokens": 10000,
+    "calls": [],
+    "limits": {
+     "maxBytes": 200,
+     "maxLines": 100000
+    }
+   }
+  },
+  {
+   "result": {
+    "ok": true,
+    "output": [
+     {
+      "type": "image",
+      "data": "abcde",
+      "mimeType": "image/gif"
+     }
+    ],
+    "calls": [],
+    "storeWrites": {
+     "set": {},
+     "delete": []
+    }
+   },
+   "options": {
+    "generatedImages": 0,
+    "wallMs": 10,
+    "maxOutputTokens": 10000,
+    "calls": [],
+    "limits": {
+     "maxBytes": 4194304,
+     "maxLines": 100000
+    }
+   }
+  },
+  {
+   "result": {
+    "ok": true,
+    "output": [
+     {
+      "type": "image",
+      "data": "Y Q = =",
+      "mimeType": "image/gif"
+     }
+    ],
+    "calls": [],
+    "storeWrites": {
+     "set": {},
+     "delete": []
+    }
+   },
+   "options": {
+    "generatedImages": 0,
+    "wallMs": 10,
+    "maxOutputTokens": 10000,
+    "calls": [],
+    "limits": {
+     "maxBytes": 4194304,
+     "maxLines": 100000
+    }
+   }
+  },
+  {
+   "result": {
+    "ok": true,
+    "output": [
+     {
+      "type": "image",
+      "data": "YQ=",
+      "mimeType": "image/gif"
+     }
+    ],
+    "calls": [],
+    "storeWrites": {
+     "set": {},
+     "delete": []
+    }
+   },
+   "options": {
+    "generatedImages": 0,
+    "wallMs": 10,
+    "maxOutputTokens": 10000,
+    "calls": [],
+    "limits": {
+     "maxBytes": 4194304,
+     "maxLines": 100000
+    }
+   }
+  },
+  {
+   "result": {
+    "ok": true,
+    "output": [
+     {
+      "type": "image",
+      "data": "a===",
+      "mimeType": "image/gif"
+     }
+    ],
+    "calls": [],
+    "storeWrites": {
+     "set": {},
+     "delete": []
+    }
+   },
+   "options": {
+    "generatedImages": 0,
+    "wallMs": 10,
+    "maxOutputTokens": 10000,
+    "calls": [],
+    "limits": {
+     "maxBytes": 4194304,
+     "maxLines": 100000
+    }
+   }
+  },
+  {
+   "result": {
+    "ok": true,
+    "output": [
+     {
+      "type": "image",
+      "data": "YQ",
+      "mimeType": "image/gif"
+     }
+    ],
+    "calls": [],
+    "storeWrites": {
+     "set": {},
+     "delete": []
+    }
+   },
+   "options": {
+    "generatedImages": 0,
+    "wallMs": 10,
+    "maxOutputTokens": 10000,
+    "calls": [],
+    "limits": {
+     "maxBytes": 4194304,
+     "maxLines": 100000
+    }
+   }
+  }
+ ]
+}

@@ -199,19 +199,6 @@ func stringifyJSON(v any) string {
 	return strings.TrimSuffix(out.String(), "\n")
 }
 
-// utf16Len is a string's JavaScript length: UTF-16 code units.
-func utf16Len(text string) int {
-	n := 0
-	for _, r := range text {
-		if r >= 0x10000 {
-			n += 2
-		} else {
-			n++
-		}
-	}
-	return n
-}
-
 func usageTokens(u Usage) int {
 	return int(u.InputTokens + u.OutputTokens + u.CacheReadTokens + u.CacheWriteTokens)
 }
@@ -396,8 +383,8 @@ func serializeConversation(messages []Message) string {
 				var rendered []string
 				if parsed, err := parseJS(call.Arguments); err == nil {
 					if object, ok := parsed.(*jsObject); ok {
-						for _, key := range object.keys {
-							rendered = append(rendered, key+"="+jsStringify(object.values[key]))
+						for _, key := range object.Keys {
+							rendered = append(rendered, key+"="+jsStringify(object.Values[key]))
 						}
 					}
 				}

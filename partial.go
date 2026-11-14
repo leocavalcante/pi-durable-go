@@ -387,7 +387,7 @@ func (p *streamingJSON) openContainer(object bool) {
 	frame := &streamFrame{slot: slot, phase: "value"}
 	var container any
 	if object {
-		frame.object, frame.phase = &jsObject{values: map[string]any{}}, "key"
+		frame.object, frame.phase = &jsObject{Values: map[string]any{}}, "key"
 		container = frame.object
 	} else {
 		frame.array = &streamArray{}
@@ -427,10 +427,10 @@ func (p *streamingJSON) place(slot *streamSlot, value any) {
 		}
 	case 'm':
 		members := p.top().object
-		if _, ok := members.values[slot.key]; !ok {
-			members.keys = append(members.keys, slot.key)
+		if _, ok := members.Values[slot.key]; !ok {
+			members.Keys = append(members.Keys, slot.key)
 		}
-		members.values[slot.key] = value
+		members.Values[slot.key] = value
 	}
 }
 
@@ -445,10 +445,10 @@ func settledStreamValue(value any) any {
 		}
 		return items
 	case *jsObject:
-		for key, item := range v.values {
-			v.values[key] = settledStreamValue(item)
+		for key, item := range v.Values {
+			v.Values[key] = settledStreamValue(item)
 		}
-		v.order()
+		v.Order()
 		return v
 	}
 	return value

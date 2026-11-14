@@ -1473,17 +1473,6 @@ func tryNull(value any) (any, bool) {
 
 // JavaScript number semantics.
 
-// jsTrim is String.prototype.trim.
-func jsTrim(s string) string {
-	return strings.TrimFunc(s, func(r rune) bool {
-		switch r {
-		case '\t', '\n', '\v', '\f', '\r', ' ', 0xa0, 0x1680, 0x2028, 0x2029, 0x202f, 0x205f, 0x3000, 0xfeff:
-			return true
-		}
-		return r >= 0x2000 && r <= 0x200a
-	})
-}
-
 var jsDecimal = regexp.MustCompile(`^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$`)
 
 // jsNumber is Number(string): false for NaN; ±Inf for out-of-range and

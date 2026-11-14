@@ -1,0 +1,2898 @@
+{
+ "cases": {
+  "identifiers": [
+   "read",
+   "my-tool",
+   "mcp__docs__search",
+   "9lives",
+   "",
+   "héllo",
+   "a.b",
+   "$x",
+   "😀tool",
+   "_",
+   "a1"
+  ],
+  "types": [
+   {
+    "schema": true
+   },
+   {
+    "schema": false
+   },
+   {
+    "schema": null
+   },
+   {
+    "schema": [
+     1
+    ]
+   },
+   {
+    "schema": {
+     "type": "string"
+    }
+   },
+   {
+    "schema": {
+     "type": "integer"
+    }
+   },
+   {
+    "schema": {
+     "type": "null"
+    }
+   },
+   {
+    "schema": {
+     "type": "boolean"
+    }
+   },
+   {
+    "schema": {
+     "type": "weird"
+    }
+   },
+   {
+    "schema": {
+     "type": null
+    }
+   },
+   {
+    "schema": {}
+   },
+   {
+    "schema": {
+     "const": {
+      "b": 1,
+      "a": [
+       1,
+       "x"
+      ],
+      "2": true
+     }
+    }
+   },
+   {
+    "schema": {
+     "const": null
+    }
+   },
+   {
+    "schema": {
+     "enum": [
+      "a",
+      1,
+      null,
+      {
+       "k": "v"
+      },
+      "a"
+     ]
+    }
+   },
+   {
+    "schema": {
+     "enum": []
+    }
+   },
+   {
+    "schema": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "number"
+      },
+      {
+       "type": "string"
+      }
+     ]
+    }
+   },
+   {
+    "schema": {
+     "oneOf": [
+      {
+       "type": "string"
+      },
+      {}
+     ]
+    }
+   },
+   {
+    "schema": {
+     "allOf": [
+      {
+       "type": "object",
+       "properties": {
+        "a": {
+         "type": "string"
+        }
+       }
+      },
+      {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ]
+      },
+      {}
+     ]
+    }
+   },
+   {
+    "schema": {
+     "allOf": [
+      {},
+      true
+     ]
+    }
+   },
+   {
+    "schema": {
+     "type": [
+      "string",
+      "null"
+     ]
+    }
+   },
+   {
+    "schema": {
+     "type": [
+      "object",
+      "null"
+     ],
+     "properties": {
+      "x": {
+       "type": "integer"
+      }
+     },
+     "required": [
+      "x"
+     ]
+    }
+   },
+   {
+    "schema": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    }
+   },
+   {
+    "schema": {
+     "type": "array"
+    }
+   },
+   {
+    "schema": {
+     "type": "array",
+     "items": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "number"
+      }
+     ]
+    }
+   },
+   {
+    "schema": {
+     "type": "array",
+     "prefixItems": [
+      {
+       "type": "boolean"
+      }
+     ],
+     "items": {
+      "type": "string"
+     }
+    }
+   },
+   {
+    "schema": {
+     "prefixItems": [
+      {
+       "type": "null"
+      }
+     ]
+    }
+   },
+   {
+    "schema": {
+     "items": null
+    }
+   },
+   {
+    "schema": {
+     "type": "object"
+    }
+   },
+   {
+    "schema": {
+     "type": "object",
+     "additionalProperties": false
+    }
+   },
+   {
+    "schema": {
+     "type": "object",
+     "additionalProperties": true,
+     "properties": {
+      "a": {
+       "type": "string"
+      }
+     }
+    }
+   },
+   {
+    "schema": {
+     "type": "object",
+     "additionalProperties": {
+      "type": "number"
+     }
+    }
+   },
+   {
+    "schema": {
+     "type": "object",
+     "additionalProperties": null
+    }
+   },
+   {
+    "schema": {
+     "required": [
+      "z"
+     ]
+    }
+   },
+   {
+    "schema": {
+     "type": "object",
+     "properties": {
+      "b": {
+       "type": "string"
+      },
+      "a": {
+       "type": "number"
+      },
+      "B": {},
+      "a-b": {
+       "type": "string"
+      },
+      "🙂": {
+       "type": "string"
+      },
+      "_ok$": {
+       "type": "string"
+      },
+      "9x": {},
+      "é": {}
+     },
+     "required": [
+      "a",
+      "9x",
+      1
+     ]
+    }
+   },
+   {
+    "schema": {
+     "type": "object",
+     "properties": {
+      "path": {
+       "type": "string",
+       "description": "  The file path.\nRelative to cwd.\u2028Third line.  "
+      },
+      "limit": {
+       "type": "integer",
+       "minimum": 1,
+       "maximum": 2000,
+       "default": 200,
+       "description": "Lines to read"
+      },
+      "offset": {
+       "anyOf": [
+        {
+         "type": "integer",
+         "minimum": 0,
+         "exclusiveMinimum": -1
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null
+      },
+      "ratio": {
+       "type": "number",
+       "minimum": 0,
+       "exclusiveMinimum": true,
+       "maximum": 1,
+       "exclusiveMaximum": true,
+       "multipleOf": 0.25
+      },
+      "name": {
+       "type": "string",
+       "minLength": 2,
+       "maxLength": 40,
+       "pattern": "^[a-z]+\n$",
+       "format": "hostname"
+      },
+      "tags": {
+       "type": "array",
+       "items": {
+        "type": "string"
+       },
+       "minItems": 1,
+       "maxItems": 5,
+       "uniqueItems": true
+      },
+      "old": {
+       "type": "boolean",
+       "deprecated": true
+      },
+      "big": {
+       "type": "string",
+       "default": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      },
+      "both": {
+       "oneOf": [
+        {
+         "type": "string",
+         "minLength": 3,
+         "pattern": "a"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "minLength": 5,
+       "pattern": "b",
+       "format": "email"
+      },
+      "obj": {
+       "type": "object",
+       "default": {
+        "z": 1,
+        "a": {
+         "q": [
+          1,
+          2
+         ]
+        }
+       }
+      },
+      "num": {
+       "type": [
+        "integer",
+        "null"
+       ],
+       "maximum": 1e+21,
+       "minimum": -1e-06
+      }
+     },
+     "required": [
+      "path"
+     ]
+    }
+   },
+   {
+    "schema": {
+     "type": "object",
+     "properties": {
+      "inner": {
+       "type": "object",
+       "properties": {
+        "x": {
+         "type": "string",
+         "description": "deep"
+        }
+       }
+      }
+     },
+     "required": [
+      "inner"
+     ]
+    }
+   },
+   {
+    "schema": {
+     "$defs": {
+      "Item": {
+       "type": "object",
+       "properties": {
+        "id": {
+         "type": "string"
+        },
+        "child": {
+         "$ref": "#/$defs/Item"
+        }
+       }
+      }
+     },
+     "type": "array",
+     "items": {
+      "$ref": "#/$defs/Item"
+     }
+    }
+   },
+   {
+    "schema": {
+     "definitions": {
+      "a/b": {
+       "type": "string"
+      },
+      "c~d": {
+       "type": "number"
+      },
+      "e%f": {
+       "type": "boolean"
+      }
+     },
+     "anyOf": [
+      {
+       "$ref": "#/definitions/a~1b"
+      },
+      {
+       "$ref": "#/definitions/c~0d"
+      },
+      {
+       "$ref": "#/definitions/e%25f"
+      },
+      {
+       "$ref": "#/definitions/%zz"
+      },
+      {
+       "$ref": "#/definitions/missing"
+      },
+      {
+       "$ref": "http://example.com/s"
+      },
+      {
+       "$ref": "#"
+      }
+     ]
+    }
+   },
+   {
+    "schema": {
+     "$ref": "#/properties/a",
+     "properties": {
+      "a": {
+       "type": "string"
+      }
+     }
+    }
+   },
+   {
+    "schema": {
+     "type": "object",
+     "properties": {
+      "p0": {
+       "type": "string",
+       "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+       "minLength": 1
+      },
+      "p1": {
+       "type": "string",
+       "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+       "minLength": 1
+      },
+      "p2": {
+       "type": "string",
+       "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+       "minLength": 1
+      },
+      "p3": {
+       "type": "string",
+       "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+       "minLength": 1
+      },
+      "p4": {
+       "type": "string",
+       "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+       "minLength": 1
+      },
+      "p5": {
+       "type": "string",
+       "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+       "minLength": 1
+      },
+      "p6": {
+       "type": "string",
+       "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+       "minLength": 1
+      },
+      "p7": {
+       "type": "string",
+       "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+       "minLength": 1
+      },
+      "p8": {
+       "type": "string",
+       "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+       "minLength": 1
+      },
+      "p9": {
+       "type": "string",
+       "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+       "minLength": 1
+      }
+     }
+    },
+    "maxChars": 600
+   },
+   {
+    "schema": {
+     "type": "object",
+     "properties": {
+      "p0": {
+       "type": "string",
+       "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+       "minLength": 1
+      },
+      "p1": {
+       "type": "string",
+       "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+       "minLength": 1
+      },
+      "p2": {
+       "type": "string",
+       "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+       "minLength": 1
+      },
+      "p3": {
+       "type": "string",
+       "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+       "minLength": 1
+      },
+      "p4": {
+       "type": "string",
+       "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+       "minLength": 1
+      },
+      "p5": {
+       "type": "string",
+       "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+       "minLength": 1
+      },
+      "p6": {
+       "type": "string",
+       "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+       "minLength": 1
+      },
+      "p7": {
+       "type": "string",
+       "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+       "minLength": 1
+      },
+      "p8": {
+       "type": "string",
+       "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+       "minLength": 1
+      },
+      "p9": {
+       "type": "string",
+       "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+       "minLength": 1
+      }
+     }
+    },
+    "maxChars": 200
+   },
+   {
+    "schema": {
+     "type": "object",
+     "properties": {
+      "p0": {
+       "type": "string",
+       "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+       "minLength": 1
+      },
+      "p1": {
+       "type": "string",
+       "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+       "minLength": 1
+      },
+      "p2": {
+       "type": "string",
+       "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+       "minLength": 1
+      },
+      "p3": {
+       "type": "string",
+       "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+       "minLength": 1
+      },
+      "p4": {
+       "type": "string",
+       "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+       "minLength": 1
+      },
+      "p5": {
+       "type": "string",
+       "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+       "minLength": 1
+      },
+      "p6": {
+       "type": "string",
+       "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+       "minLength": 1
+      },
+      "p7": {
+       "type": "string",
+       "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+       "minLength": 1
+      },
+      "p8": {
+       "type": "string",
+       "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+       "minLength": 1
+      },
+      "p9": {
+       "type": "string",
+       "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+       "minLength": 1
+      }
+     }
+    },
+    "maxChars": 20
+   },
+   {
+    "schema": {
+     "type": "object",
+     "properties": {
+      "p": {
+       "type": "string",
+       "pattern": "a\u2028b\u2029c\rd",
+       "description": "one\u2029two"
+      }
+     }
+    }
+   }
+  ],
+  "samples": [
+   {
+    "name": "read",
+    "description": "  Read a file.  ",
+    "inputSchema": {
+     "type": "object",
+     "properties": {
+      "path": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "path"
+     ]
+    },
+    "outputSchema": {
+     "type": "string"
+    }
+   },
+   {
+    "name": "my-tool",
+    "description": "Has a dash.",
+    "inputSchema": {
+     "type": "object"
+    },
+    "outputSchema": {
+     "type": "object",
+     "properties": {
+      "output": {
+       "type": "string"
+      },
+      "exitCode": {
+       "type": "number"
+      }
+     },
+     "required": [
+      "output"
+     ]
+    }
+   },
+   {
+    "name": "bare"
+   },
+   {
+    "name": "mcp__docs__search",
+    "description": "Search docs.\n\nWith detail.",
+    "inputSchema": {
+     "type": "object",
+     "properties": {
+      "q": {
+       "type": "string",
+       "description": "query"
+      }
+     }
+    }
+   }
+  ],
+  "sources": [
+   "",
+   "   \n\t",
+   "return 1;",
+   "// @options: {\"max_output_tokens\": 100}\nreturn 1;",
+   "// @options: {\"timeout_ms\": 5000, \"max_output_tokens\": 0}\nreturn 1;",
+   "// @options: {bad}\nreturn 1;",
+   "// @options: [1]\nreturn 1;",
+   "// @options: {\"other\": 1}\nreturn 1;",
+   "// @options: {\"5\": 1, \"max_output_tokens\": 1}\nx",
+   "// @options: {\"max_output_tokens\": -1}\nx",
+   "// @options: {\"max_output_tokens\": 1.5}\nx",
+   "// @options: {\"max_output_tokens\": \"1\"}\nx",
+   "// @options: {\"timeout_ms\": 0}\nx",
+   "// @options: {\"timeout_ms\": 2147483648}\nx",
+   "// @options: {\"timeout_ms\": 1e3}\nx",
+   "// @options: {}",
+   "// @options: {}\n   \n",
+   "return 1;\n// @options: {}",
+   "return 1;\n  // @options: {}",
+   "// @options: {}\r\nreturn 1;",
+   "   // @options: {\"max_output_tokens\": 5}\nx",
+   "// @options:\nx",
+   "// @options: {} trailing\nx",
+   "// @options: {\"max_output_tokens\": 9007199254740992}\nx",
+   "// @options: {\"max_output_tokens\": -0}\nx",
+   "// @options:{}\nx",
+   "// @options: {\"max_output_tokens\": 1, \"max_output_tokens\": 2}\nx",
+   "// @options: {\"max_output_tokens\": 1}\u2028x"
+  ],
+  "descriptions": [
+   true,
+   false
+  ],
+  "sections": [
+   {
+    "tools": [],
+    "namespaces": [],
+    "budget": 3000
+   },
+   {
+    "tools": [
+     {
+      "name": "read",
+      "description": "Read files.",
+      "parameters": {
+       "type": "object",
+       "properties": {
+        "a": {
+         "type": "string"
+        }
+       }
+      }
+     },
+     {
+      "name": "write",
+      "description": "Write files.",
+      "parameters": {
+       "type": "object",
+       "properties": {
+        "a": {
+         "type": "string"
+        }
+       }
+      },
+      "structuredOutputSchema": {
+       "type": "object",
+       "properties": {
+        "ok": {
+         "type": "boolean"
+        }
+       }
+      }
+     }
+    ],
+    "namespaces": [],
+    "budget": 3000
+   },
+   {
+    "tools": [
+     {
+      "name": "plain",
+      "description": "d",
+      "parameters": {
+       "type": "object",
+       "properties": {
+        "a": {
+         "type": "string"
+        }
+       }
+      }
+     },
+     {
+      "name": "my-tool",
+      "description": "dash",
+      "parameters": {
+       "type": "object",
+       "properties": {
+        "a": {
+         "type": "string"
+        }
+       }
+      }
+     },
+     {
+      "name": "beta_one",
+      "description": "first beta",
+      "parameters": {
+       "type": "object",
+       "properties": {
+        "a": {
+         "type": "string"
+        }
+       }
+      }
+     },
+     {
+      "name": "beta_two",
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "parameters": {
+       "type": "object",
+       "properties": {
+        "a": {
+         "type": "string"
+        }
+       }
+      }
+     },
+     {
+      "name": "alpha_a",
+      "description": "d",
+      "parameters": {
+       "type": "object",
+       "properties": {
+        "a": {
+         "type": "string"
+        }
+       }
+      }
+     },
+     {
+      "name": "alpha_long_b",
+      "description": "longer prefix",
+      "parameters": {
+       "type": "object",
+       "properties": {
+        "a": {
+         "type": "string"
+        }
+       }
+      }
+     },
+     {
+      "name": "u_x",
+      "description": "d",
+      "parameters": {
+       "type": "object",
+       "properties": {
+        "a": {
+         "type": "string"
+        }
+       }
+      }
+     },
+     {
+      "name": "z_y",
+      "description": "d",
+      "parameters": {
+       "type": "object",
+       "properties": {
+        "a": {
+         "type": "string"
+        }
+       }
+      },
+      "structuredOutputSchema": {
+       "type": "object"
+      }
+     }
+    ],
+    "namespaces": [
+     {
+      "name": "beta",
+      "prefix": "beta_",
+      "description": "  Beta tools.  "
+     },
+     {
+      "name": "Alpha",
+      "prefix": "alpha_"
+     },
+     {
+      "name": "_under",
+      "prefix": "u_"
+     },
+     {
+      "name": "zeta",
+      "prefix": "z_",
+      "instructions": "x"
+     },
+     {
+      "name": "alpha-long",
+      "prefix": "alpha_long_",
+      "description": "Longer."
+     }
+    ],
+    "budget": 3000
+   },
+   {
+    "tools": [
+     {
+      "name": "plain",
+      "description": "d",
+      "parameters": {
+       "type": "object",
+       "properties": {
+        "a": {
+         "type": "string"
+        }
+       }
+      }
+     },
+     {
+      "name": "my-tool",
+      "description": "dash",
+      "parameters": {
+       "type": "object",
+       "properties": {
+        "a": {
+         "type": "string"
+        }
+       }
+      }
+     },
+     {
+      "name": "beta_one",
+      "description": "first beta",
+      "parameters": {
+       "type": "object",
+       "properties": {
+        "a": {
+         "type": "string"
+        }
+       }
+      }
+     },
+     {
+      "name": "beta_two",
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "parameters": {
+       "type": "object",
+       "properties": {
+        "a": {
+         "type": "string"
+        }
+       }
+      }
+     },
+     {
+      "name": "alpha_a",
+      "description": "d",
+      "parameters": {
+       "type": "object",
+       "properties": {
+        "a": {
+         "type": "string"
+        }
+       }
+      }
+     },
+     {
+      "name": "alpha_long_b",
+      "description": "longer prefix",
+      "parameters": {
+       "type": "object",
+       "properties": {
+        "a": {
+         "type": "string"
+        }
+       }
+      }
+     },
+     {
+      "name": "u_x",
+      "description": "d",
+      "parameters": {
+       "type": "object",
+       "properties": {
+        "a": {
+         "type": "string"
+        }
+       }
+      }
+     },
+     {
+      "name": "z_y",
+      "description": "d",
+      "parameters": {
+       "type": "object",
+       "properties": {
+        "a": {
+         "type": "string"
+        }
+       }
+      },
+      "structuredOutputSchema": {
+       "type": "object"
+      }
+     }
+    ],
+    "namespaces": [
+     {
+      "name": "beta",
+      "prefix": "beta_",
+      "description": "  Beta tools.  "
+     },
+     {
+      "name": "Alpha",
+      "prefix": "alpha_"
+     },
+     {
+      "name": "_under",
+      "prefix": "u_"
+     },
+     {
+      "name": "zeta",
+      "prefix": "z_",
+      "instructions": "x"
+     },
+     {
+      "name": "alpha-long",
+      "prefix": "alpha_long_",
+      "description": "Longer."
+     }
+    ],
+    "budget": 200
+   },
+   {
+    "tools": [
+     {
+      "name": "plain",
+      "description": "d",
+      "parameters": {
+       "type": "object",
+       "properties": {
+        "a": {
+         "type": "string"
+        }
+       }
+      }
+     },
+     {
+      "name": "my-tool",
+      "description": "dash",
+      "parameters": {
+       "type": "object",
+       "properties": {
+        "a": {
+         "type": "string"
+        }
+       }
+      }
+     },
+     {
+      "name": "beta_one",
+      "description": "first beta",
+      "parameters": {
+       "type": "object",
+       "properties": {
+        "a": {
+         "type": "string"
+        }
+       }
+      }
+     },
+     {
+      "name": "beta_two",
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "parameters": {
+       "type": "object",
+       "properties": {
+        "a": {
+         "type": "string"
+        }
+       }
+      }
+     },
+     {
+      "name": "alpha_a",
+      "description": "d",
+      "parameters": {
+       "type": "object",
+       "properties": {
+        "a": {
+         "type": "string"
+        }
+       }
+      }
+     },
+     {
+      "name": "alpha_long_b",
+      "description": "longer prefix",
+      "parameters": {
+       "type": "object",
+       "properties": {
+        "a": {
+         "type": "string"
+        }
+       }
+      }
+     },
+     {
+      "name": "u_x",
+      "description": "d",
+      "parameters": {
+       "type": "object",
+       "properties": {
+        "a": {
+         "type": "string"
+        }
+       }
+      }
+     },
+     {
+      "name": "z_y",
+      "description": "d",
+      "parameters": {
+       "type": "object",
+       "properties": {
+        "a": {
+         "type": "string"
+        }
+       }
+      },
+      "structuredOutputSchema": {
+       "type": "object"
+      }
+     }
+    ],
+    "namespaces": [
+     {
+      "name": "beta",
+      "prefix": "beta_",
+      "description": "  Beta tools.  "
+     },
+     {
+      "name": "Alpha",
+      "prefix": "alpha_"
+     },
+     {
+      "name": "_under",
+      "prefix": "u_"
+     },
+     {
+      "name": "zeta",
+      "prefix": "z_",
+      "instructions": "x"
+     },
+     {
+      "name": "alpha-long",
+      "prefix": "alpha_long_",
+      "description": "Longer."
+     }
+    ],
+    "budget": 60
+   },
+   {
+    "tools": [
+     {
+      "name": "plain",
+      "description": "d",
+      "parameters": {
+       "type": "object",
+       "properties": {
+        "a": {
+         "type": "string"
+        }
+       }
+      }
+     },
+     {
+      "name": "my-tool",
+      "description": "dash",
+      "parameters": {
+       "type": "object",
+       "properties": {
+        "a": {
+         "type": "string"
+        }
+       }
+      }
+     },
+     {
+      "name": "beta_one",
+      "description": "first beta",
+      "parameters": {
+       "type": "object",
+       "properties": {
+        "a": {
+         "type": "string"
+        }
+       }
+      }
+     },
+     {
+      "name": "beta_two",
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "parameters": {
+       "type": "object",
+       "properties": {
+        "a": {
+         "type": "string"
+        }
+       }
+      }
+     },
+     {
+      "name": "alpha_a",
+      "description": "d",
+      "parameters": {
+       "type": "object",
+       "properties": {
+        "a": {
+         "type": "string"
+        }
+       }
+      }
+     },
+     {
+      "name": "alpha_long_b",
+      "description": "longer prefix",
+      "parameters": {
+       "type": "object",
+       "properties": {
+        "a": {
+         "type": "string"
+        }
+       }
+      }
+     },
+     {
+      "name": "u_x",
+      "description": "d",
+      "parameters": {
+       "type": "object",
+       "properties": {
+        "a": {
+         "type": "string"
+        }
+       }
+      }
+     },
+     {
+      "name": "z_y",
+      "description": "d",
+      "parameters": {
+       "type": "object",
+       "properties": {
+        "a": {
+         "type": "string"
+        }
+       }
+      },
+      "structuredOutputSchema": {
+       "type": "object"
+      }
+     }
+    ],
+    "namespaces": [
+     {
+      "name": "beta",
+      "prefix": "beta_",
+      "description": "  Beta tools.  "
+     },
+     {
+      "name": "Alpha",
+      "prefix": "alpha_"
+     },
+     {
+      "name": "_under",
+      "prefix": "u_"
+     },
+     {
+      "name": "zeta",
+      "prefix": "z_",
+      "instructions": "x"
+     },
+     {
+      "name": "alpha-long",
+      "prefix": "alpha_long_",
+      "description": "Longer."
+     }
+    ],
+    "budget": 0
+   }
+  ],
+  "results": [
+   {
+    "result": {
+     "ok": true,
+     "output": [],
+     "calls": [],
+     "storeWrites": {
+      "set": {},
+      "delete": []
+     },
+     "value": "hello"
+    },
+    "options": {
+     "generatedImages": 0,
+     "wallMs": 1234.5,
+     "maxOutputTokens": 10000,
+     "calls": [],
+     "limits": {
+      "maxBytes": 4194304,
+      "maxLines": 100000
+     }
+    }
+   },
+   {
+    "result": {
+     "ok": true,
+     "output": [
+      {
+       "type": "text",
+       "text": "one"
+      },
+      {
+       "type": "text",
+       "text": "log 1",
+       "console": true
+      },
+      {
+       "type": "text",
+       "text": "two"
+      },
+      {
+       "type": "text",
+       "text": "log 2",
+       "console": true
+      }
+     ],
+     "calls": [],
+     "storeWrites": {
+      "set": {},
+      "delete": []
+     },
+     "value": {
+      "b": 1,
+      "a": [
+       1,
+       2
+      ],
+      "2": "x"
+     }
+    },
+    "options": {
+     "generatedImages": 0,
+     "wallMs": 1250,
+     "maxOutputTokens": 10000,
+     "calls": [],
+     "limits": {
+      "maxBytes": 4194304,
+      "maxLines": 100000
+     }
+    }
+   },
+   {
+    "result": {
+     "ok": true,
+     "output": [
+      {
+       "type": "text",
+       "text": "only"
+      }
+     ],
+     "calls": [],
+     "storeWrites": {
+      "set": {},
+      "delete": []
+     }
+    },
+    "options": {
+     "generatedImages": 0,
+     "wallMs": 50,
+     "maxOutputTokens": 10000,
+     "calls": [],
+     "limits": {
+      "maxBytes": 4194304,
+      "maxLines": 100000
+     }
+    }
+   },
+   {
+    "result": {
+     "ok": true,
+     "output": [],
+     "calls": [],
+     "storeWrites": {
+      "set": {},
+      "delete": []
+     }
+    },
+    "options": {
+     "generatedImages": 0,
+     "wallMs": 0,
+     "maxOutputTokens": 10000,
+     "calls": [],
+     "limits": {
+      "maxBytes": 4194304,
+      "maxLines": 100000
+     }
+    }
+   },
+   {
+    "result": {
+     "ok": true,
+     "output": [
+      {
+       "type": "text",
+       "text": "ends without newline"
+      },
+      {
+       "type": "text",
+       "text": ""
+      }
+     ],
+     "calls": [],
+     "storeWrites": {
+      "set": {},
+      "delete": []
+     },
+     "value": 0
+    },
+    "options": {
+     "generatedImages": 0,
+     "wallMs": 1234.5,
+     "maxOutputTokens": 10000,
+     "calls": [],
+     "limits": {
+      "maxBytes": 4194304,
+      "maxLines": 100000
+     }
+    }
+   },
+   {
+    "result": {
+     "ok": true,
+     "output": [
+      {
+       "type": "text",
+       "text": "a\n"
+      },
+      {
+       "type": "text",
+       "text": "b"
+      }
+     ],
+     "calls": [],
+     "storeWrites": {
+      "set": {},
+      "delete": []
+     },
+     "value": ""
+    },
+    "options": {
+     "generatedImages": 0,
+     "wallMs": 1234.5,
+     "maxOutputTokens": 10000,
+     "calls": [],
+     "limits": {
+      "maxBytes": 4194304,
+      "maxLines": 100000
+     }
+    }
+   },
+   {
+    "result": {
+     "ok": false,
+     "error": {
+      "kind": "script",
+      "message": "boom",
+      "name": "TypeError",
+      "stack": "TypeError: boom\n    at codemode.js:2:7"
+     },
+     "output": [
+      {
+       "type": "text",
+       "text": "before"
+      }
+     ],
+     "calls": []
+    },
+    "options": {
+     "generatedImages": 0,
+     "wallMs": 1234.5,
+     "maxOutputTokens": 10000,
+     "calls": [
+      {
+       "id": 1,
+       "name": "read",
+       "args": "{}",
+       "status": "ok"
+      },
+      {
+       "id": 2,
+       "name": "bash",
+       "args": "{}",
+       "status": "error"
+      }
+     ],
+     "limits": {
+      "maxBytes": 4194304,
+      "maxLines": 100000
+     }
+    }
+   },
+   {
+    "result": {
+     "ok": false,
+     "error": {
+      "kind": "script",
+      "message": "no stack"
+     },
+     "output": [],
+     "calls": []
+    },
+    "options": {
+     "generatedImages": 0,
+     "wallMs": 1234.5,
+     "maxOutputTokens": 10000,
+     "calls": [],
+     "limits": {
+      "maxBytes": 4194304,
+      "maxLines": 100000
+     }
+    }
+   },
+   {
+    "result": {
+     "ok": false,
+     "error": {
+      "kind": "timeout",
+      "message": "Execution timed out after 200 ms"
+     },
+     "output": [],
+     "calls": []
+    },
+    "options": {
+     "generatedImages": 0,
+     "wallMs": 1234.5,
+     "maxOutputTokens": 10000,
+     "calls": [
+      {
+       "id": 1,
+       "name": "slow",
+       "args": "{}",
+       "status": "cancelled"
+      }
+     ],
+     "limits": {
+      "maxBytes": 4194304,
+      "maxLines": 100000
+     }
+    }
+   },
+   {
+    "result": {
+     "ok": false,
+     "error": {
+      "kind": "aborted",
+      "message": "Sandbox closed"
+     },
+     "output": [],
+     "calls": []
+    },
+    "options": {
+     "generatedImages": 0,
+     "wallMs": 1234.5,
+     "maxOutputTokens": 10000,
+     "calls": [],
+     "limits": {
+      "maxBytes": 4194304,
+      "maxLines": 100000
+     }
+    }
+   },
+   {
+    "result": {
+     "ok": false,
+     "error": {
+      "kind": "sandbox",
+      "message": "Worker exited"
+     },
+     "output": [],
+     "calls": []
+    },
+    "options": {
+     "generatedImages": 0,
+     "wallMs": 1234.5,
+     "maxOutputTokens": 10000,
+     "calls": [],
+     "limits": {
+      "maxBytes": 4194304,
+      "maxLines": 100000
+     }
+    }
+   },
+   {
+    "result": {
+     "ok": true,
+     "output": [
+      {
+       "type": "text",
+       "text": "look"
+      },
+      {
+       "type": "image",
+       "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+       "mimeType": "image/png"
+      },
+      {
+       "type": "text",
+       "text": "again"
+      },
+      {
+       "type": "image",
+       "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+       "mimeType": "image/png"
+      },
+      {
+       "type": "image",
+       "data": "/9j/4AAQSkZJRgABAQ==",
+       "mimeType": "image/jpeg"
+      },
+      {
+       "type": "image",
+       "data": "aGVs bG8=",
+       "mimeType": "image/x-unknown"
+      }
+     ],
+     "calls": [],
+     "storeWrites": {
+      "set": {},
+      "delete": []
+     }
+    },
+    "options": {
+     "generatedImages": 0,
+     "wallMs": 1234.5,
+     "maxOutputTokens": 10000,
+     "calls": [],
+     "limits": {
+      "maxBytes": 4194304,
+      "maxLines": 100000
+     }
+    }
+   },
+   {
+    "result": {
+     "ok": true,
+     "output": [
+      {
+       "type": "image",
+       "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+       "mimeType": "image/png"
+      }
+     ],
+     "calls": [],
+     "storeWrites": {
+      "set": {},
+      "delete": []
+     }
+    },
+    "options": {
+     "generatedImages": 0,
+     "wallMs": 1234.5,
+     "maxOutputTokens": 10000,
+     "calls": [],
+     "limits": {
+      "maxBytes": 4194304,
+      "maxLines": 100000
+     }
+    },
+    "failWrites": true
+   },
+   {
+    "result": {
+     "ok": true,
+     "output": [
+      {
+       "type": "image",
+       "data": "@@@",
+       "mimeType": "image/png"
+      }
+     ],
+     "calls": [],
+     "storeWrites": {
+      "set": {},
+      "delete": []
+     }
+    },
+    "options": {
+     "generatedImages": 0,
+     "wallMs": 1234.5,
+     "maxOutputTokens": 10000,
+     "calls": [],
+     "limits": {
+      "maxBytes": 4194304,
+      "maxLines": 100000
+     }
+    }
+   },
+   {
+    "result": {
+     "ok": true,
+     "output": [
+      {
+       "type": "text",
+       "text": "line 000 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 001 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 002 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 003 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 004 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 005 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 006 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 007 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 008 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 009 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 010 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 011 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 012 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 013 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 014 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 015 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 016 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 017 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 018 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 019 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 020 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 021 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 022 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 023 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 024 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 025 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 026 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 027 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 028 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 029 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 030 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 031 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 032 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 033 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 034 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 035 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 036 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 037 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 038 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 039 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 040 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 041 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 042 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 043 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 044 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 045 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 046 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 047 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 048 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 049 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 050 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 051 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 052 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 053 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 054 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 055 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 056 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 057 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 058 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 059 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      },
+      {
+       "type": "image",
+       "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+       "mimeType": "image/png"
+      },
+      {
+       "type": "text",
+       "text": "tail text"
+      }
+     ],
+     "calls": [],
+     "storeWrites": {
+      "set": {},
+      "delete": []
+     }
+    },
+    "options": {
+     "generatedImages": 0,
+     "wallMs": 1234.5,
+     "maxOutputTokens": 100,
+     "calls": [],
+     "limits": {
+      "maxBytes": 4194304,
+      "maxLines": 100000
+     }
+    }
+   },
+   {
+    "result": {
+     "ok": true,
+     "output": [
+      {
+       "type": "text",
+       "text": "line 000 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 001 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 002 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 003 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 004 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 005 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 006 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 007 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 008 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 009 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 010 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 011 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 012 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 013 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 014 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 015 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 016 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 017 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 018 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 019 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 020 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 021 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 022 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 023 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 024 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 025 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 026 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 027 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 028 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 029 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 030 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 031 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 032 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 033 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 034 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 035 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 036 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 037 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 038 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 039 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 040 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 041 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 042 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 043 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 044 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 045 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 046 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 047 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 048 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 049 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 050 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 051 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 052 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 053 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 054 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 055 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 056 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 057 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 058 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 059 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      }
+     ],
+     "calls": [],
+     "storeWrites": {
+      "set": {},
+      "delete": []
+     }
+    },
+    "options": {
+     "generatedImages": 0,
+     "wallMs": 1234.5,
+     "maxOutputTokens": 100,
+     "calls": [],
+     "limits": {
+      "maxBytes": 4194304,
+      "maxLines": 100000
+     }
+    },
+    "failWrites": true
+   },
+   {
+    "result": {
+     "ok": true,
+     "output": [
+      {
+       "type": "text",
+       "text": "l0\nl1\nl2\nl3\nl4\nl5\nl6\nl7\nl8\nl9\nl10\nl11\nl12\nl13\nl14\nl15\nl16\nl17\nl18\nl19\nl20\nl21\nl22\nl23\nl24\nl25\nl26\nl27\nl28\nl29"
+      }
+     ],
+     "calls": [],
+     "storeWrites": {
+      "set": {},
+      "delete": []
+     }
+    },
+    "options": {
+     "generatedImages": 0,
+     "wallMs": 1234.5,
+     "maxOutputTokens": 10000,
+     "calls": [],
+     "limits": {
+      "maxBytes": 4194304,
+      "maxLines": 120
+     }
+    }
+   },
+   {
+    "result": {
+     "ok": true,
+     "output": [
+      {
+       "type": "text",
+       "text": "short"
+      }
+     ],
+     "calls": [],
+     "storeWrites": {
+      "set": {},
+      "delete": []
+     }
+    },
+    "options": {
+     "generatedImages": 0,
+     "wallMs": 1234.5,
+     "maxOutputTokens": 0,
+     "calls": [],
+     "limits": {
+      "maxBytes": 4194304,
+      "maxLines": 100000
+     }
+    }
+   },
+   {
+    "result": {
+     "ok": true,
+     "output": [
+      {
+       "type": "text",
+       "text": "ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀"
+      }
+     ],
+     "calls": [],
+     "storeWrites": {
+      "set": {},
+      "delete": []
+     }
+    },
+    "options": {
+     "generatedImages": 0,
+     "wallMs": 1234.5,
+     "maxOutputTokens": 25,
+     "calls": [],
+     "limits": {
+      "maxBytes": 4194304,
+      "maxLines": 100000
+     }
+    }
+   },
+   {
+    "result": {
+     "ok": true,
+     "output": [
+      {
+       "type": "text",
+       "text": "no images"
+      }
+     ],
+     "calls": [],
+     "storeWrites": {
+      "set": {},
+      "delete": []
+     }
+    },
+    "options": {
+     "generatedImages": 2,
+     "wallMs": 1234.5,
+     "maxOutputTokens": 10000,
+     "calls": [],
+     "limits": {
+      "maxBytes": 4194304,
+      "maxLines": 100000
+     }
+    }
+   },
+   {
+    "result": {
+     "ok": true,
+     "output": [
+      {
+       "type": "image",
+       "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+       "mimeType": "image/png"
+      }
+     ],
+     "calls": [],
+     "storeWrites": {
+      "set": {},
+      "delete": []
+     }
+    },
+    "options": {
+     "generatedImages": 1,
+     "wallMs": 1234.5,
+     "maxOutputTokens": 10000,
+     "calls": [],
+     "limits": {
+      "maxBytes": 4194304,
+      "maxLines": 100000
+     }
+    }
+   },
+   {
+    "result": {
+     "ok": true,
+     "output": [],
+     "calls": [],
+     "storeWrites": {
+      "set": {},
+      "delete": []
+     }
+    },
+    "options": {
+     "generatedImages": 1,
+     "wallMs": 1234.5,
+     "maxOutputTokens": 10000,
+     "calls": [],
+     "limits": {
+      "maxBytes": 4194304,
+      "maxLines": 100000
+     }
+    }
+   },
+   {
+    "result": {
+     "ok": true,
+     "output": [
+      {
+       "type": "text",
+       "text": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      }
+     ],
+     "calls": [],
+     "storeWrites": {
+      "set": {},
+      "delete": []
+     }
+    },
+    "options": {
+     "generatedImages": 0,
+     "wallMs": 1234.5,
+     "maxOutputTokens": 10000,
+     "calls": [],
+     "limits": {
+      "maxBytes": 200,
+      "maxLines": 100000
+     }
+    }
+   },
+   {
+    "result": {
+     "ok": true,
+     "output": [
+      {
+       "type": "image",
+       "data": "abcde",
+       "mimeType": "image/gif"
+      }
+     ],
+     "calls": [],
+     "storeWrites": {
+      "set": {},
+      "delete": []
+     }
+    },
+    "options": {
+     "generatedImages": 0,
+     "wallMs": 10,
+     "maxOutputTokens": 10000,
+     "calls": [],
+     "limits": {
+      "maxBytes": 4194304,
+      "maxLines": 100000
+     }
+    }
+   },
+   {
+    "result": {
+     "ok": true,
+     "output": [
+      {
+       "type": "image",
+       "data": "Y Q = =",
+       "mimeType": "image/gif"
+      }
+     ],
+     "calls": [],
+     "storeWrites": {
+      "set": {},
+      "delete": []
+     }
+    },
+    "options": {
+     "generatedImages": 0,
+     "wallMs": 10,
+     "maxOutputTokens": 10000,
+     "calls": [],
+     "limits": {
+      "maxBytes": 4194304,
+      "maxLines": 100000
+     }
+    }
+   },
+   {
+    "result": {
+     "ok": true,
+     "output": [
+      {
+       "type": "image",
+       "data": "YQ=",
+       "mimeType": "image/gif"
+      }
+     ],
+     "calls": [],
+     "storeWrites": {
+      "set": {},
+      "delete": []
+     }
+    },
+    "options": {
+     "generatedImages": 0,
+     "wallMs": 10,
+     "maxOutputTokens": 10000,
+     "calls": [],
+     "limits": {
+      "maxBytes": 4194304,
+      "maxLines": 100000
+     }
+    }
+   },
+   {
+    "result": {
+     "ok": true,
+     "output": [
+      {
+       "type": "image",
+       "data": "a===",
+       "mimeType": "image/gif"
+      }
+     ],
+     "calls": [],
+     "storeWrites": {
+      "set": {},
+      "delete": []
+     }
+    },
+    "options": {
+     "generatedImages": 0,
+     "wallMs": 10,
+     "maxOutputTokens": 10000,
+     "calls": [],
+     "limits": {
+      "maxBytes": 4194304,
+      "maxLines": 100000
+     }
+    }
+   },
+   {
+    "result": {
+     "ok": true,
+     "output": [
+      {
+       "type": "image",
+       "data": "YQ",
+       "mimeType": "image/gif"
+      }
+     ],
+     "calls": [],
+     "storeWrites": {
+      "set": {},
+      "delete": []
+     }
+    },
+    "options": {
+     "generatedImages": 0,
+     "wallMs": 10,
+     "maxOutputTokens": 10000,
+     "calls": [],
+     "limits": {
+      "maxBytes": 4194304,
+      "maxLines": 100000
+     }
+    }
+   }
+  ]
+ },
+ "upstream": {
+  "descriptions": [
+   "Run JavaScript that calls other tools. The input is raw JavaScript (not JSON, no code fence), run as an async function body in a QuickJS sandbox: top-level `await` and `return` work. No Node, file system, network, or timers.\n- `await tools.\u003cname\u003e({ ...args })` resolves to a string, or an object if the tool's declaration says so, and rejects with an Error on failure. A tool whose declaration returns an object resolves on failure too when it returned that object; check its fields. Calls still running when the script ends are cancelled.\n- The script survives a restart: it resumes where it was, without running finished calls again.\n- Optional first line: `// @options: {\"max_output_tokens\": 10000, \"timeout_ms\": 60000}`\n\nGlobals:\n- `text(value)`, `image(dataUrlOrImageBlock)`, `console.log(...)`, and top-level `return` add output; `exit()` ends the script. With several text items, each starts with a `==\u003e text N/M \u003c==` line, and `console` lines follow the other output in one `\u003cconsole_output\u003e` block. `image()` also saves the image to a temp file and the result names its path.\n- `store(key, value)` and `load(key)` keep JSON values across codemode calls.\n- `ALL_TOOLS`, `await searchTools(query, { limit?, namespace? })`, `await describeTool(name)`, `await describeNamespace(name)`: find tools the `codemode` section does not list.\n\n`models` (all functions return promises):\n- `models.getModelsOfType(type, provider?)`, `models.getAvailableOfType(type, provider?)` (configured auth only), `models.getModelOfType(type, provider, id)`: the catalog; `type` is \"chat\", \"image\", or \"classifier\".\n- `models.classify(model, { state: { ... }, images?: [{ type: \"image\", data, mimeType }], questions: { \u003cid\u003e: { type: \"choice\", instructions, criteria: { \u003clabel\u003e: \u003cmeaning\u003e } } | { type: \"score\", instructions, criteria: [\u003clowest level\u003e, ..., \u003chighest level\u003e] } | { type: \"bool\", instructions, criteria: { true: \u003cmeaning\u003e, false: \u003cmeaning\u003e } } } })` resolves to `{ answers: { \u003cid\u003e: ... }, stopReason, errorMessage?, usage? }`.\n- `models.generateImages(model, { input: [{ type: \"text\", text: \u003cprompt\u003e }, ...optional { type: \"image\", data, mimeType }] })` resolves to `{ output: [image blocks], stopReason, errorMessage?, usage? }`; show each image with `image(block)`.\nAt most 4 classify/generateImages calls run at once; more wait.\n\nThe `codemode` section of the system prompt lists the tools scripts can call, by namespace, as far as space allows.",
+   "Run JavaScript that calls other tools. The input is raw JavaScript (not JSON, no code fence), run as an async function body in a QuickJS sandbox: top-level `await` and `return` work. No Node, file system, network, or timers.\n- `await tools.\u003cname\u003e({ ...args })` resolves to a string, or an object if the tool's declaration says so, and rejects with an Error on failure. A tool whose declaration returns an object resolves on failure too when it returned that object; check its fields. Calls still running when the script ends are cancelled.\n- The script survives a restart: it resumes where it was, without running finished calls again.\n- Optional first line: `// @options: {\"max_output_tokens\": 10000, \"timeout_ms\": 60000}`\n\nGlobals:\n- `text(value)`, `image(dataUrlOrImageBlock)`, `console.log(...)`, and top-level `return` add output; `exit()` ends the script. With several text items, each starts with a `==\u003e text N/M \u003c==` line, and `console` lines follow the other output in one `\u003cconsole_output\u003e` block. `image()` also saves the image to a temp file and the result names its path.\n- `store(key, value)` and `load(key)` keep JSON values across codemode calls.\n- `ALL_TOOLS`, `await searchTools(query, { limit?, namespace? })`, `await describeTool(name)`, `await describeNamespace(name)`: find tools the `codemode` section does not list.\n\nThe `codemode` section of the system prompt lists the tools scripts can call, by namespace, as far as space allows."
+  ],
+  "identifiers": [
+   "read",
+   "my_tool",
+   "mcp__docs__search",
+   "_lives",
+   "_",
+   "h_llo",
+   "a_b",
+   "$x",
+   "_tool",
+   "_",
+   "a1"
+  ],
+  "results": [
+   {
+    "ok": true,
+    "value": {
+     "content": [
+      {
+       "text": "Script completed\nWall time 1.2 seconds\nOutput:\n",
+       "type": "text"
+      },
+      {
+       "text": "hello",
+       "type": "text"
+      }
+     ]
+    },
+    "writes": []
+   },
+   {
+    "ok": true,
+    "value": {
+     "content": [
+      {
+       "text": "Script completed\nWall time 1.3 seconds\nOutput:\n",
+       "type": "text"
+      },
+      {
+       "text": "==\u003e text 1/3 \u003c==\none\n==\u003e text 2/3 \u003c==\ntwo\n==\u003e text 3/3 \u003c==\n{\"2\":\"x\",\"b\":1,\"a\":[1,2]}\n\u003cconsole_output\u003e\nlog 1\nlog 2\n\u003c/console_output\u003e",
+       "type": "text"
+      }
+     ]
+    },
+    "writes": []
+   },
+   {
+    "ok": true,
+    "value": {
+     "content": [
+      {
+       "text": "Script completed\nWall time 0.1 seconds\nOutput:\n",
+       "type": "text"
+      },
+      {
+       "text": "only",
+       "type": "text"
+      }
+     ]
+    },
+    "writes": []
+   },
+   {
+    "ok": true,
+    "value": {
+     "content": [
+      {
+       "text": "Script completed\nWall time 0.0 seconds\nOutput:\n",
+       "type": "text"
+      }
+     ]
+    },
+    "writes": []
+   },
+   {
+    "ok": true,
+    "value": {
+     "content": [
+      {
+       "text": "Script completed\nWall time 1.2 seconds\nOutput:\n",
+       "type": "text"
+      },
+      {
+       "text": "==\u003e text 1/3 \u003c==\nends without newline\n==\u003e text 2/3 \u003c==\n==\u003e text 3/3 \u003c==\n0",
+       "type": "text"
+      }
+     ]
+    },
+    "writes": []
+   },
+   {
+    "ok": true,
+    "value": {
+     "content": [
+      {
+       "text": "Script completed\nWall time 1.2 seconds\nOutput:\n",
+       "type": "text"
+      },
+      {
+       "text": "==\u003e text 1/3 \u003c==\na\n==\u003e text 2/3 \u003c==\nb\n==\u003e text 3/3 \u003c==\n",
+       "type": "text"
+      }
+     ]
+    },
+    "writes": []
+   },
+   {
+    "ok": true,
+    "value": {
+     "content": [
+      {
+       "text": "Script failed\nWall time 1.2 seconds\nOutput:\n",
+       "type": "text"
+      },
+      {
+       "text": "before\nScript error:\nTypeError: boom\n    at codemode.js:2:7\n\nTool calls made before the failure (they are not undone): read (ok), bash (error)",
+       "type": "text"
+      }
+     ]
+    },
+    "writes": []
+   },
+   {
+    "ok": true,
+    "value": {
+     "content": [
+      {
+       "text": "Script failed\nWall time 1.2 seconds\nOutput:\n",
+       "type": "text"
+      },
+      {
+       "text": "Script error:\nError: no stack\n\nNo tool calls were made.",
+       "type": "text"
+      }
+     ]
+    },
+    "writes": []
+   },
+   {
+    "ok": true,
+    "value": {
+     "content": [
+      {
+       "text": "Script failed\nWall time 1.2 seconds\nOutput:\n",
+       "type": "text"
+      },
+      {
+       "text": "Script error:\nScript timed out: Execution timed out after 200 ms\n\nTool calls made before the failure (they are not undone): slow (cancelled)",
+       "type": "text"
+      }
+     ]
+    },
+    "writes": []
+   },
+   {
+    "ok": true,
+    "value": {
+     "content": [
+      {
+       "text": "Script failed\nWall time 1.2 seconds\nOutput:\n",
+       "type": "text"
+      },
+      {
+       "text": "Script error:\nScript aborted: Sandbox closed\n\nNo tool calls were made.",
+       "type": "text"
+      }
+     ]
+    },
+    "writes": []
+   },
+   {
+    "ok": true,
+    "value": {
+     "content": [
+      {
+       "text": "Script failed\nWall time 1.2 seconds\nOutput:\n",
+       "type": "text"
+      },
+      {
+       "text": "Script error:\nScript sandbox failed: Worker exited\n\nNo tool calls were made.",
+       "type": "text"
+      }
+     ]
+    },
+    "writes": []
+   },
+   {
+    "ok": true,
+    "value": {
+     "content": [
+      {
+       "text": "Script completed\nWall time 1.2 seconds\nOutput:\n",
+       "type": "text"
+      },
+      {
+       "text": "==\u003e text 1/2 \u003c==\nlook\n[Image saved to /out/image-1.png (image/png, 70 bytes)]",
+       "type": "text"
+      },
+      {
+       "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+       "mimeType": "image/png",
+       "type": "image"
+      },
+      {
+       "text": "==\u003e text 2/2 \u003c==\nagain\n[Image saved to /out/image-1.png (image/png, 70 bytes)]",
+       "type": "text"
+      },
+      {
+       "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+       "mimeType": "image/png",
+       "type": "image"
+      },
+      {
+       "text": "[Image saved to /out/image-2.jpg (image/jpeg, 13 bytes)]",
+       "type": "text"
+      },
+      {
+       "data": "/9j/4AAQSkZJRgABAQ==",
+       "mimeType": "image/jpeg",
+       "type": "image"
+      },
+      {
+       "text": "[Image saved to /out/image-3.bin (image/x-unknown, 5 bytes)]",
+       "type": "text"
+      },
+      {
+       "data": "aGVs bG8=",
+       "mimeType": "image/x-unknown",
+       "type": "image"
+      }
+     ]
+    },
+    "writes": [
+     {
+      "name": "image-1.png",
+      "size": 70
+     },
+     {
+      "name": "image-2.jpg",
+      "size": 13
+     },
+     {
+      "name": "image-3.bin",
+      "size": 5
+     }
+    ]
+   },
+   {
+    "ok": true,
+    "value": {
+     "content": [
+      {
+       "text": "Script completed\nWall time 1.2 seconds\nOutput:\n",
+       "type": "text"
+      },
+      {
+       "text": "[Image (image/png, 70 bytes) could not be saved: disk full]",
+       "type": "text"
+      },
+      {
+       "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+       "mimeType": "image/png",
+       "type": "image"
+      }
+     ]
+    },
+    "writes": [
+     {
+      "name": "image-1.png",
+      "size": 70
+     }
+    ]
+   },
+   {
+    "error": "Invalid character",
+    "ok": false,
+    "writes": []
+   },
+   {
+    "ok": true,
+    "value": {
+     "content": [
+      {
+       "text": "Script completed\nWall time 1.2 seconds\nOutput:\n",
+       "type": "text"
+      },
+      {
+       "text": "Warning: truncated output (original token count: 1511)\nTotal output lines: 63\n\n==\u003e text 1/2 \u003c==\nline 000 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 001 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx…1411 tokens truncated…xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 059 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\n==\u003e text 2/2 \u003c==\ntail text\n\n[Full output: /out/output.txt (read with offset/limit)]\n[Image saved to /out/image-1.png (image/png, 70 bytes)]",
+       "type": "text"
+      },
+      {
+       "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+       "mimeType": "image/png",
+       "type": "image"
+      }
+     ],
+     "fullOutputPath": "/out/output.txt"
+    },
+    "writes": [
+     {
+      "name": "output.txt",
+      "size": 6043,
+      "text": "==\u003e text 1/2 \u003c==\nline 000 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 001 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 002 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 003 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 004 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 005 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 006 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 007 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 008 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 009 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 010 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 011 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 012 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 013 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 014 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 015 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 016 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 017 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 018 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 019 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 020 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 021 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 022 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 023 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 024 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 025 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 026 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 027 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 028 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 029 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 030 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 031 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 032 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 033 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 034 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 035 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 036 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 037 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 038 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 039 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 040 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 041 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 042 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 043 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 044 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 045 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 046 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 047 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 048 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 049 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 050 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 051 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 052 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 053 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 054 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 055 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 056 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 057 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 058 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 059 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\n==\u003e text 2/2 \u003c==\ntail text"
+     },
+     {
+      "name": "image-1.png",
+      "size": 70
+     }
+    ]
+   },
+   {
+    "ok": true,
+    "value": {
+     "content": [
+      {
+       "text": "Script completed\nWall time 1.2 seconds\nOutput:\n",
+       "type": "text"
+      },
+      {
+       "text": "Warning: truncated output (original token count: 1500)\nTotal output lines: 60\n\nline 000 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 001 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\n…1400 tokens truncated…\nline 058 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 059 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\n\n[Could not save the full output: disk full]",
+       "type": "text"
+      }
+     ]
+    },
+    "writes": [
+     {
+      "name": "output.txt",
+      "size": 5999,
+      "text": "line 000 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 001 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 002 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 003 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 004 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 005 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 006 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 007 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 008 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 009 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 010 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 011 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 012 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 013 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 014 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 015 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 016 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 017 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 018 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 019 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 020 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 021 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 022 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 023 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 024 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 025 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 026 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 027 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 028 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 029 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 030 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 031 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 032 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 033 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 034 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 035 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 036 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 037 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 038 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 039 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 040 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 041 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 042 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 043 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 044 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 045 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 046 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 047 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 048 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 049 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 050 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 051 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 052 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 053 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 054 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 055 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 056 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 057 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 058 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nline 059 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+     }
+    ]
+   },
+   {
+    "ok": true,
+    "value": {
+     "content": [
+      {
+       "text": "Script completed\nWall time 1.2 seconds\nOutput:\n",
+       "type": "text"
+      },
+      {
+       "text": "Warning: truncated output (original token count: 28)\nTotal output lines: 30\n\nl0\nl1\nl2\nl3\nl4\nl5\nl6\nl7\nl8\nl9…11 tokens truncated…l20\nl21\nl22\nl23\nl24\nl25\nl26\nl27\nl28\nl29\n\n[Full output: /out/output.txt (read with offset/limit)]",
+       "type": "text"
+      }
+     ],
+     "fullOutputPath": "/out/output.txt"
+    },
+    "writes": [
+     {
+      "name": "output.txt",
+      "size": 109,
+      "text": "l0\nl1\nl2\nl3\nl4\nl5\nl6\nl7\nl8\nl9\nl10\nl11\nl12\nl13\nl14\nl15\nl16\nl17\nl18\nl19\nl20\nl21\nl22\nl23\nl24\nl25\nl26\nl27\nl28\nl29"
+     }
+    ]
+   },
+   {
+    "ok": true,
+    "value": {
+     "content": [
+      {
+       "text": "Script completed\nWall time 1.2 seconds\nOutput:\n",
+       "type": "text"
+      },
+      {
+       "text": "Warning: truncated output (original token count: 2)\nTotal output lines: 1\n\n…2 tokens truncated…\n\n[Full output: /out/output.txt (read with offset/limit)]",
+       "type": "text"
+      }
+     ],
+     "fullOutputPath": "/out/output.txt"
+    },
+    "writes": [
+     {
+      "name": "output.txt",
+      "size": 5,
+      "text": "short"
+     }
+    ]
+   },
+   {
+    "ok": true,
+    "value": {
+     "content": [
+      {
+       "text": "Script completed\nWall time 1.2 seconds\nOutput:\n",
+       "type": "text"
+      },
+      {
+       "text": "Warning: truncated output (original token count: 300)\nTotal output lines: 1\n\nab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab…275 tokens truncated…😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀\n\n[Full output: /out/output.txt (read with offset/limit)]",
+       "type": "text"
+      }
+     ],
+     "fullOutputPath": "/out/output.txt"
+    },
+    "writes": [
+     {
+      "name": "output.txt",
+      "size": 1200,
+      "text": "ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀ab😀"
+     }
+    ]
+   },
+   {
+    "ok": true,
+    "value": {
+     "content": [
+      {
+       "text": "Script completed\nWall time 1.2 seconds\nOutput:\n",
+       "type": "text"
+      },
+      {
+       "text": "no images\nNote: models.generateImages() returned 2 images that the script did not show. Show each image block of result.output with image(block).",
+       "type": "text"
+      }
+     ]
+    },
+    "writes": []
+   },
+   {
+    "ok": true,
+    "value": {
+     "content": [
+      {
+       "text": "Script completed\nWall time 1.2 seconds\nOutput:\n",
+       "type": "text"
+      },
+      {
+       "text": "[Image saved to /out/image-1.png (image/png, 70 bytes)]",
+       "type": "text"
+      },
+      {
+       "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+       "mimeType": "image/png",
+       "type": "image"
+      }
+     ]
+    },
+    "writes": [
+     {
+      "name": "image-1.png",
+      "size": 70
+     }
+    ]
+   },
+   {
+    "ok": true,
+    "value": {
+     "content": [
+      {
+       "text": "Script completed\nWall time 1.2 seconds\nOutput:\n",
+       "type": "text"
+      },
+      {
+       "text": "Note: models.generateImages() returned 1 image that the script did not show. Show each image block of result.output with image(block).",
+       "type": "text"
+      }
+     ]
+    },
+    "writes": []
+   },
+   {
+    "ok": true,
+    "value": {
+     "content": [
+      {
+       "text": "Script completed\nWall time 1.2 seconds\nOutput:\n",
+       "type": "text"
+      },
+      {
+       "text": "Warning: truncated output (original token count: 25)\nTotal output lines: 1\n\nxxxxxxxxxxxxxxxxxxxxxxxxx…13 tokens truncated…xxxxxxxxxxxxxxxxxxxxxxxxx\n\n[Full output: /out/output.txt (read with offset/limit)]",
+       "type": "text"
+      }
+     ],
+     "fullOutputPath": "/out/output.txt"
+    },
+    "writes": [
+     {
+      "name": "output.txt",
+      "size": 100,
+      "text": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+     }
+    ]
+   },
+   {
+    "error": "The string to be decoded is not correctly encoded.",
+    "ok": false,
+    "writes": []
+   },
+   {
+    "ok": true,
+    "value": {
+     "content": [
+      {
+       "text": "Script completed\nWall time 0.0 seconds\nOutput:\n",
+       "type": "text"
+      },
+      {
+       "text": "[Image saved to /out/image-1.gif (image/gif, 1 bytes)]",
+       "type": "text"
+      },
+      {
+       "data": "Y Q = =",
+       "mimeType": "image/gif",
+       "type": "image"
+      }
+     ]
+    },
+    "writes": [
+     {
+      "name": "image-1.gif",
+      "size": 1
+     }
+    ]
+   },
+   {
+    "error": "Invalid character",
+    "ok": false,
+    "writes": []
+   },
+   {
+    "error": "Invalid character",
+    "ok": false,
+    "writes": []
+   },
+   {
+    "ok": true,
+    "value": {
+     "content": [
+      {
+       "text": "Script completed\nWall time 0.0 seconds\nOutput:\n",
+       "type": "text"
+      },
+      {
+       "text": "[Image saved to /out/image-1.gif (image/gif, 1 bytes)]",
+       "type": "text"
+      },
+      {
+       "data": "YQ",
+       "mimeType": "image/gif",
+       "type": "image"
+      }
+     ]
+    },
+    "writes": [
+     {
+      "name": "image-1.gif",
+      "size": 1
+     }
+    ]
+   }
+  ],
+  "samples": [
+   "Read a file.\n\ncodemode tool declaration:\n```ts\ndeclare const tools: { read(args: { path: string; }): Promise\u003cstring\u003e; };\n```",
+   "Has a dash.\n\ncodemode tool declaration:\n```ts\ndeclare const tools: { my_tool(args: { [key: string]: unknown; }): Promise\u003c{ exitCode?: number; output: string; }\u003e; };\n```",
+   "\n\ncodemode tool declaration:\n```ts\ndeclare const tools: { bare(args: unknown): Promise\u003cunknown\u003e; };\n```",
+   "Search docs.\n\nWith detail.\n\ncodemode tool declaration:\n```ts\ndeclare const tools: { mcp__docs__search(args: {\n  // query\n  q?: string;\n}): Promise\u003cunknown\u003e; };\n```"
+  ],
+  "sections": [
+   null,
+   "Tools scripts can call (`await tools.\u003cname\u003e(args)`):\n\n### `read`\nRead files.\n\ncodemode tool declaration:\n```ts\ndeclare const tools: { read(args: { a?: string; }): Promise\u003cstring\u003e; };\n```\n\n### `write`\nWrite files.\n\ncodemode tool declaration:\n```ts\ndeclare const tools: { write(args: { a?: string; }): Promise\u003c{ ok?: boolean; }\u003e; };\n```",
+   "Tools scripts can call (`await tools.\u003cname\u003e(args)`):\n\n### `plain`\nd\n\ncodemode tool declaration:\n```ts\ndeclare const tools: { plain(args: { a?: string; }): Promise\u003cstring\u003e; };\n```\n\n### `my_tool` (`my-tool`)\ndash\n\ncodemode tool declaration:\n```ts\ndeclare const tools: { my_tool(args: { a?: string; }): Promise\u003cstring\u003e; };\n```\n\n## _under\n\n### `u_x`\nd\n\ncodemode tool declaration:\n```ts\ndeclare const tools: { u_x(args: { a?: string; }): Promise\u003cstring\u003e; };\n```\n\n## Alpha\n\n### `alpha_a`\nd\n\ncodemode tool declaration:\n```ts\ndeclare const tools: { alpha_a(args: { a?: string; }): Promise\u003cstring\u003e; };\n```\n\n## alpha-long\nLonger.\n\n### `alpha_long_b`\nlonger prefix\n\ncodemode tool declaration:\n```ts\ndeclare const tools: { alpha_long_b(args: { a?: string; }): Promise\u003cstring\u003e; };\n```\n\n## beta\nBeta tools.\n\n### `beta_one`\nfirst beta\n\ncodemode tool declaration:\n```ts\ndeclare const tools: { beta_one(args: { a?: string; }): Promise\u003cstring\u003e; };\n```\n\n### `beta_two`\nxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\n\ncodemode tool declaration:\n```ts\ndeclare const tools: { beta_two(args: { a?: string; }): Promise\u003cstring\u003e; };\n```\n\n## zeta\n\n### `z_y`\nd\n\ncodemode tool declaration:\n```ts\ndeclare const tools: { z_y(args: { a?: string; }): Promise\u003c{ [key: string]: unknown; }\u003e; };\n```",
+   "Tools scripts can call (`await tools.\u003cname\u003e(args)`):\n\nSome tools are not listed: find them with `searchTools()`.\n\n### `plain`\nd\n\ncodemode tool declaration:\n```ts\ndeclare const tools: { plain(args: { a?: string; }): Promise\u003cstring\u003e; };\n```\n\n## _under\n\n### `u_x`\nd\n\ncodemode tool declaration:\n```ts\ndeclare const tools: { u_x(args: { a?: string; }): Promise\u003cstring\u003e; };\n```\n\n## Alpha\n\n### `alpha_a`\nd\n\ncodemode tool declaration:\n```ts\ndeclare const tools: { alpha_a(args: { a?: string; }): Promise\u003cstring\u003e; };\n```\n\n## alpha-long\nLonger.\n\n### `alpha_long_b`\nlonger prefix\n\ncodemode tool declaration:\n```ts\ndeclare const tools: { alpha_long_b(args: { a?: string; }): Promise\u003cstring\u003e; };\n```\n\n## beta (some tools not listed)\nBeta tools.\n\n### `beta_one`\nfirst beta\n\ncodemode tool declaration:\n```ts\ndeclare const tools: { beta_one(args: { a?: string; }): Promise\u003cstring\u003e; };\n```\n\n## zeta (tools not listed)",
+   "Tools scripts can call (`await tools.\u003cname\u003e(args)`):\n\nSome tools are not listed: find them with `searchTools()`.\n\n### `plain`\nd\n\ncodemode tool declaration:\n```ts\ndeclare const tools: { plain(args: { a?: string; }): Promise\u003cstring\u003e; };\n```\n\n## _under (tools not listed)\n\n## Alpha (tools not listed)\n\n## alpha-long (tools not listed)\nLonger.\n\n## beta (tools not listed)\nBeta tools.\n\n## zeta (tools not listed)",
+   "Tools scripts can call (`await tools.\u003cname\u003e(args)`):\n\nSome tools are not listed: find them with `searchTools()`.\n\n## _under (tools not listed)\n\n## Alpha (tools not listed)\n\n## alpha-long (tools not listed)\nLonger.\n\n## beta (tools not listed)\nBeta tools.\n\n## zeta (tools not listed)"
+  ],
+  "sources": [
+   {
+    "error": "Expected JavaScript source text (non-empty). Provide JS only, optionally with a first line `// @options: {\"max_output_tokens\": 1000}`.",
+    "ok": false
+   },
+   {
+    "error": "Expected JavaScript source text (non-empty). Provide JS only, optionally with a first line `// @options: {\"max_output_tokens\": 1000}`.",
+    "ok": false
+   },
+   {
+    "ok": true,
+    "value": {
+     "code": "return 1;",
+     "options": {}
+    }
+   },
+   {
+    "ok": true,
+    "value": {
+     "code": "\nreturn 1;",
+     "options": {
+      "maxOutputTokens": 100
+     }
+    }
+   },
+   {
+    "ok": true,
+    "value": {
+     "code": "\nreturn 1;",
+     "options": {
+      "maxOutputTokens": 0,
+      "timeoutMs": 5000
+     }
+    }
+   },
+   {
+    "error": "@options must be valid JSON with supported fields `max_output_tokens` and `timeout_ms`: Expected property name or '}' in JSON at position 1 (line 1 column 2)",
+    "ok": false
+   },
+   {
+    "error": "@options must be a JSON object with supported fields `max_output_tokens` and `timeout_ms`",
+    "ok": false
+   },
+   {
+    "error": "@options only supports `max_output_tokens` and `timeout_ms`; got `other`",
+    "ok": false
+   },
+   {
+    "error": "@options only supports `max_output_tokens` and `timeout_ms`; got `5`",
+    "ok": false
+   },
+   {
+    "error": "@options field `max_output_tokens` must be a non-negative safe integer",
+    "ok": false
+   },
+   {
+    "error": "@options field `max_output_tokens` must be a non-negative safe integer",
+    "ok": false
+   },
+   {
+    "error": "@options field `max_output_tokens` must be a non-negative safe integer",
+    "ok": false
+   },
+   {
+    "error": "@options field `timeout_ms` must be a positive integer up to 2147483647",
+    "ok": false
+   },
+   {
+    "error": "@options field `timeout_ms` must be a positive integer up to 2147483647",
+    "ok": false
+   },
+   {
+    "ok": true,
+    "value": {
+     "code": "\nx",
+     "options": {
+      "timeoutMs": 1000
+     }
+    }
+   },
+   {
+    "error": "The @options line must be followed by JavaScript source on subsequent lines",
+    "ok": false
+   },
+   {
+    "error": "The @options line must be followed by JavaScript source on subsequent lines",
+    "ok": false
+   },
+   {
+    "error": "The // @options: line must be the first line of the input; found one on line 2",
+    "ok": false
+   },
+   {
+    "error": "The // @options: line must be the first line of the input; found one on line 2",
+    "ok": false
+   },
+   {
+    "ok": true,
+    "value": {
+     "code": "\nreturn 1;",
+     "options": {}
+    }
+   },
+   {
+    "ok": true,
+    "value": {
+     "code": "\nx",
+     "options": {
+      "maxOutputTokens": 5
+     }
+    }
+   },
+   {
+    "error": "@options must be a JSON object with supported fields `max_output_tokens` and `timeout_ms`",
+    "ok": false
+   },
+   {
+    "error": "@options must be valid JSON with supported fields `max_output_tokens` and `timeout_ms`: Unexpected non-whitespace character after JSON at position 3 (line 1 column 4)",
+    "ok": false
+   },
+   {
+    "error": "@options field `max_output_tokens` must be a non-negative safe integer",
+    "ok": false
+   },
+   {
+    "ok": true,
+    "value": {
+     "code": "\nx",
+     "options": {
+      "maxOutputTokens": 0
+     }
+    }
+   },
+   {
+    "ok": true,
+    "value": {
+     "code": "\nx",
+     "options": {}
+    }
+   },
+   {
+    "ok": true,
+    "value": {
+     "code": "\nx",
+     "options": {
+      "maxOutputTokens": 2
+     }
+    }
+   },
+   {
+    "error": "The @options line must be followed by JavaScript source on subsequent lines",
+    "ok": false
+   }
+  ],
+  "types": [
+   "unknown",
+   "never",
+   "unknown",
+   "unknown",
+   "string",
+   "number",
+   "null",
+   "boolean",
+   "unknown",
+   "unknown",
+   "unknown",
+   "{\"2\":true,\"b\":1,\"a\":[1,\"x\"]}",
+   "null",
+   "\"a\" | 1 | null | {\"k\":\"v\"}",
+   "never",
+   "string | number",
+   "unknown",
+   "{ a?: string; } \u0026 (string | null)",
+   "unknown",
+   "string | null",
+   "{\n  // @integer\n  x: number;\n} | null",
+   "Array\u003cstring\u003e",
+   "unknown[]",
+   "[string, number]",
+   "Array\u003cstring\u003e",
+   "[null]",
+   "Array\u003cunknown\u003e",
+   "{ [key: string]: unknown; }",
+   "{}",
+   "{ a?: string; [key: string]: unknown; }",
+   "{ [key: string]: number; }",
+   "{ [key: string]: unknown; }",
+   "{ [key: string]: unknown; }",
+   "{ \"9x\": unknown; B?: unknown; _ok$?: string; a: number; \"a-b\"?: string; b?: string; \"é\"?: unknown; \"🙂\"?: string; }",
+   "{\n  big?: string;\n  // @minLength 5 @pattern b @pattern a @format email\n  both?: string | null;\n  // Lines to read\n  // @integer @minimum 1 @maximum 2000 @default 200\n  limit?: number;\n  // @minLength 2 @maxLength 40 @pattern ^[a-z]+\\u000a$ @format hostname\n  name?: string;\n  // @integer @minimum -0.000001 @maximum 1e+21\n  num?: number | null;\n  // @default {\"z\":1,\"a\":{\"q\":[1,2]}}\n  obj?: { [key: string]: unknown; };\n  // @integer @minimum 0 @exclusiveMinimum -1\n  offset?: number | null;\n  // @deprecated\n  old?: boolean;\n  // The file path.\n  // Relative to cwd.\n  // Third line.\n  path: string;\n  // @exclusiveMinimum 0 @exclusiveMaximum 1 @multipleOf 0.25\n  ratio?: number;\n  // @minItems 1 @maxItems 5 @uniqueItems\n  tags?: Array\u003cstring\u003e;\n}",
+   "{ inner: {\n  // deep\n  x?: string;\n}; }",
+   "Array\u003c{ child?: unknown; id?: string; }\u003e",
+   "unknown",
+   "string",
+   "unknown",
+   "unknown",
+   "unknown",
+   "{\n  // one\n  // two\n  // @pattern a\\u2028b\\u2029c\\u000dd\n  p?: string;\n}"
+  ]
+ }
+}

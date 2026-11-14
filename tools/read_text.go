@@ -9,13 +9,12 @@ import (
 	"fmt"
 	"io"
 	"math"
-	"math/big"
-	"strconv"
 	"strings"
 	"unicode/utf8"
 
 	durable "github.com/leocavalcante/pi-durable-go"
 
+	"github.com/leocavalcante/pi-durable-go/internal/js"
 	"github.com/leocavalcante/pi-durable-go/internal/jsnum"
 )
 
@@ -95,32 +94,7 @@ func formatSize(n int) string {
 	}
 }
 
-// jsToFixed is Number.prototype.toFixed for a finite number: the decimal
-// with digits fraction digits nearest its exact value, the larger on a tie
-// (fmt rounds ties to even).
-func jsToFixed(x float64, digits int) string {
-	negative := x < 0
-	exact := new(big.Rat).SetFloat64(math.Abs(x))
-	if exact == nil {
-		return strconv.FormatFloat(x, 'f', digits, 64)
-	}
-	scaled := new(big.Rat).Mul(exact, new(big.Rat).SetInt(new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(digits)), nil)))
-	// floor(scaled + 1/2): the nearest integer, the larger on a tie.
-	twice := new(big.Int).Mul(scaled.Num(), big.NewInt(2))
-	twice.Add(twice, scaled.Denom())
-	n := new(big.Int).Quo(twice, new(big.Int).Mul(scaled.Denom(), big.NewInt(2)))
-	text := n.String()
-	if digits > 0 {
-		if len(text) <= digits {
-			text = strings.Repeat("0", digits-len(text)+1) + text
-		}
-		text = text[:len(text)-digits] + "." + text[len(text)-digits:]
-	}
-	if negative && strings.Trim(text, "0.") != "" {
-		text = "-" + text
-	}
-	return text
-}
+func jsToFixed(x float64, digits int) string { return js.ToFixed(x, digits) }
 
 // lineScan is one pass over a text file: its newlines, and the head,
 // bytes, and lines of the lines [start, end) it selects.
