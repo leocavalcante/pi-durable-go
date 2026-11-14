@@ -9,6 +9,7 @@ package crosscheck
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -22,6 +23,9 @@ import (
 
 // Upstream is the prepared upstream checkout, or "" when there is none.
 func Upstream() string { return os.Getenv("PI_DURABLE_CROSSCHECK_UPSTREAM") }
+
+// oracleTimeout bounds one run of upstream's code.
+const oracleTimeout = 3 * time.Minute
 
 // Run runs op on input in upstream's code and decodes its result into
 // output; it skips the test without a prepared upstream checkout.
@@ -40,12 +44,19 @@ func Run(t testing.TB, op string, input, output any) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cmd := exec.Command(node, "--experimental-strip-types", "--no-warnings", oracle)
+	// A hung run fails the test with what it wrote, instead of reaching the
+	// package's timeout.
+	ctx, cancel := context.WithTimeout(context.Background(), oracleTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, node, "--experimental-strip-types", "--no-warnings", oracle)
 	cmd.Stdin = bytes.NewReader(body)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	cmd.WaitDelay = time.Second
 	if err := cmd.Run(); err != nil {
+		if ctx.Err() != nil {
+			t.Fatalf("upstream %s: no answer within %s\n%s", op, oracleTimeout, stderr.String())
+		}
 		t.Fatalf("upstream %s: %v\n%s", op, err, stderr.String())
 	}
 	if err := json.Unmarshal(stdout.Bytes(), output); err != nil {

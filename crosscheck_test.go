@@ -694,7 +694,9 @@ func scenarioMessage(m Message) map[string]any {
 // runScenario plays a scenario on this Harness.
 func runScenario(t *testing.T, sc scenarioSpec) json.RawMessage {
 	t.Helper()
-	ctx := context.Background()
+	// A scenario that hangs fails at its own deadline, naming itself.
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
 	gates := &scenarioGates{}
 	var mu sync.Mutex
 	requests, summaryRequests := []any{}, []any{}
