@@ -43,3 +43,40 @@ func TestToolPathsResolveAsUpstream(t *testing.T) {
 		}
 	}
 }
+
+// Writes go in place, as upstream's Node environment writes (fs.writeFile):
+// a hard link sees the new content, a symbolic link stays a link and its
+// target is written, and a dangling link creates its target.
+func TestLocalEnvWritesInPlace(t *testing.T) {
+	dir := t.TempDir()
+	original := filepath.Join(dir, "a.txt")
+	if err := os.WriteFile(original, []byte("old"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Link(original, filepath.Join(dir, "hard.txt")); err != nil {
+		t.Skip("no hard links")
+	}
+	if err := os.Symlink("a.txt", filepath.Join(dir, "soft.txt")); err != nil {
+		t.Skip("no symbolic links")
+	}
+	if err := os.Symlink("created.txt", filepath.Join(dir, "dangling.txt")); err != nil {
+		t.Fatal(err)
+	}
+	if result, _ := runCoding(t, dir, "write", `{"path":"soft.txt","content":"new"}`); result.IsError {
+		t.Fatalf("write: %s", result.Content)
+	}
+	if result, _ := runCoding(t, dir, "write", `{"path":"dangling.txt","content":"made"}`); result.IsError {
+		t.Fatalf("write dangling: %s", result.Content)
+	}
+	for name, want := range map[string]string{"a.txt": "new", "hard.txt": "new", "created.txt": "made"} {
+		if data, err := os.ReadFile(filepath.Join(dir, name)); err != nil || string(data) != want {
+			t.Errorf("%s=%q err=%v, want %q", name, data, err, want)
+		}
+	}
+	if info, err := os.Lstat(filepath.Join(dir, "soft.txt")); err != nil || info.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("soft.txt is no longer a link: %v", err)
+	}
+	if info, err := os.Stat(original); err != nil || info.Mode().Perm() != 0o600 {
+		t.Fatalf("mode=%v err=%v", info.Mode().Perm(), err)
+	}
+}

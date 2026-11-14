@@ -93,52 +93,23 @@ func (e *LocalEnv) OpenFile(ctx context.Context, path string) (io.ReadCloser, er
 	return os.Open(e.resolve(path))
 }
 
-// WriteFile atomically replaces path using a temporary file in its directory.
-// Relative paths are based at CWD. Existing permissions are retained.
+// WriteFile writes data to path as upstream's Node environment does
+// (fs.writeFile): its directory is created, a symbolic link is written
+// through, and an existing file keeps its inode, links, and mode; a new one
+// gets 0666 less the umask. Relative paths are based at CWD. The write is in
+// place, not atomic.
 func (e *LocalEnv) WriteFile(ctx context.Context, path string, data []byte) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
 	path = e.resolve(path)
-	if canonical, err := filepath.EvalSymlinks(path); err == nil {
-		path = canonical
-	} else if info, lstatErr := os.Lstat(path); lstatErr == nil && info.Mode()&os.ModeSymlink != 0 {
-		return fmt.Errorf("tools: cannot write dangling symbolic link: %w", err)
-	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
-	}
-	mode := os.FileMode(0o644)
-	if info, err := os.Stat(path); err == nil {
-		mode = info.Mode().Perm()
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
-	f, err := os.CreateTemp(filepath.Dir(path), ".durable-write-*")
-	if err != nil {
-		return err
-	}
-	temp := f.Name()
-	defer os.Remove(temp)
-	if err := f.Chmod(mode); err != nil {
-		f.Close()
-		return err
-	}
-	if _, err := f.Write(data); err != nil {
-		f.Close()
-		return err
-	}
-	if err := f.Sync(); err != nil {
-		f.Close()
-		return err
-	}
-	if err := f.Close(); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o777); err != nil {
 		return err
 	}
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	return os.Rename(temp, path)
+	return os.WriteFile(path, data, 0o666)
 }
 
 // Exec executes command through bash, or /bin/sh without bash. Output is combined and retained as a
