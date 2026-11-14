@@ -51,13 +51,15 @@ type OpenAI struct {
 	// request's thinking level, clamped to the levels it supports, is sent
 	// in the endpoint's thinking format.
 	Reasoning bool
-	// ThinkingFormat is pi-ai's compat.thinkingFormat: how a reasoning
-	// model's thinking level is sent. Empty detects it from BaseURL as
-	// pi-ai does: deepseek (DeepSeek), zai (Z.ai), together (Together),
-	// ant-ling (Ant Ling), openrouter (OpenRouter), and otherwise openai
-	// (reasoning_effort). qwen, qwen-chat-template, and string-thinking are
-	// set explicitly; chat-template and baseten are not ported.
-	ThinkingFormat string
+	// Compat is pi-ai's model.compat: settings over what pi-ai detects from
+	// the provider and BaseURL, such as the thinking format.
+	Compat OpenAICompat
+	// SamplingParams and SamplingParamsByThinkingLevel are pi-ai's
+	// model.samplingParams and samplingParamsByThinkingLevel: request fields
+	// such as temperature or top_p, the level's over the model's, sent last
+	// so they override the named ones.
+	SamplingParams                map[string]any
+	SamplingParamsByThinkingLevel map[string]map[string]any
 	// ThinkingLevelMap is pi-ai's model.thinkingLevelMap: the value sent
 	// for a level, nil for a level the model does not support; a level it
 	// does not name is sent as it is, except xhigh and max, which a model
@@ -102,16 +104,31 @@ func (o OpenAI) GenerateEvents(ctx context.Context, req durable.ModelRequest, on
 	if err != nil {
 		return durable.ModelResponse{}, err
 	}
-	payload := openAIRequest{Model: req.Model.ID, Messages: make([]openAIMessage, 0, len(req.Messages)), Stream: true, StreamOptions: &streamOptions{IncludeUsage: true}}
-	o.compatFields(&payload, req)
+	c := o.compat(req.Model)
+	retention := cacheRetention(req)
+	payload := openAIRequest{Model: req.Model.ID, Messages: make([]openAIMessage, 0, len(req.Messages)), Stream: true, Extra: map[string]any{}}
+	if c.supportsUsageInStreaming {
+		payload.StreamOptions = &streamOptions{IncludeUsage: true}
+	}
+	o.compatFields(&payload, req, c, retention)
+	// Some providers take no user message right after tool results: an
+	// assistant message bridges them (pi-ai requiresAssistantAfterToolResult).
+	lastRole := ""
+	bridge := func() {
+		payload.Messages = append(payload.Messages, openAIMessage{Role: "assistant", Content: "I have processed the tool results."})
+	}
 	// Images a run of tool results returned, sent after it in a user
 	// message: Chat Completions tool messages take only text (pi-ai).
 	var toolImages []openAIContentPart
 	flushToolImages := func() {
 		if len(toolImages) > 0 {
+			if c.requiresAssistantAfterToolResult {
+				bridge()
+			}
 			parts := append([]openAIContentPart{{Type: "text", Text: "Attached image(s) from tool result:"}}, toolImages...)
 			payload.Messages = append(payload.Messages, openAIMessage{Role: "user", Content: parts})
 			toolImages = nil
+			lastRole = "user"
 		}
 	}
 	// Chat Completions takes no system messages mid-conversation: fold them
@@ -125,7 +142,7 @@ func (o OpenAI) GenerateEvents(ctx context.Context, req durable.ModelRequest, on
 	// pi-ai sends a reasoning model's instructions as a developer message
 	// where the endpoint takes that role.
 	instructionRole := "system"
-	if o.Reasoning && o.supportsDeveloperRole(req.Model.ID) {
+	if o.Reasoning && c.supportsDeveloperRole {
 		instructionRole = "developer"
 	}
 	for _, m := range messages {
@@ -144,11 +161,11 @@ func (o OpenAI) GenerateEvents(ctx context.Context, req durable.ModelRequest, on
 		}
 		if role != "tool" {
 			flushToolImages()
+			if c.requiresAssistantAfterToolResult && lastRole == "toolResult" && role == "user" {
+				bridge()
+			}
 		}
 		msg := openAIMessage{Role: role}
-		if m.Content != "" {
-			msg.Content = m.Content
-		}
 		switch {
 		case role == "user" && len(m.Images) > 0:
 			// Text and images in order; without image input, each run of
@@ -196,27 +213,32 @@ func (o OpenAI) GenerateEvents(ctx context.Context, req durable.ModelRequest, on
 				text = "(no tool output)"
 			}
 			msg.Content = text
+			// Some providers require the tool's name (pi-ai).
+			if c.requiresToolResultName && m.ToolName != "" {
+				msg.Name = m.ToolName
+			}
 			if !o.NoImages {
 				for _, image := range m.Images {
 					toolImages = append(toolImages, imageURL(image))
 				}
 			}
-		}
-		for _, call := range m.ToolCalls {
-			args := call.Arguments
-			if len(args) == 0 {
-				args = json.RawMessage(`{}`)
+		case role == "assistant":
+			if !o.assistantMessage(&msg, m, req.Model, c) {
+				continue
 			}
-			msg.ToolCalls = append(msg.ToolCalls, openAIToolCall{ID: call.ID, Type: "function", Function: openAIFunction{Name: call.Name, Arguments: string(args)}})
-		}
-		if role == "assistant" {
-			o.replayThinking(&msg, m, req.Model)
+		default:
+			msg.Content = m.Content
 		}
 		payload.Messages = append(payload.Messages, msg)
+		lastRole = role
+		if role == "tool" {
+			lastRole = "toolResult"
+		}
 	}
 	flushToolImages()
+	var offered []openAITool
 	if len(tools) > 0 {
-		payload.Tools = make([]openAITool, 0, len(tools))
+		offered = make([]openAITool, 0, len(tools))
 		for _, tool := range tools {
 			var parameters any
 			if len(tool.Parameters) == 0 || !json.Valid(tool.Parameters) {
@@ -245,17 +267,24 @@ func (o OpenAI) GenerateEvents(ctx context.Context, req durable.ModelRequest, on
 			} else if _, err := strictSampling(tool, false); err != nil {
 				return durable.ModelResponse{}, sanitizedError(err.Error(), false)
 			}
-			payload.Tools = append(payload.Tools, openAITool{Type: "function", Function: definition})
+			offered = append(offered, openAITool{Type: "function", Function: definition})
 		}
 	}
-	// Written as JSON.stringify writes it: <, >, and & as they are.
-	var encoded bytes.Buffer
-	encoder := json.NewEncoder(&encoded)
-	encoder.SetEscapeHTML(false)
-	if err := encoder.Encode(payload); err != nil {
+	if len(offered) > 0 {
+		payload.Tools = offered
+		if c.zaiToolStream {
+			payload.Extra["tool_stream"] = true
+		}
+	} else if c.requiresToolsWithToolHistory && hasToolHistory(req.Messages) {
+		payload.Tools = []openAITool{}
+	}
+	if marker := c.cacheControl(retention); marker != nil {
+		applyCacheControl(payload.Messages, offered, marker)
+	}
+	body, err := marshalNoEscape(payload)
+	if err != nil {
 		return durable.ModelResponse{}, sanitizedError("cannot encode model request", false)
 	}
-	body := bytes.TrimSuffix(encoded.Bytes(), []byte("\n"))
 	// Hooks see the body as built, in pi-ai's API name for this format.
 	if req.OnPayload != nil {
 		replaced, err := req.OnPayload(ctx, "openai-completions", body)
@@ -332,21 +361,60 @@ type openAIRequest struct {
 	Store                *bool           `json:"store,omitempty"`
 	ReasoningEffort      string          `json:"reasoning_effort,omitempty"`
 	// Thinking formats other than reasoning_effort (pi-ai thinkingFormat).
-	Thinking            any          `json:"thinking,omitempty"`
-	EnableThinking      *bool        `json:"enable_thinking,omitempty"`
-	ChatTemplateKwargs  any          `json:"chat_template_kwargs,omitempty"`
-	Reasoning           any          `json:"reasoning,omitempty"`
-	MaxCompletionTokens int          `json:"max_completion_tokens,omitempty"`
-	MaxTokens           int          `json:"max_tokens,omitempty"`
-	Tools               []openAITool `json:"tools,omitempty"`
+	Thinking            any   `json:"thinking,omitempty"`
+	EnableThinking      *bool `json:"enable_thinking,omitempty"`
+	ChatTemplateKwargs  any   `json:"chat_template_kwargs,omitempty"`
+	Reasoning           any   `json:"reasoning,omitempty"`
+	MaxCompletionTokens int   `json:"max_completion_tokens,omitempty"`
+	MaxTokens           int   `json:"max_tokens,omitempty"`
+	// Tools is []openAITool when set: an empty one is sent as [].
+	Tools any `json:"tools,omitempty"`
+	// Extra are fields with other names (budget fields, routing, sampling
+	// parameters), written last over the named ones.
+	Extra map[string]any `json:"-"`
 }
+
+// MarshalJSON writes the named fields, then Extra over them.
+func (r openAIRequest) MarshalJSON() ([]byte, error) {
+	type plain openAIRequest
+	named, err := marshalNoEscape(plain(r))
+	if err != nil || len(r.Extra) == 0 {
+		return named, err
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(named, &fields); err != nil {
+		return nil, err
+	}
+	for key, value := range r.Extra {
+		raw, err := marshalNoEscape(value)
+		if err != nil {
+			return nil, err
+		}
+		fields[key] = raw
+	}
+	return marshalNoEscape(fields)
+}
+
+// marshalNoEscape is json.Marshal that writes <, >, and & as they are, as
+// JSON.stringify does.
+func marshalNoEscape(value any) ([]byte, error) {
+	var out bytes.Buffer
+	encoder := json.NewEncoder(&out)
+	encoder.SetEscapeHTML(false)
+	if err := encoder.Encode(value); err != nil {
+		return nil, err
+	}
+	return bytes.TrimSuffix(out.Bytes(), []byte("\n")), nil
+}
+
 type streamOptions struct {
 	IncludeUsage bool `json:"include_usage"`
 }
 type openAIMessage struct {
 	Role string `json:"role"`
-	// Content is text, or content parts for a user message with images.
-	Content    any              `json:"content,omitempty"`
+	// Content is text, content parts, or null for an answer without text.
+	Content    any              `json:"content"`
+	Name       string           `json:"name,omitempty"`
 	ToolCallID string           `json:"tool_call_id,omitempty"`
 	ToolCalls  []openAIToolCall `json:"tool_calls,omitempty"`
 	// An assistant message's thinking, replayed in the field it came in
@@ -356,16 +424,18 @@ type openAIMessage struct {
 	ReasoningText    *string `json:"reasoning_text,omitempty"`
 }
 type openAIContentPart struct {
-	Type     string          `json:"type"`
-	Text     string          `json:"text,omitempty"`
-	ImageURL *openAIImageURL `json:"image_url,omitempty"`
+	Type         string          `json:"type"`
+	Text         string          `json:"text,omitempty"`
+	ImageURL     *openAIImageURL `json:"image_url,omitempty"`
+	CacheControl map[string]any  `json:"cache_control,omitempty"`
 }
 type openAIImageURL struct {
 	URL string `json:"url"`
 }
 type openAITool struct {
-	Type     string                   `json:"type"`
-	Function openAIFunctionDefinition `json:"function"`
+	Type         string                   `json:"type"`
+	Function     openAIFunctionDefinition `json:"function"`
+	CacheControl map[string]any           `json:"cache_control,omitempty"`
 }
 type openAIFunctionDefinition struct {
 	Name        string          `json:"name"`
@@ -698,68 +768,91 @@ func userAgent(identity *durable.ClientIdentity) string {
 	return fmt.Sprintf("%s (%s; go/%s; %s)", name, runtime.GOOS, strings.TrimPrefix(runtime.Version(), "go"), runtime.GOARCH)
 }
 
-// compatFields are the request fields pi-ai's openai-completions adapter
-// sends by the endpoint it detects from the base URL (detectCompat): store
-// false on standard endpoints, the prompt cache key on OpenAI's (or with
-// long retention where supported), and the output limit.
-func (o OpenAI) compatFields(payload *openAIRequest, req durable.ModelRequest) {
-	base := o.BaseURL
-	if base == "" {
-		base = "https://api.openai.com/v1"
+// cacheRetention is pi-ai's resolveCacheRetention: the request's, else
+// PI_CACHE_RETENTION=long, else short.
+func cacheRetention(req durable.ModelRequest) string {
+	if req.Stream != nil && req.Stream.CacheRetention != "" {
+		return req.Stream.CacheRetention
 	}
-	has := func(parts ...string) bool {
-		for _, part := range parts {
-			if strings.Contains(base, part) {
-				return true
-			}
-		}
-		return false
+	if os.Getenv("PI_CACHE_RETENTION") == "long" {
+		return "long"
 	}
-	deepSeek := strings.Contains(strings.ToLower(base), "deepseek.com")
-	together := has("api.together.ai", "api.together.xyz")
-	nvidia, antLing := has("integrate.api.nvidia.com"), has("api.ant-ling.com")
-	cloudflareWorkers, cloudflareGateway := has("api.cloudflare.com"), has("gateway.ai.cloudflare.com")
-	zai, moonshot := has("api.z.ai", "open.bigmodel.cn"), has("api.moonshot.")
-	if !nonStandardEndpoint(base) {
+	return "short"
+}
+
+// compatFields sets the request fields pi-ai's openai-completions buildParams
+// derives from the compat: store, the prompt cache key and retention, the
+// output limit, the thinking level in the compat's format and its token
+// budget, routing, vLLM's priority, and the model's sampling parameters.
+func (o OpenAI) compatFields(payload *openAIRequest, req durable.ModelRequest, c completionsCompat, retention string) {
+	if c.supportsStore {
 		off := false
 		payload.Store = &off
 	}
-	retention := ""
-	if req.Stream != nil {
-		retention = req.Stream.CacheRetention
+	cacheKey := false
+	switch c.promptCacheKeyMode {
+	case "enabled":
+		cacheKey = true
+	case "auto":
+		cacheKey = strings.Contains(o.baseURL(), "api.openai.com") || retention == "long" && c.supportsLongCacheRetention
 	}
-	if retention == "" {
-		retention = "short"
-		if os.Getenv("PI_CACHE_RETENTION") == "long" {
-			retention = "long"
-		}
-	}
-	longSupported := !(together || cloudflareWorkers || cloudflareGateway || nvidia || antLing)
-	if retention != "none" && (strings.Contains(base, "api.openai.com") || retention == "long" && longSupported) && req.SessionID != "" {
+	if retention != "none" && cacheKey && req.SessionID != "" {
 		key := []rune(req.SessionID)
 		if len(key) > 64 {
 			key = key[:64]
 		}
 		payload.PromptCacheKey = string(key)
 	}
-	if retention == "long" && longSupported {
+	if retention == "long" && c.supportsLongCacheRetention {
 		payload.PromptCacheRetention = "24h"
 	}
-	// The thinking level, in the endpoint's thinking format.
-	supportsEffort := !(has("api.x.ai") || zai || moonshot || together || cloudflareGateway || nvidia || antLing)
+	limit := o.outputLimit(req.Messages)
+	if limit > 0 {
+		if c.maxTokensField == "max_tokens" {
+			payload.MaxTokens = limit
+		} else {
+			payload.MaxCompletionTokens = limit
+		}
+	}
 	// The Harness sends no reasoning option for off (upstream generation),
 	// so off is never clamped to a level the model supports.
-	level := req.ThinkingLevel
-	if level != "" && level != "off" {
-		level = o.clampThinkingLevel(level)
+	effort := req.ThinkingLevel
+	if effort != "" && effort != "off" {
+		effort = o.clampThinkingLevel(effort)
 	}
-	o.thinkingFields(payload, level, supportsEffort)
-	if n := o.outputLimit(req.Messages); n > 0 {
-		if deepSeek || has("chutes.ai") || moonshot || cloudflareGateway || together || nvidia || antLing || zai {
-			payload.MaxTokens = n
-		} else {
-			payload.MaxCompletionTokens = n
-		}
+	if effort == "off" {
+		effort = ""
+	}
+	var budgets map[string]int
+	if req.Stream != nil {
+		budgets = req.Stream.ThinkingBudgets
+	}
+	budget := o.thinkingBudget(effort, budgets, limit)
+	o.thinkingFields(payload, c, effort, budget)
+	// A reasoning cap independent of the format: the same server can serve
+	// several (pi-ai thinkingTokenBudgetField).
+	if c.thinkingTokenBudgetField != "" && budget > 0 {
+		payload.Extra[c.thinkingTokenBudgetField] = budget
+	}
+	if len(c.openRouterRouting) > 0 {
+		payload.Extra["provider"] = c.openRouterRouting
+	}
+	if r := c.gatewayRouting; r != nil && (len(r.Only) > 0 || len(r.Order) > 0) {
+		payload.Extra["providerOptions"] = map[string]any{"gateway": r}
+	}
+	if c.vllmPriority != nil {
+		payload.Extra["priority"] = *c.vllmPriority
+	}
+	// Last, so they override the named fields (pi-ai resolveSamplingParams).
+	level := effort
+	if level == "" {
+		level = "off"
+	}
+	for key, value := range o.SamplingParams {
+		payload.Extra[key] = value
+	}
+	for key, value := range o.SamplingParamsByThinkingLevel[o.clampThinkingLevel(level)] {
+		payload.Extra[key] = value
 	}
 }
 
@@ -774,28 +867,65 @@ type openAIReplay struct {
 
 const openAIReplayFormat = "openai-completions-v1"
 
-// replayThinking sends an assistant message's thinking back in the field it
-// came in, only to the model that gave it (pi-ai transformMessages drops
-// another model's thinking, and unsigned thinking is not sent). DeepSeek
-// requires reasoning_content on a reasoning model's assistant messages.
-func (o OpenAI) replayThinking(msg *openAIMessage, m durable.Message, model durable.ModelRef) {
-	var replay openAIReplay
-	if strings.TrimSpace(m.Thinking) != "" && json.Unmarshal(m.ProviderData, &replay) == nil &&
-		replay.Format == openAIReplayFormat && replay.Provider == model.Provider && replay.Model == model.ID {
-		thinking := m.Thinking
-		switch replay.ReasoningField {
-		case "reasoning_content":
-			msg.ReasoningContent = &thinking
-		case "reasoning":
-			msg.Reasoning = &thinking
-		case "reasoning_text":
-			msg.ReasoningText = &thinking
-		}
+// assistantMessage converts an answer as pi-ai's convertMessages does:
+// its text, its thinking for the model that gave it only (pi-ai
+// transformMessages drops another model's thinking) in the field it came in
+// or as text, its tool calls, and an empty reasoning_content where the
+// compat requires one. False for an answer without content or tool calls,
+// which is not sent.
+func (o OpenAI) assistantMessage(msg *openAIMessage, m durable.Message, model durable.ModelRef, c completionsCompat) bool {
+	if c.requiresAssistantAfterToolResult || c.requiresNonNullAssistantContent {
+		msg.Content = ""
 	}
-	if o.Reasoning && msg.ReasoningContent == nil && o.thinkingFormat() == "deepseek" && strings.Contains(strings.ToLower(o.baseURL()), "deepseek.com") {
+	text := ""
+	if strings.TrimSpace(m.Content) != "" {
+		text = m.Content
+	}
+	var replay openAIReplay
+	sameModel := json.Unmarshal(m.ProviderData, &replay) == nil && replay.Format == openAIReplayFormat &&
+		replay.Provider == model.Provider && replay.Model == model.ID
+	if strings.TrimSpace(m.Thinking) != "" && sameModel {
+		if c.requiresThinkingAsText {
+			parts := []openAIContentPart{{Type: "text", Text: m.Thinking}}
+			if text != "" {
+				parts = append(parts, openAIContentPart{Type: "text", Text: text})
+			}
+			msg.Content = parts
+		} else {
+			if text != "" {
+				msg.Content = text
+			}
+			thinking := m.Thinking
+			switch replay.ReasoningField {
+			case "reasoning_content":
+				msg.ReasoningContent = &thinking
+			case "reasoning":
+				msg.Reasoning = &thinking
+			case "reasoning_text":
+				msg.ReasoningText = &thinking
+			}
+		}
+	} else if text != "" {
+		msg.Content = text
+	}
+	for _, call := range m.ToolCalls {
+		args := call.Arguments
+		if len(args) == 0 {
+			args = json.RawMessage(`{}`)
+		}
+		msg.ToolCalls = append(msg.ToolCalls, openAIToolCall{ID: call.ID, Type: "function", Function: openAIFunction{Name: call.Name, Arguments: string(args)}})
+	}
+	if c.requiresReasoningContent && o.Reasoning && msg.ReasoningContent == nil {
 		empty := ""
 		msg.ReasoningContent = &empty
 	}
+	switch content := msg.Content.(type) {
+	case string:
+		return content != "" || len(msg.ToolCalls) > 0
+	case []openAIContentPart:
+		return len(content) > 0 || len(msg.ToolCalls) > 0
+	}
+	return len(msg.ToolCalls) > 0
 }
 
 func (o OpenAI) baseURL() string {
@@ -805,37 +935,14 @@ func (o OpenAI) baseURL() string {
 	return o.BaseURL
 }
 
-// thinkingFormat is ThinkingFormat, or the one pi-ai detects from the URL.
-func (o OpenAI) thinkingFormat() string {
-	if o.ThinkingFormat != "" {
-		return o.ThinkingFormat
-	}
-	base := o.baseURL()
-	switch {
-	case strings.Contains(strings.ToLower(base), "deepseek.com"):
-		return "deepseek"
-	case strings.Contains(base, "api.z.ai") || strings.Contains(base, "open.bigmodel.cn"):
-		return "zai"
-	case strings.Contains(base, "api.together.ai") || strings.Contains(base, "api.together.xyz"):
-		return "together"
-	case strings.Contains(base, "api.ant-ling.com"):
-		return "ant-ling"
-	case strings.Contains(base, "openrouter.ai"):
-		return "openrouter"
-	}
-	return "openai"
-}
-
-// thinkingFields sends the thinking level in the format's fields, as
-// pi-ai's openai-completions buildParams does for a reasoning model.
-func (o OpenAI) thinkingFields(payload *openAIRequest, level string, supportsEffort bool) {
+// thinkingFields sends the thinking level in the compat's format, as
+// pi-ai's openai-completions buildParams does for a reasoning model; effort
+// is "" for none.
+func (o OpenAI) thinkingFields(payload *openAIRequest, c completionsCompat, effort string, budget int) {
 	if !o.Reasoning {
 		return
 	}
-	effort := ""
-	if level != "off" && level != "" {
-		effort = level
-	}
+	supportsEffort := c.supportsReasoningEffort
 	// mapped is thinkingLevelMap[effort] ?? effort.
 	mapped := func(level string) string {
 		if value, ok := o.ThinkingLevelMap[level]; ok && value != nil {
@@ -846,7 +953,7 @@ func (o OpenAI) thinkingFields(payload *openAIRequest, level string, supportsEff
 	// offValue is thinkingLevelMap.off: absent, null, or a string.
 	offValue, offNamed := o.ThinkingLevelMap["off"]
 	offNull := offNamed && offValue == nil
-	switch o.thinkingFormat() {
+	switch c.thinkingFormat {
 	case "zai":
 		if effort != "" {
 			payload.Thinking = map[string]any{"type": "enabled", "clear_thinking": false}
@@ -864,6 +971,27 @@ func (o OpenAI) thinkingFields(payload *openAIRequest, level string, supportsEff
 		}
 	case "qwen-chat-template":
 		payload.ChatTemplateKwargs = map[string]any{"enable_thinking": effort != "", "preserve_thinking": true}
+	case "chat-template":
+		if values := o.chatTemplateValues(c.chatTemplateKwargs, effort, budget); values != nil {
+			payload.ChatTemplateKwargs = values
+		}
+	case "baseten":
+		if values := o.chatTemplateValues(c.chatTemplateArgs, effort, budget); values != nil {
+			payload.Extra["chat_template_args"] = values
+		}
+		if supportsEffort {
+			level := effort
+			if level == "" {
+				level = "off"
+			}
+			value, named := o.ThinkingLevelMap[level]
+			switch {
+			case !named && effort != "":
+				payload.ReasoningEffort = effort
+			case named && value != nil:
+				payload.ReasoningEffort = *value
+			}
+		}
 	case "deepseek":
 		if effort != "" {
 			payload.Thinking = map[string]any{"type": "enabled"}
@@ -982,30 +1110,4 @@ func (o OpenAI) clampThinkingLevel(level string) string {
 		}
 	}
 	return first
-}
-
-// supportsDeveloperRole is pi-ai's detected compat.supportsDeveloperRole:
-// standard endpoints other than OpenRouter, and OpenRouter for Anthropic and
-// OpenAI models.
-func (o OpenAI) supportsDeveloperRole(modelID string) bool {
-	base := o.BaseURL
-	if base == "" {
-		base = "https://api.openai.com/v1"
-	}
-	if strings.Contains(base, "openrouter.ai") {
-		return strings.HasPrefix(modelID, "anthropic/") || strings.HasPrefix(modelID, "openai/")
-	}
-	return !nonStandardEndpoint(base)
-}
-
-// nonStandardEndpoint is pi-ai's isNonStandard: endpoints that take no store
-// field or developer role.
-func nonStandardEndpoint(base string) bool {
-	for _, part := range []string{"integrate.api.nvidia.com", "cerebras.ai", "api.x.ai", "api.together.ai", "api.together.xyz", "chutes.ai",
-		"api.z.ai", "open.bigmodel.cn", "api.moonshot.", "opencode.ai", "api.cloudflare.com", "gateway.ai.cloudflare.com", "api.ant-ling.com"} {
-		if strings.Contains(base, part) {
-			return true
-		}
-	}
-	return strings.Contains(strings.ToLower(base), "deepseek.com")
 }

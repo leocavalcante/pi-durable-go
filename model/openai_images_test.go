@@ -45,7 +45,7 @@ func TestOpenAISendsImagesLikePiAI(t *testing.T) {
 	}}
 	got, _ := json.Marshal(imagePayload(t, OpenAI{}, req))
 	want := `[{"content":[{"text":"what is this?","type":"text"},{"image_url":{"url":"data:image/png;base64,iVBORw0KGgo="},"type":"image_url"}],"role":"user"},` +
-		`{"role":"assistant","tool_calls":[{"function":{"arguments":"{}","name":"read"},"id":"c1","type":"function"},{"function":{"arguments":"{}","name":"read"},"id":"c2","type":"function"}]},` +
+		`{"content":null,"role":"assistant","tool_calls":[{"function":{"arguments":"{}","name":"read"},"id":"c1","type":"function"},{"function":{"arguments":"{}","name":"read"},"id":"c2","type":"function"}]},` +
 		`{"content":"(see attached image)","role":"tool","tool_call_id":"c1"},{"content":"(no tool output)","role":"tool","tool_call_id":"c2"},` +
 		`{"content":[{"text":"Attached image(s) from tool result:","type":"text"},{"image_url":{"url":"data:image/png;base64,iVBORw0KGgo="},"type":"image_url"}],"role":"user"}]`
 	if string(got) != want {
@@ -54,7 +54,7 @@ func TestOpenAISendsImagesLikePiAI(t *testing.T) {
 
 	got, _ = json.Marshal(imagePayload(t, OpenAI{NoImages: true}, req))
 	want = `[{"content":[{"text":"what is this?","type":"text"},{"text":"(image omitted: model does not support images)","type":"text"}],"role":"user"},` +
-		`{"role":"assistant","tool_calls":[{"function":{"arguments":"{}","name":"read"},"id":"c1","type":"function"},{"function":{"arguments":"{}","name":"read"},"id":"c2","type":"function"}]},` +
+		`{"content":null,"role":"assistant","tool_calls":[{"function":{"arguments":"{}","name":"read"},"id":"c1","type":"function"},{"function":{"arguments":"{}","name":"read"},"id":"c2","type":"function"}]},` +
 		`{"content":"(tool image omitted: model does not support images)","role":"tool","tool_call_id":"c1"},{"content":"(no tool output)","role":"tool","tool_call_id":"c2"}]`
 	if string(got) != want {
 		t.Fatalf("placeholder messages:\n%s\nwant\n%s", got, want)

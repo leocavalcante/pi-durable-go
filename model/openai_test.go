@@ -309,19 +309,19 @@ func TestOpenAIThinkingFormatsArePiAis(t *testing.T) {
 		{OpenAI{BaseURL: "https://openrouter.ai/api/v1", Reasoning: true}, "", map[string]any{"reasoning": map[string]any{"effort": "none"}}},
 		{OpenAI{BaseURL: "https://openrouter.ai/api/v1", Reasoning: true, ThinkingLevelMap: map[string]*string{"low": str("light")}}, "low", map[string]any{"reasoning": map[string]any{"effort": "light"}}},
 		{OpenAI{BaseURL: "https://api.ant-ling.com/v1", Reasoning: true, ThinkingLevelMap: map[string]*string{"low": str("light")}}, "low", map[string]any{"reasoning": map[string]any{"effort": "light"}}},
-		{OpenAI{BaseURL: "https://example.test/v1", Reasoning: true, ThinkingFormat: "qwen"}, "low", map[string]any{"enable_thinking": true, "reasoning_effort": "low"}},
-		{OpenAI{BaseURL: "https://example.test/v1", Reasoning: true, ThinkingFormat: "qwen-chat-template"}, "", map[string]any{"chat_template_kwargs": map[string]any{"enable_thinking": false, "preserve_thinking": true}}},
-		{OpenAI{BaseURL: "https://example.test/v1", Reasoning: true, ThinkingFormat: "string-thinking"}, "high", map[string]any{"thinking": "high"}},
+		{OpenAI{BaseURL: "https://example.test/v1", Reasoning: true, Compat: OpenAICompat{ThinkingFormat: "qwen"}}, "low", map[string]any{"enable_thinking": true, "reasoning_effort": "low"}},
+		{OpenAI{BaseURL: "https://example.test/v1", Reasoning: true, Compat: OpenAICompat{ThinkingFormat: "qwen-chat-template"}}, "", map[string]any{"chat_template_kwargs": map[string]any{"enable_thinking": false, "preserve_thinking": true}}},
+		{OpenAI{BaseURL: "https://example.test/v1", Reasoning: true, Compat: OpenAICompat{ThinkingFormat: "string-thinking"}}, "high", map[string]any{"thinking": "high"}},
 	} {
 		body := sentPayload(t, c.adapter, durable.ModelRequest{Model: durable.ModelRef{Provider: "custom", ID: "m1"}, ThinkingLevel: c.level, Messages: []durable.Message{{Role: "user", Content: "hi"}}})
 		for key, want := range c.want {
 			if !reflect.DeepEqual(body[key], want) {
-				t.Errorf("%s %+v level %q: %s=%v, want %v", c.adapter.BaseURL, c.adapter.ThinkingFormat, c.level, key, body[key], want)
+				t.Errorf("%s %+v level %q: %s=%v, want %v", c.adapter.BaseURL, c.adapter.Compat.ThinkingFormat, c.level, key, body[key], want)
 			}
 		}
 		for _, key := range []string{"thinking", "reasoning", "reasoning_effort", "enable_thinking", "chat_template_kwargs"} {
 			if _, wanted := c.want[key]; !wanted && body[key] != nil {
-				t.Errorf("%s %+v level %q: unexpected %s=%v", c.adapter.BaseURL, c.adapter.ThinkingFormat, c.level, key, body[key])
+				t.Errorf("%s %+v level %q: unexpected %s=%v", c.adapter.BaseURL, c.adapter.Compat.ThinkingFormat, c.level, key, body[key])
 			}
 		}
 	}
@@ -372,4 +372,55 @@ func sentPayload(t *testing.T, m OpenAI, req durable.ModelRequest) map[string]an
 		t.Fatal("no request body")
 	}
 	return body
+}
+
+// pi-ai's compat settings (expectations from TestCrosscheckOpenAICompat).
+func TestOpenAICompatIsPiAis(t *testing.T) {
+	yes := true
+	lookup := durable.ToolSpec{Name: "lookup", Parameters: json.RawMessage(`{"type":"object"}`)}
+	history := []durable.Message{{Role: "system", Content: "Be brief."}, {Role: "user", Content: "hi"},
+		{Role: "assistant", ToolCalls: []durable.ToolCall{{ID: "c1", Name: "lookup", Arguments: json.RawMessage(`{}`)}}},
+		{Role: "tool", ToolCallID: "c1", ToolName: "lookup", Content: "found"}, {Role: "user", Content: "next"}}
+	request := func(stream *durable.StreamOptions) durable.ModelRequest {
+		return durable.ModelRequest{Model: durable.ModelRef{Provider: "custom", ID: "m1"}, SessionID: "s", ThinkingLevel: "medium", Messages: history, Tools: []durable.ToolSpec{lookup}, Stream: stream}
+	}
+	t.Run("bridge after tool results", func(t *testing.T) {
+		body := sentPayload(t, OpenAI{BaseURL: "https://example.test/v1", Compat: OpenAICompat{RequiresAssistantAfterToolResult: &yes, RequiresToolResultName: &yes}}, request(nil))
+		messages := body["messages"].([]any)
+		tool, bridge := messages[3].(map[string]any), messages[4].(map[string]any)
+		if messages[2].(map[string]any)["content"] != "" || tool["name"] != "lookup" || bridge["role"] != "assistant" || bridge["content"] != "I have processed the tool results." {
+			t.Fatalf("messages=%v", messages)
+		}
+	})
+	t.Run("chat template", func(t *testing.T) {
+		m := OpenAI{BaseURL: "https://example.test/v1", MaxTokens: 8192, Reasoning: true, Compat: OpenAICompat{ThinkingFormat: "chat-template",
+			ChatTemplateKwargs: map[string]json.RawMessage{"enable_thinking": json.RawMessage(`{"$var":"thinking.enabled"}`), "budget": json.RawMessage(`{"$var":"thinking.budget"}`), "fixed": json.RawMessage(`"x"`)}}}
+		got := sentPayload(t, m, request(nil))["chat_template_kwargs"]
+		if !reflect.DeepEqual(got, map[string]any{"enable_thinking": true, "budget": float64(7168), "fixed": "x"}) {
+			t.Fatalf("chat_template_kwargs=%v", got)
+		}
+	})
+	t.Run("anthropic cache control", func(t *testing.T) {
+		body := sentPayload(t, OpenAI{BaseURL: "https://example.test/v1", Compat: OpenAICompat{CacheControlFormat: "anthropic"}}, request(&durable.StreamOptions{CacheRetention: "long"}))
+		marker := map[string]any{"type": "ephemeral", "ttl": "1h"}
+		messages := body["messages"].([]any)
+		system := messages[0].(map[string]any)["content"].([]any)[0].(map[string]any)
+		last := messages[len(messages)-1].(map[string]any)["content"].([]any)[0].(map[string]any)
+		tool := body["tools"].([]any)[0].(map[string]any)
+		if !reflect.DeepEqual(system["cache_control"], marker) || !reflect.DeepEqual(last["cache_control"], marker) || !reflect.DeepEqual(tool["cache_control"], marker) {
+			t.Fatalf("body=%v", body)
+		}
+	})
+	t.Run("provider detection and extras", func(t *testing.T) {
+		priority := -2.5
+		m := OpenAI{BaseURL: "https://example.test/v1", MaxTokens: 8192, Reasoning: true, SamplingParams: map[string]any{"temperature": 0.3},
+			Compat: OpenAICompat{ThinkingTokenBudgetField: "thinking_budget", VLLMPriority: &priority, ZaiToolStream: &yes}}
+		req := request(&durable.StreamOptions{ThinkingBudgets: map[string]int{"medium": 3000}})
+		req.Model.Provider = "deepseek"
+		body := sentPayload(t, m, req)
+		if body["thinking_budget"] != float64(3000) || body["priority"] != priority || body["temperature"] != 0.3 || body["tool_stream"] != true ||
+			!reflect.DeepEqual(body["thinking"], map[string]any{"type": "enabled"}) || body["max_tokens"] != float64(8192) {
+			t.Fatalf("body=%v", body)
+		}
+	})
 }
