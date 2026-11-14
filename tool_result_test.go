@@ -64,3 +64,34 @@ func TestToolResultHarnessErrorsPassAfterTool(t *testing.T) {
 		})
 	}
 }
+
+// A pi.tool-result entry is upstream's: its message carries the result's
+// details and ends with the rendered diagnostics, and its data keeps the
+// structured diagnostics, an empty list when there are none.
+func TestToolResultEntriesCarryDetailsAndDiagnostics(t *testing.T) {
+	for _, c := range []struct {
+		name   string
+		result ToolResult
+		data   string
+	}{
+		{"diagnostics", ToolResult{Content: "done", Details: json.RawMessage(`{"rows":2}`), Diagnostics: []ToolDiagnostic{{Severity: "warn", Message: "slow", Code: "w"}}},
+			`{"diagnostics":[{"severity":"warn","message":"slow","code":"w"}]}`},
+		{"none", ToolResult{Content: "done"}, `{"diagnostics":[]}`},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			model := taskModelFunc(func(ctx context.Context, request ModelRequest, _ func(string) error) (ModelResponse, error) {
+				if hasToolResult(request) {
+					return ModelResponse{Content: "ok"}, nil
+				}
+				return ModelResponse{ToolCalls: []ToolCall{{ID: "c1", Name: "t", Arguments: json.RawMessage(`{}`)}}}, nil
+			})
+			h, root := runHarness(t, model, Settings{}, Extension{Name: "x", Tools: []ToolDefinition{{ToolSpec: ToolSpec{Name: "t", Parameters: json.RawMessage(`{"type":"object"}`)},
+				Execute: func(context.Context, json.RawMessage, *ToolRuntime) (ToolResult, error) { return c.result, nil }}}})
+			waitSettled(t, h, submit(t, root, SubmissionRequest{Content: "go"}))
+			entry := toolResultEntry(t, h, root.ID())
+			if string(entry.Data) != c.data || string(entry.Message.Details) != string(c.result.Details) {
+				t.Fatalf("data %s, details %s", entry.Data, entry.Message.Details)
+			}
+		})
+	}
+}

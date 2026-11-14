@@ -65,6 +65,11 @@ No release carried the earlier behavior. These matter only to code that followed
   `DocumentRevisions`.
 - `feat(agent)!`: the agent is a rewindable `pi.agent` document, not transcript
   entries. New conversations start with no entries.
+- `feat(codemode)!`: `ToolRuntime.ExecuteTool` passes arguments that are not an
+  object to the nested call's validation instead of failing with `ErrInvalid`.
+- `fix(tools)!`: a `pi.tool-result` entry's data is `{"diagnostics": [...]}`, as
+  upstream's, and the result's details are on its message (`Message.Details`); it
+  held the whole result before.
 - `feat(model)!`: model availability and `model.OpenAI` settings:
   - `OpenAI.StrictMode` replaces `NoStrictMode`;
   - an agent without a model fails runs with `no_model`;

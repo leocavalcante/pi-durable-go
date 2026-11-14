@@ -122,15 +122,12 @@ func codemodeResults(t *testing.T, ctx context.Context, h *durable.Harness) []co
 		if entry.Kind == "pi.tool-result" && entry.Message.ToolName == ToolName {
 			result := codemodeResult{Message: *entry.Message}
 			result.Content = header.ReplaceAllString(result.Content, "")
-			var data struct {
-				Details ToolDetails `json:"details"`
-			}
-			if len(entry.Data) > 0 {
-				if err := json.Unmarshal(entry.Data, &data); err != nil {
-					t.Fatalf("data %s: %v", entry.Data, err)
+			// The result's details are on its message, as upstream's.
+			if len(entry.Message.Details) > 0 {
+				if err := json.Unmarshal(entry.Message.Details, &result.details); err != nil {
+					t.Fatalf("details %s: %v", entry.Message.Details, err)
 				}
 			}
-			result.details = data.Details
 			results = append(results, result)
 		}
 	}

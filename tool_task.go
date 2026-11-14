@@ -525,18 +525,12 @@ func finishToolEnding(ctx context.Context, r *TaskRuntime, task TaskRecord, resu
 			result.Diagnostics = append(result.Diagnostics, ToolDiagnostic{Severity: "warn", Code: "truncated",
 				Message: fmt.Sprintf("Output truncated to its %s: %d lines, %d bytes dropped", kept, lines, bytes)})
 		}
-		details, err := json.Marshal(result)
+		message, entryData, err := toolResultMessage(input.Call, result)
 		if err != nil {
 			return TaskTransition{}, err
 		}
-		content := result.Content
-		if len(result.Diagnostics) > 0 {
-			if content != "" {
-				content += "\n"
-			}
-			content += renderDiagnostics(result.Diagnostics)
-		}
-		id, err := tx.Append(task.Conversation, Entry{Kind: "pi.tool-result", Message: &Message{Role: "tool", ToolCallID: input.Call.ID, ToolName: input.Call.Name, Content: content, Images: result.Images, ImageOffsets: result.ImageOffsets, IsError: result.IsError, Usage: result.Usage, DurationMs: result.DurationMs}, Data: details})
+		content := message.Content
+		id, err := tx.Append(task.Conversation, Entry{Kind: "pi.tool-result", Message: message, Data: entryData})
 		if err != nil {
 			return TaskTransition{}, err
 		}
@@ -582,12 +576,20 @@ func renderDiagnostics(diagnostics []ToolDiagnostic) string {
 	return b.String()
 }
 
-// appendToolResult appends a call's result entry and records its usage; the
-// model sees its diagnostics in a <harness> block after the content.
-func appendToolResult(tx *Tx, cid ConversationID, call ToolCall, result ToolResult) (EntryID, error) {
-	details, err := json.Marshal(result)
+// toolResultMessage is a result's pi.tool-result message and data, as
+// upstream's appendToolResult writes them: the message ends with the rendered
+// diagnostics, so it is exactly what the model sees, and carries the
+// result's details; the data keeps the structured diagnostics.
+func toolResultMessage(call ToolCall, result ToolResult) (*Message, json.RawMessage, error) {
+	diagnostics := result.Diagnostics
+	if diagnostics == nil {
+		diagnostics = []ToolDiagnostic{}
+	}
+	data, err := json.Marshal(struct {
+		Diagnostics []ToolDiagnostic `json:"diagnostics"`
+	}{diagnostics})
 	if err != nil {
-		return 0, err
+		return nil, nil, err
 	}
 	content := result.Content
 	if len(result.Diagnostics) > 0 {
@@ -596,7 +598,19 @@ func appendToolResult(tx *Tx, cid ConversationID, call ToolCall, result ToolResu
 		}
 		content += renderDiagnostics(result.Diagnostics)
 	}
-	id, err := tx.Append(cid, Entry{Kind: "pi.tool-result", Message: &Message{Role: "tool", ToolCallID: call.ID, ToolName: call.Name, Content: content, Images: result.Images, ImageOffsets: result.ImageOffsets, IsError: result.IsError, Usage: result.Usage, DurationMs: result.DurationMs}, Data: details})
+	return &Message{Role: "tool", ToolCallID: call.ID, ToolName: call.Name, Content: content, Images: result.Images,
+		ImageOffsets: result.ImageOffsets, IsError: result.IsError, Usage: result.Usage, DurationMs: result.DurationMs,
+		Details: cloneRaw(result.Details)}, data, nil
+}
+
+// appendToolResult appends a call's result entry and records its usage; the
+// model sees its diagnostics in a <harness> block after the content.
+func appendToolResult(tx *Tx, cid ConversationID, call ToolCall, result ToolResult) (EntryID, error) {
+	message, data, err := toolResultMessage(call, result)
+	if err != nil {
+		return 0, err
+	}
+	id, err := tx.Append(cid, Entry{Kind: "pi.tool-result", Message: message, Data: data})
 	if err != nil {
 		return 0, err
 	}
