@@ -465,7 +465,8 @@ func summarizeCompaction(ctx context.Context, r *TaskRuntime, task TaskRecord, i
 		summarized = append(summarized, messages...)
 	}
 	summarized = orderToolResults(summarized)
-	request := ModelRequest{Model: cp.Model, SessionID: conv.ProviderSessionID, ThinkingLevel: cp.ThinkingLevel, Messages: []Message{
+	sessionID, _ := providerSessionID(state, conv)
+	request := ModelRequest{Model: cp.Model, SessionID: sessionID, ThinkingLevel: cp.ThinkingLevel, Messages: []Message{
 		{Role: "system", Content: summarizationSystemPrompt},
 		{Role: "user", Content: summaryPrompt(summarized, input.Instructions)},
 	}}

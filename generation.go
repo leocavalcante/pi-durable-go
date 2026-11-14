@@ -262,6 +262,13 @@ func prepareGeneration(ctx context.Context, r *TaskRuntime, task TaskRecord, cp 
 				}
 			}
 		}
+		// A conversation from before pi.provider gets its document, with
+		// the identity its requests had.
+		if current, err := tx.Conversation(task.Conversation); err == nil {
+			if err := storeProviderSessionID(tx, current); err != nil {
+				return TaskTransition{}, err
+			}
+		}
 		// The prompt and tool changes the request was planned with, at their
 		// transcript positions (spec §7.4).
 		for _, entry := range planned {
@@ -968,7 +975,8 @@ func providerPayload(ctx context.Context, r *TaskRuntime, task TaskRecord, model
 // as upstream's hooks.each does; a failed section keeps the text the model
 // was shown.
 func buildRequest(ctx context.Context, r *TaskRuntime, state *State, c ConversationRecord) (ModelRequest, []Entry) {
-	request := ModelRequest{Model: c.Agent.Model, SessionID: c.ProviderSessionID, ThinkingLevel: c.Agent.ThinkingLevel}
+	sessionID, _ := providerSessionID(state, &c)
+	request := ModelRequest{Model: c.Agent.Model, SessionID: sessionID, ThinkingLevel: c.Agent.ThinkingLevel}
 	view, err := deriveContextView(state, c.ID, 0)
 	if err != nil {
 		return request, nil
