@@ -9,6 +9,10 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"reflect"
+	"regexp"
+	"strings"
 	"testing"
 
 	durable "github.com/leocavalcante/pi-durable-go"
@@ -304,7 +308,8 @@ func openAICompatOf(t *testing.T, compat map[string]any) OpenAICompat {
 	}
 	c.SupportsStore, c.SupportsDeveloperRole, c.SupportsReasoningEffort = flag("supportsStore"), flag("supportsDeveloperRole"), flag("supportsReasoningEffort")
 	c.SupportsUsageInStreaming, c.RequiresToolResultName = flag("supportsUsageInStreaming"), flag("requiresToolResultName")
-	c.SupportsFinishReason = flag("supportsFinishReason")
+	c.SupportsFinishReason, c.SendSessionAffinityHeaders = flag("supportsFinishReason"), flag("sendSessionAffinityHeaders")
+	c.SessionAffinityFormat = text("sessionAffinityFormat")
 	c.RequiresAssistantAfterToolResult, c.RequiresNonNullAssistantContent = flag("requiresAssistantAfterToolResult"), flag("requiresNonNullAssistantContent")
 	c.RequiresToolsWithToolHistory, c.RequiresThinkingAsText = flag("requiresToolsWithToolHistory"), flag("requiresThinkingAsText")
 	c.RequiresReasoningContentOnAssistantMessages, c.ZaiToolStream = flag("requiresReasoningContentOnAssistantMessages"), flag("zaiToolStream")
@@ -460,6 +465,83 @@ func TestCrosscheckOpenAICompat(t *testing.T) {
 		}
 		if got := payloadOf(t, adapter, req); !crosscheck.Same(got, want[i]) {
 			t.Errorf("%s:\n got %s\nwant %s", v.name, got, want[i])
+		}
+	}
+}
+
+// Attribution and session-affinity headers, as a local server receives
+// them from pi-ai's openai-completions and from model.OpenAI.
+func TestCrosscheckOpenAIHeaders(t *testing.T) {
+	attribution := map[string]any{"name": "pi", "url": "https://pi.dev", "categories": []string{"cli", "agent"}}
+	type variant struct {
+		provider, base string
+		compat         map[string]any
+		session        string
+		attribution    map[string]any
+		headers        map[string]string
+	}
+	variants := []variant{
+		{provider: "openrouter", base: "https://openrouter.ai/api/v1", session: "s-1", attribution: attribution},
+		{provider: "custom", base: "https://openrouter.ai/api/v1", session: "s-1"},
+		{provider: "nvidia", base: "https://example.test/v1", session: "s-1", attribution: attribution},
+		{provider: "opencode", base: "https://example.test/v1", session: "s-1", attribution: attribution},
+		{provider: "custom", base: "https://example.test/v1", session: "s-1", attribution: attribution},
+		{provider: "custom", base: "https://example.test/v1", session: "s-1", compat: map[string]any{"sendSessionAffinityHeaders": true}},
+		{provider: "custom", base: "https://example.test/v1", session: "s-1", compat: map[string]any{"sendSessionAffinityHeaders": true, "sessionAffinityFormat": "openai-nosession"}},
+		{provider: "openrouter", base: "https://openrouter.ai/api/v1", session: "s-1", compat: map[string]any{"sendSessionAffinityHeaders": false}},
+		{provider: "openrouter", base: "https://openrouter.ai/api/v1", session: "s-1", headers: map[string]string{"x-session-id": "mine", "x-extra": "1"}},
+	}
+	var input []map[string]any
+	for _, v := range variants {
+		model := map[string]any{"id": "m1", "name": "m1", "api": "openai-completions", "provider": v.provider, "baseUrl": v.base,
+			"reasoning": false, "input": []string{"text"}, "cost": map[string]int{"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0},
+			"contextWindow": 128000, "maxTokens": 1000}
+		if v.compat != nil {
+			model["compat"] = v.compat
+		}
+		options := map[string]any{}
+		if v.session != "" {
+			options["sessionId"] = v.session
+		}
+		if v.attribution != nil {
+			options["identity"] = map[string]any{"attribution": v.attribution}
+		}
+		if v.headers != nil {
+			options["headers"] = v.headers
+		}
+		input = append(input, map[string]any{"model": model, "options": options})
+	}
+	var want []map[string]string
+	crosscheck.Run(t, "openaiHeaders", input, &want)
+	var got map[string]string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = map[string]string{}
+		for name, values := range r.Header {
+			name = strings.ToLower(name)
+			if regexp.MustCompile(`^(user-agent|x-stainless-|host|connection|content-length|content-type|accept|accept-encoding|authorization|sec-fetch-mode)`).MatchString(name) {
+				continue
+			}
+			got[name] = strings.Join(values, ", ")
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"x\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
+	}))
+	defer server.Close()
+	for i, v := range variants {
+		adapter := OpenAI{BaseURL: server.URL + "/v1?for=" + url.QueryEscape(v.base), Compat: openAICompatOf(t, v.compat)}
+		req := durable.ModelRequest{Model: durable.ModelRef{Provider: v.provider, ID: "m1"}, SessionID: v.session, Messages: []durable.Message{{Role: "user", Content: "hi"}}}
+		if v.attribution != nil {
+			data, _ := json.Marshal(v.attribution)
+			req.Identity = &durable.ClientIdentity{Attribution: data}
+		}
+		if v.headers != nil {
+			req.Stream = &durable.StreamOptions{Headers: v.headers}
+		}
+		if _, err := adapter.Generate(context.Background(), req, nil); err != nil {
+			t.Fatalf("variant %d: %v", i, err)
+		}
+		if !reflect.DeepEqual(got, want[i]) {
+			t.Errorf("variant %d %+v:\n got %v\nwant %v", i, v, got, want[i])
 		}
 	}
 }

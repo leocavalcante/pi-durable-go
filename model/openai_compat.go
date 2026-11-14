@@ -2,7 +2,9 @@ package model
 
 import (
 	"encoding/json"
+	"net/url"
 	"strings"
+	"unicode/utf8"
 
 	durable "github.com/leocavalcante/pi-durable-go"
 )
@@ -73,6 +75,12 @@ type OpenAICompat struct {
 	CacheControlFormat string
 	// PromptCacheKeyMode is auto, enabled, or disabled.
 	PromptCacheKeyMode string
+	// SendSessionAffinityHeaders sends the request's session ID in headers
+	// (detected: OpenRouter). SessionAffinityFormat names them: openrouter
+	// sends x-session-id; openai sends session_id, x-client-request-id, and
+	// x-session-affinity; openai-nosession the last two.
+	SendSessionAffinityHeaders *bool
+	SessionAffinityFormat      string
 	// VLLMPriority is sent as vLLM's priority.
 	VLLMPriority *float64
 }
@@ -98,6 +106,8 @@ type completionsCompat struct {
 	thinkingTokenBudgetField                                                                  string
 	supportsLongCacheRetention                                                                bool
 	cacheControlFormat, promptCacheKeyMode                                                    string
+	sendSessionAffinityHeaders                                                                bool
+	sessionAffinityFormat                                                                     string
 	vllmPriority                                                                              *float64
 }
 
@@ -157,6 +167,10 @@ func (o OpenAI) compat(ref durable.ModelRef) completionsCompat {
 	if provider == "openrouter" && strings.HasPrefix(ref.ID, "anthropic/") {
 		c.cacheControlFormat = "anthropic"
 	}
+	c.sendSessionAffinityHeaders, c.sessionAffinityFormat = isOpenRouter, "openai"
+	if isOpenRouter {
+		c.sessionAffinityFormat = "openrouter"
+	}
 	x := o.Compat
 	for _, field := range []struct {
 		to   *bool
@@ -169,6 +183,7 @@ func (o OpenAI) compat(ref durable.ModelRef) completionsCompat {
 		{&c.requiresNonNullAssistantContent, x.RequiresNonNullAssistantContent}, {&c.requiresToolsWithToolHistory, x.RequiresToolsWithToolHistory},
 		{&c.requiresThinkingAsText, x.RequiresThinkingAsText}, {&c.requiresReasoningContent, x.RequiresReasoningContentOnAssistantMessages},
 		{&c.zaiToolStream, x.ZaiToolStream}, {&c.supportsLongCacheRetention, x.SupportsLongCacheRetention},
+		{&c.sendSessionAffinityHeaders, x.SendSessionAffinityHeaders},
 	} {
 		if field.from != nil {
 			*field.to = *field.from
@@ -185,6 +200,9 @@ func (o OpenAI) compat(ref durable.ModelRef) completionsCompat {
 	}
 	if x.PromptCacheKeyMode != "" {
 		c.promptCacheKeyMode = x.PromptCacheKeyMode
+	}
+	if x.SessionAffinityFormat != "" {
+		c.sessionAffinityFormat = x.SessionAffinityFormat
 	}
 	c.chatTemplateKwargs, c.chatTemplateArgs = x.ChatTemplateKwargs, x.ChatTemplateArgs
 	c.openRouterRouting, c.gatewayRouting, c.vllmPriority = x.OpenRouterRouting, x.VercelGatewayRouting, x.VLLMPriority
@@ -329,4 +347,73 @@ func hasToolHistory(messages []durable.Message) bool {
 		}
 	}
 	return false
+}
+
+// requestHeaders are the headers pi-ai's createClient sends: the identity's
+// User-Agent and provider attribution, then the session-affinity headers
+// the compat asks for; the request's own headers go over them.
+func (o OpenAI) requestHeaders(req durable.ModelRequest, c completionsCompat) map[string]string {
+	headers := map[string]string{}
+	if ua := userAgent(req.Identity); ua != "" {
+		headers["User-Agent"] = ua
+	}
+	for name, value := range attributionHeaders(req.Model.Provider, o.baseURL(), req.Identity) {
+		headers[name] = value
+	}
+	if id := req.SessionID; id != "" && c.sendSessionAffinityHeaders {
+		if c.sessionAffinityFormat == "openrouter" {
+			headers["x-session-id"] = id
+		} else {
+			if c.sessionAffinityFormat == "openai" {
+				headers["session_id"] = id
+			}
+			headers["x-client-request-id"] = id
+			headers["x-session-affinity"] = id
+		}
+	}
+	if req.Stream != nil {
+		for name, value := range req.Stream.Headers {
+			headers[name] = value
+		}
+	}
+	return headers
+}
+
+// attributionHeaders are pi-ai's getAttributionHeaders: OpenRouter's
+// referer, title, and categories, NVIDIA's billing origin, or OpenCode's
+// client, from the identity's attribution; none without one.
+func attributionHeaders(provider, base string, identity *durable.ClientIdentity) map[string]string {
+	if identity == nil || len(identity.Attribution) == 0 {
+		return nil
+	}
+	var attribution struct {
+		Name       string   `json:"name"`
+		URL        string   `json:"url"`
+		Categories []string `json:"categories"`
+	}
+	if json.Unmarshal(identity.Attribution, &attribution) != nil || string(identity.Attribution) == "null" {
+		return nil
+	}
+	host := ""
+	if parsed, err := url.Parse(base); err == nil {
+		host = parsed.Hostname()
+	}
+	switch {
+	case provider == "openrouter" || strings.Contains(base, "openrouter.ai"):
+		headers := map[string]string{"HTTP-Referer": attribution.URL, "X-OpenRouter-Title": attribution.Name}
+		if len(attribution.Categories) > 0 {
+			headers["X-OpenRouter-Categories"] = strings.Join(attribution.Categories, ",")
+		}
+		return headers
+	case provider == "nvidia" || host == "integrate.api.nvidia.com":
+		name := attribution.Name
+		if name != "" {
+			r, size := utf8.DecodeRuneInString(name)
+			name = strings.ToUpper(string(r)) + name[size:]
+		}
+		return map[string]string{"X-BILLING-INVOKE-ORIGIN": name}
+	case provider == "opencode" || provider == "opencode-go" || host == "opencode.ai":
+		return map[string]string{"x-opencode-client": attribution.Name}
+	}
+	return nil
 }

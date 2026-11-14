@@ -306,13 +306,8 @@ func (o OpenAI) GenerateEvents(ctx context.Context, req durable.ModelRequest, on
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Accept", "text/event-stream")
-	if ua := userAgent(req.Identity); ua != "" {
-		httpReq.Header.Set("User-Agent", ua)
-	}
-	if req.Stream != nil {
-		for name, value := range req.Stream.Headers {
-			httpReq.Header.Set(name, value)
-		}
+	for name, value := range o.requestHeaders(req, c) {
+		httpReq.Header.Set(name, value)
 	}
 	if o.APIKey != "" {
 		httpReq.Header.Set("Authorization", "Bearer "+o.APIKey)

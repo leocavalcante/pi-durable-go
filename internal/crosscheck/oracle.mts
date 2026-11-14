@@ -282,6 +282,41 @@ const ops: Record<string, (input: any) => Promise<unknown>> = {
 		return out;
 	},
 
+	/**
+	 * The headers openai-completions sends, as a local server receives them: identity attribution and session
+	 * affinity, without the ones that vary (user-agent, the OpenAI SDK's x-stainless-*, transport).
+	 */
+	async openaiHeaders(cases: { model: any; options?: Record<string, unknown> }[]) {
+		const oai = await ai("api/openai-completions.ts");
+		let captured: Record<string, string> = {};
+		const server = createServer((request, response) => {
+			captured = {};
+			for (const [name, value] of Object.entries(request.headers)) {
+				if (/^(user-agent|x-stainless-|host|connection|content-length|content-type|accept|accept-encoding|authorization|sec-fetch-mode)/.test(name)) continue;
+				captured[name] = String(value);
+			}
+			request.resume();
+			request.on("end", () => {
+				response.writeHead(200, { "content-type": "text/event-stream" });
+				response.end('data: {"choices":[{"delta":{"content":"x"},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n');
+			});
+		});
+		await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
+		const port = (server.address() as any).port;
+		const out: unknown[] = [];
+		try {
+			for (const { model, options } of cases) {
+				// The model's own URL decides detection; requests go to the local server.
+				const local = { ...model, baseUrl: `http://127.0.0.1:${port}/v1?for=${encodeURIComponent(model.baseUrl)}` };
+				await oai.streamSimple(local, { messages: [{ role: "user", content: "hi", timestamp: 1 }] }, { apiKey: "t", maxRetries: 0, ...options }).result();
+				out.push(captured);
+			}
+		} finally {
+			server.close();
+		}
+		return out;
+	},
+
 	/** A scripted conversation run by upstream's Harness. */
 	async scenario(scenario: unknown) {
 		const { runScenario } = await import(new URL("./scenario.mts", import.meta.url).href);

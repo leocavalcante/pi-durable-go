@@ -459,3 +459,38 @@ func TestOpenAICompatIsPiAis(t *testing.T) {
 		}
 	})
 }
+
+// Attribution and session-affinity headers as pi-ai sends them
+// (expectations from TestCrosscheckOpenAIHeaders).
+func TestOpenAIHeadersArePiAis(t *testing.T) {
+	var got http.Header
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = r.Header.Clone()
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"x\"},\"finish_reason\":\"stop\"}]}\n\n"))
+	}))
+	defer server.Close()
+	identity := &durable.ClientIdentity{Attribution: json.RawMessage(`{"name":"pi","url":"https://pi.dev","categories":["cli","agent"]}`)}
+	generate := func(m OpenAI, provider string, headers map[string]string) {
+		req := durable.ModelRequest{Model: durable.ModelRef{Provider: provider, ID: "m1"}, SessionID: "s-1", Identity: identity, Messages: []durable.Message{{Role: "user", Content: "hi"}}}
+		if headers != nil {
+			req.Stream = &durable.StreamOptions{Headers: headers}
+		}
+		if _, err := m.Generate(context.Background(), req, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	generate(OpenAI{BaseURL: server.URL}, "openrouter", nil)
+	if got.Get("HTTP-Referer") != "https://pi.dev" || got.Get("X-OpenRouter-Title") != "pi" || got.Get("X-OpenRouter-Categories") != "cli,agent" || got.Get("x-session-id") != "s-1" {
+		t.Fatalf("openrouter headers=%v", got)
+	}
+	generate(OpenAI{BaseURL: server.URL}, "nvidia", nil)
+	if got.Get("X-BILLING-INVOKE-ORIGIN") != "Pi" || got.Get("x-session-id") != "" {
+		t.Fatalf("nvidia headers=%v", got)
+	}
+	yes := true
+	generate(OpenAI{BaseURL: server.URL, Compat: OpenAICompat{SendSessionAffinityHeaders: &yes, SessionAffinityFormat: "openai-nosession"}}, "custom", map[string]string{"x-session-affinity": "mine"})
+	if got.Get("session_id") != "" || got.Get("x-client-request-id") != "s-1" || got.Get("x-session-affinity") != "mine" {
+		t.Fatalf("affinity headers=%v", got)
+	}
+}
