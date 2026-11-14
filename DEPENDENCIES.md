@@ -13,6 +13,11 @@ checksums are recorded in `go.mod` and `go.sum`.
 | [`github.com/dlclark/regexp2`](https://github.com/dlclark/regexp2) | MIT | ECMAScript regular expressions for schema patterns, as pi-schema compiles them |
 | [`golang.org/x/text`](https://pkg.go.dev/golang.org/x/text) | BSD-3-Clause | Unicode normalization and segmentation for `tool_search` and edit matching; wording of schema failures pi-schema has no message for; the root collation that orders code mode namespaces as `localeCompare` does |
 | [`golang.org/x/image`](https://pkg.go.dev/golang.org/x/image) | BSD-3-Clause | WebP and BMP decoding and image scaling for `tools.StdImages` |
+| [`github.com/tetratelabs/wazero`](https://github.com/tetratelabs/wazero) | Apache-2.0 | The pure-Go WebAssembly runtime of `codemode.QuickJSSandbox` |
+
+## Embedded files
+
+`codemode` embeds `quickjs.wasm` from quickjs-wasi 3.6.2 (MIT; QuickJS-NG v0.17.0, MIT) and pi-codemode 1.5.2's prelude (MIT). [codemode/QUICKJS.md](codemode/QUICKJS.md) lists their sources, checksums, and license files.
 
 ## Optional Pi SDK runtime
 

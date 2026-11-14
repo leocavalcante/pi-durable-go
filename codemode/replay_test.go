@@ -157,6 +157,8 @@ type setup struct {
 	globals []Global
 	hooks   durable.Hooks
 	path    string
+	// onEcho, when set, sees each echo call's text.
+	onEcho func(text string)
 	// namespaces and env configure the next open; env nil is testEnv.
 	namespaces []Namespace
 	env        durable.ExecutionEnv
@@ -165,7 +167,7 @@ type setup struct {
 
 func newSetup(t *testing.T, globals ...Global) *setup {
 	t.Helper()
-	return newSetupWith(t, installedSandbox(t), globals...)
+	return newSetupWith(t, testSandbox(t), globals...)
 }
 
 func newSetupWith(t *testing.T, sandbox Sandbox, globals ...Global) *setup {
@@ -179,6 +181,9 @@ func newSetupWith(t *testing.T, sandbox Sandbox, globals ...Global) *setup {
 				var input struct{ Text string }
 				_ = json.Unmarshal(args, &input)
 				s.echo.add(input.Text)
+				if s.onEcho != nil {
+					s.onEcho(input.Text)
+				}
 				return durable.ToolResult{Content: "echo " + input.Text}, nil
 			}},
 		{ToolSpec: durable.ToolSpec{Name: "hold", Description: "hold", Parameters: parametersSchema}, ReplaySafe: true,
@@ -406,19 +411,25 @@ func TestCodemodeResumesAfterARestart(t *testing.T) {
 
 func TestCodemodeReplaysResultsInTheOrderTheyArrived(t *testing.T) {
 	s := newSetup(t)
-	// 2 finishes first, then 1.
+	// 2 arrives first, then 1: call 1 is released once the script has
+	// call 2's result (upstream releases it when call 2's tool finishes,
+	// which a single thread delivers first; here results travel apart).
 	s.slows.release(2)
-	go func() {
-		<-s.slows.gate(s.slows.finished, 2)
-		s.slows.release(1)
-	}()
+	s.onEcho = func(text string) {
+		if text == "between" {
+			s.slows.release(1)
+		}
+	}
 	result, _ := s.restart(`const order = [];
-		await Promise.all([tools.slow({ id: 1 }).then(() => order.push(1)), tools.slow({ id: 2 }).then(() => order.push(2))]);
+		const first = tools.slow({ id: 1 }).then(() => order.push(1));
+		await tools.slow({ id: 2 }).then(() => order.push(2));
+		await tools.echo({ text: "between" });
+		await first;
 		await tools.echo({ text: order.join(",") });
 		await tools.hold({});
 		return order;`, nil, nil)
 	expectResult(t, result, "[2,1]", false)
-	expectCounts(t, s.echo.snapshot(), map[string]int{"2,1": 1})
+	expectCounts(t, s.echo.snapshot(), map[string]int{"between": 1, "2,1": 1})
 }
 
 func TestCodemodeJournalsGlobals(t *testing.T) {
@@ -745,7 +756,7 @@ func TestCodemodeListsTheScriptsCallsInItsDetails(t *testing.T) {
 
 func TestCodemodeStoresNoOutcomeWhenTheSandboxCloses(t *testing.T) {
 	s := newSetup(t)
-	node := s.sandbox.inner.(*NodeSandbox)
+	closing := s.sandbox.inner.(closingSandbox)
 	s.model.scripts = []string{`await tools.echo({ text: "a" }); await tools.hold({}); return "done";`}
 	chat := s.openSQLite()
 	sub, err := chat.root.Submit(s.ctx, durable.SubmissionRequest{Content: "go"})
@@ -755,7 +766,7 @@ func TestCodemodeStoresNoOutcomeWhenTheSandboxCloses(t *testing.T) {
 	s.holds.wait(t)
 	task := scriptTask(t, s.ctx, chat.h)
 	// A host shutting down closes the sandbox before the Harness.
-	if err := node.Close(); err != nil {
+	if err := closing.Close(); err != nil {
 		t.Fatal(err)
 	}
 	time.Sleep(100 * time.Millisecond)
@@ -771,7 +782,7 @@ func TestCodemodeStoresNoOutcomeWhenTheSandboxCloses(t *testing.T) {
 	}
 	// The next process has a new sandbox.
 	s.holds.setBlock(false)
-	s.sandbox.inner = &NodeSandbox{PackageDir: node.PackageDir}
+	s.sandbox.inner = testSandbox(t)
 	chat = s.openSQLite()
 	defer chat.h.Close(context.Background())
 	chat.h.Resume()

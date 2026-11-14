@@ -73,4 +73,4 @@ Each milestone keeps `make check` green and is pushed on its own. Tests that run
 
 - **After M6.** `model.Pi` is a `codemode.Models`. A `models` op of its bridge reads the SDK's catalog without headers and runs `ModelRuntime.classify` and `generateImages`, with error text sanitized. `Classify` and `GenerateImages` return pi-ai's result object, from which code mode reads the stop reason, error, and usage.
 
-Remaining: a pure-Go VM (wazero with quickjs-wasi's WASM), so code mode runs without Node.
+The Go VM is plan 0011: `codemode.QuickJSSandbox`, the default.

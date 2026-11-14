@@ -119,7 +119,7 @@ type modelsRun struct {
 // runModels runs code with models.* and returns its result and usage.
 func runModels(t *testing.T, models *testModels, code string, env durable.ExecutionEnv) modelsRun {
 	t.Helper()
-	sandbox := installedSandbox(t)
+	sandbox := testSandbox(t)
 	ctx := testContext(t)
 	registry := durable.NewRegistry()
 	if err := registry.Install(Extension(Options{Sandbox: sandbox, Models: models})); err != nil {

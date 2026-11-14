@@ -18,3 +18,10 @@ This is not an official Earendil project. Compatibility is described in
 COMPATIBILITY.md; the Go storage format is not compatible with upstream files.
 
 Dependencies retain their own licenses; see go.mod and DEPENDENCIES.md.
+
+The codemode package embeds quickjs-wasi 3.6.2's quickjs.wasm (MIT, Copyright
+(c) 2026 Vercel, Inc.), which contains QuickJS-NG v0.17.0 (MIT, Copyright (c)
+2017-2026 Fabrice Bellard, Charlie Gordon, Ben Noordhuis, Saúl Ibarra
+Corretgé), and pi-codemode 1.5.2's prelude (MIT, the Pi monorepo). See
+codemode/QUICKJS.md, codemode/LICENSE.quickjs-wasi, and
+codemode/LICENSE.quickjs-ng.

@@ -22,6 +22,52 @@ func installedSandbox(t *testing.T) *NodeSandbox {
 	return sandbox
 }
 
+// closingSandbox is a Sandbox that Close aborts.
+type closingSandbox interface {
+	Sandbox
+	Close() error
+}
+
+// sandboxKind makes sandboxes of one kind: QuickJS, or Node over the
+// installed Pi.
+type sandboxKind struct {
+	name string
+	make func() closingSandbox
+}
+
+// sandboxKinds are QuickJS, and Node when PI_DURABLE_TEST_PI_PACKAGE_DIR
+// names an installed Pi.
+func sandboxKinds() []sandboxKind {
+	kinds := []sandboxKind{{"quickjs", func() closingSandbox { return &QuickJSSandbox{} }}}
+	if pkg := os.Getenv("PI_DURABLE_TEST_PI_PACKAGE_DIR"); pkg != "" {
+		kinds = append(kinds, sandboxKind{"node", func() closingSandbox { return &NodeSandbox{PackageDir: pkg} }})
+	}
+	return kinds
+}
+
+// eachSandbox runs test with a sandbox of each kind.
+func eachSandbox(t *testing.T, test func(t *testing.T, kind sandboxKind, sandbox closingSandbox)) {
+	for _, kind := range sandboxKinds() {
+		t.Run(kind.name, func(t *testing.T) {
+			sandbox := kind.make()
+			t.Cleanup(func() { _ = sandbox.Close() })
+			test(t, kind, sandbox)
+		})
+	}
+}
+
+// testSandbox is the sandbox the durable tests run scripts in: QuickJS, or
+// Node over the installed Pi with PI_DURABLE_TEST_CODEMODE_SANDBOX=node.
+func testSandbox(t *testing.T) closingSandbox {
+	t.Helper()
+	if os.Getenv("PI_DURABLE_TEST_CODEMODE_SANDBOX") == "node" {
+		return installedSandbox(t)
+	}
+	sandbox := &QuickJSSandbox{}
+	t.Cleanup(func() { _ = sandbox.Close() })
+	return sandbox
+}
+
 // recorder collects a run's events.
 type recorder struct {
 	fingerprints chan string
@@ -62,8 +108,11 @@ func wait(t *testing.T, run Run) Result {
 	return result
 }
 
-func TestNodeSandboxRunsAScriptThatCallsTools(t *testing.T) {
-	sandbox := installedSandbox(t)
+func TestSandboxRunsAScriptThatCallsTools(t *testing.T) {
+	eachSandbox(t, testRunsAScriptThatCallsTools)
+}
+
+func testRunsAScriptThatCallsTools(t *testing.T, _ sandboxKind, sandbox closingSandbox) {
 	events := newRecorder()
 	run, err := sandbox.Start(`const [a, b] = await Promise.all([tools.echo({ text: "one" }), tools.echo({ text: "two" })]);
 console.log("got", a);
@@ -129,8 +178,11 @@ return { a, found };`, events.options(RunOptions{
 
 // The VM's clock reads the start and then each result's time, and its
 // randomness comes from the seed: the same run gives the same values.
-func TestNodeSandboxIsDeterministic(t *testing.T) {
-	sandbox := installedSandbox(t)
+func TestSandboxIsDeterministic(t *testing.T) {
+	eachSandbox(t, testIsDeterministic)
+}
+
+func testIsDeterministic(t *testing.T, _ sandboxKind, sandbox closingSandbox) {
 	once := func(seed uint32) string {
 		events := newRecorder()
 		run, err := sandbox.Start(`const before = [Date.now(), Math.random(), new Date().toISOString()];
@@ -163,8 +215,11 @@ return [...before, Date.now(), Math.random(), Math.random()];`, events.options(R
 	}
 }
 
-func TestNodeSandboxEndsRuns(t *testing.T) {
-	sandbox := installedSandbox(t)
+func TestSandboxEndsRuns(t *testing.T) {
+	eachSandbox(t, testEndsRuns)
+}
+
+func testEndsRuns(t *testing.T, kind sandboxKind, sandbox closingSandbox) {
 	t.Run("timeout", func(t *testing.T) {
 		timeout := 200.0
 		run, err := sandbox.Start(`await tools.never({});`, newRecorder().options(RunOptions{
@@ -254,7 +309,7 @@ func TestNodeSandboxEndsRuns(t *testing.T) {
 		}
 	})
 	t.Run("close", func(t *testing.T) {
-		closing := &NodeSandbox{PackageDir: sandbox.PackageDir}
+		closing := kind.make()
 		events := newRecorder()
 		run, err := closing.Start(`await tools.never({});`, events.options(RunOptions{StartedAt: 1, Tools: []DeclaredTool{{Name: "never"}}}))
 		if err != nil {
@@ -273,6 +328,9 @@ func TestNodeSandboxEndsRuns(t *testing.T) {
 		}
 	})
 	t.Run("unavailable", func(t *testing.T) {
+		if kind.name != "node" {
+			t.Skip("only the Node sandbox loads pi-codemode")
+		}
 		_, err := (&NodeSandbox{CodemodeDir: t.TempDir()}).Start(`return 1;`, RunOptions{StartedAt: 1})
 		if err == nil || !strings.Contains(err.Error(), "pi-codemode unavailable") {
 			t.Fatalf("err = %v", err)

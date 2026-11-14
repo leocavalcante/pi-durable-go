@@ -156,7 +156,7 @@ func testContext(t *testing.T) context.Context {
 }
 
 func TestCodemodeRunsScriptsThatCallTools(t *testing.T) {
-	sandbox := installedSandbox(t)
+	sandbox := testSandbox(t)
 	ctx := testContext(t)
 	runs := &sync.Map{}
 	model := &scriptModel{scripts: []string{

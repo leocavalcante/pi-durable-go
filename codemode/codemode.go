@@ -54,7 +54,8 @@ type Global struct {
 
 // Options configure the code mode tool and extension.
 type Options struct {
-	// Sandbox runs the scripts, such as a NodeSandbox.
+	// Sandbox runs the scripts: a QuickJSSandbox in Go, or a NodeSandbox
+	// with Node and an installed Pi. Nil is a shared QuickJSSandbox.
 	Sandbox Sandbox
 	// Namespaces group tools by name prefix, such as MCP servers, for the
 	// codemode section and tool search.
@@ -423,6 +424,10 @@ type call struct {
 	loop    *loop
 	run     Run
 	start   startData
+	// finished: the loop has the run's result. The events the VM sent
+	// before it are handled first, as upstream handles them before its
+	// result settles; Run.Finished could be true already.
+	finished bool
 	// aborted: the call aborted its VM (upstream controller.signal.aborted).
 	aborted      bool
 	abortMessage string
@@ -658,7 +663,11 @@ func (c *call) execute(source string) (durable.ToolResult, error) {
 	if c.ctx.Err() != nil {
 		c.aborted = true
 	}
-	run, err := c.options.Sandbox.Start(code, RunOptions{
+	sandbox := c.options.Sandbox
+	if sandbox == nil {
+		sandbox = defaultSandbox
+	}
+	run, err := sandbox.Start(code, RunOptions{
 		StartedAt: c.start.StartedAt, Seed: c.start.Seed, Tools: visible, Globals: declaredGlobals,
 		Store: c.start.Store, TimeoutMs: remaining,
 		OnStarted: func(fingerprint string) { c.loop.post(func() { c.checkFingerprint(fingerprint) }) },
@@ -724,6 +733,7 @@ func (c *call) wait() Result {
 			c.loop.drain()
 		case result := <-results:
 			c.loop.drain()
+			c.finished = true
 			return result
 		case <-done:
 			done = nil
@@ -795,7 +805,7 @@ func (c *call) diverge(message string) {
 // stopped: nothing more may happen; the run has its outcome, or the call
 // decided or failed.
 func (c *call) stopped() bool {
-	return c.ended != nil || c.failure != nil || c.run != nil && c.run.Finished()
+	return c.ended != nil || c.failure != nil || c.finished
 }
 
 func (c *call) fail(err error) {
