@@ -88,5 +88,6 @@
  "after-run-holds-the-queue",
  "after-run-terminate",
  "malformed-arguments",
- "builtin-documents"
+ "builtin-documents",
+ "custom-head"
 ]

@@ -20,7 +20,14 @@ type Tx struct {
 	// trace injects the telemetry carrier of the commit's span, for records
 	// that inherit it; nil without propagation.
 	trace func() json.RawMessage
+	// task is the task whose runtime commit this is: entries it appends are
+	// attributed to it (upstream byTaskId).
+	task TaskID
 }
+
+// HeadSelf, as an appended entry's Head, starts the active context at the
+// entry itself (upstream head: "self").
+const HeadSelf = ^EntryID(0)
 
 func (tx *Tx) check() error {
 	if !tx.active {
@@ -173,6 +180,10 @@ func (tx *Tx) Append(cid ConversationID, e Entry) (EntryID, error) {
 	e.ID = id
 	e.Conversation = cid
 	e.Parent = c.Head
+	if e.Head == HeadSelf {
+		e.Head = id
+	}
+	e.ByTask = tx.task
 	e.Sequence = tx.state.Sequence + 1
 	e.CreatedAt = tx.clock()
 	tx.state.Entries[id] = &e

@@ -46,7 +46,7 @@ says how the port is compared with upstream's own code.
   them, and `LocalEnv` writes files in place as upstream's Node environment does.
 - **Cross-checks.** `make crosscheck` runs upstream's TypeScript sources on the same
   inputs as the Go code:
-  - 100 conversation scenarios replayed through upstream's Harness, 10 of them
+  - 101 conversation scenarios replayed through upstream's Harness, 10 of them
     with code mode;
   - checks of argument coercion and validation, JSON parsing, partial arguments, the
     read and edit tools, compaction, and OpenAI requests and responses.
@@ -67,6 +67,9 @@ No release carried the earlier behavior. These matter only to code that followed
   entries. New conversations start with no entries.
 - `feat(codemode)!`: `ToolRuntime.ExecuteTool` passes arguments that are not an
   object to the nested call's validation instead of failing with `ErrInvalid`.
+- `feat(entries)!`: entries have heads (`Entry.Head`, `HeadSelf`) and task
+  attribution (`Entry.ByTask`), as upstream's. A new `pi.compaction` entry's data is
+  `{reason}` with the first kept entry as its head, instead of `{summary, cut, text}`.
 - `fix(tools)!`: a `pi.tool-result` entry's data is `{"diagnostics": [...]}`, as
   upstream's, and the result's details are on its message (`Message.Details`); it
   held the whole result before.

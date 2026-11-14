@@ -259,6 +259,10 @@ func runCompaction(ctx context.Context, r *TaskRuntime, task TaskRecord) error {
 			if err != nil {
 				return TaskTransition{}, err
 			}
+			// A version-2 task knows its cut: it keeps the entries after it,
+			// from the first visible one (or only the summary). It is stale
+			// when the cut is no longer visible or a newer head starts after
+			// what it keeps.
 			cutIndex := -1
 			for i, e := range entries {
 				if e.ID == input.Cut {
@@ -266,28 +270,15 @@ func runCompaction(ctx context.Context, r *TaskRuntime, task TaskRecord) error {
 					break
 				}
 			}
-			stale := cutIndex < 0
-			for i, e := range entries {
-				if i <= cutIndex {
-					continue
-				}
-				if e.Kind == "pi.reset" {
-					stale = true
-				}
-				if e.Kind == "pi.compaction" {
-					var other struct {
-						Cut EntryID `json:"cut"`
-					}
-					if err := json.Unmarshal(e.Data, &other); err != nil {
-						return TaskTransition{}, err
-					}
-					for j, candidate := range entries {
-						if candidate.ID == other.Cut && j >= cutIndex {
-							stale = true
-						}
-					}
-				}
+			firstKept := HeadSelf
+			if cutIndex >= 0 && cutIndex+1 < len(entries) {
+				firstKept = entries[cutIndex+1].ID
 			}
+			start, err := rangeStart(tx.state, task.Conversation)
+			if err != nil {
+				return TaskTransition{}, err
+			}
+			stale := cutIndex < 0 || start > input.Cut
 			live, err := readLive(tx, task.Conversation)
 			if err != nil {
 				return TaskTransition{}, err
@@ -304,16 +295,13 @@ func runCompaction(ctx context.Context, r *TaskRuntime, task TaskRecord) error {
 			if err := writeLive(tx, task.Conversation, live); err != nil {
 				return TaskTransition{}, err
 			}
-			data, err := json.Marshal(struct {
-				Summary string  `json:"summary"`
-				Cut     EntryID `json:"cut"`
-			}{checkpoint.Summary, input.Cut})
+			entry, err := summaryEntry(firstKept, checkpoint.Summary, input.Reason)
 			if err != nil {
 				return TaskTransition{}, err
 			}
 			// A conversation-owned compaction places its summary through a
 			// write submission: at once when idle, else at the next boundary.
-			id, err := r.h.admitSubmission(tx, task.Conversation, SubmissionRequest{Type: "write", Entry: &Entry{Kind: "pi.compaction", Data: data}, RequestID: fmt.Sprintf("compaction:%d", task.ID)})
+			id, err := r.h.admitSubmission(tx, task.Conversation, SubmissionRequest{Type: "write", Entry: entry, RequestID: fmt.Sprintf("compaction:%d", task.ID)})
 			if err != nil {
 				return TaskTransition{}, err
 			}
@@ -515,6 +503,19 @@ func summarizeCompaction(ctx context.Context, r *TaskRuntime, task TaskRecord, i
 	})
 }
 
+// summaryEntry is upstream's pi.compaction entry: the summary as its user
+// message, the first kept entry as its head, and why it ran as its data.
+func summaryEntry(firstKept EntryID, summary, reason string) (*Entry, error) {
+	data, err := json.Marshal(struct {
+		Reason string `json:"reason,omitempty"`
+	}{reason})
+	if err != nil {
+		return nil, err
+	}
+	return &Entry{Kind: "pi.compaction", Head: firstKept, Data: data,
+		Message: &Message{Role: "user", Content: summaryPrefix + summary + summarySuffix}}, nil
+}
+
 // placeSummary places the summary entry and completes (§8.7). A blocking
 // compaction, owned by its generation, appends it: the generation holds the
 // run and waits. A conversation-owned one admits it as a write submission,
@@ -528,33 +529,13 @@ func placeSummary(tx *Tx, h *Harness, task TaskRecord, input compactionInput, fi
 	}); err != nil {
 		return TaskTransition{}, err
 	}
-	// Go's summary entries keep the entries after their cut: the entry just
-	// before the first kept one.
-	entries, err := entriesFromState(tx.state, cid)
-	if err != nil {
-		return TaskTransition{}, err
-	}
-	var cut EntryID
-	for i, e := range entries {
-		if e.ID == firstKept && i > 0 {
-			cut = entries[i-1].ID
-		}
-	}
-	if cut == 0 {
+	if firstKept == 0 {
 		return TaskTransition{Status: "terminal", Outcome: &Outcome{Status: OutcomeCompleted, Result: json.RawMessage(`{}`)}}, nil
 	}
-	data, err := json.Marshal(struct {
-		Summary string  `json:"summary"`
-		Cut     EntryID `json:"cut"`
-		Text    string  `json:"text"`
-		Reason  string  `json:"reason,omitempty"`
-	}{summary, cut, summaryPrefix + summary + summarySuffix, input.Reason})
+	entry, err := summaryEntry(firstKept, summary, input.Reason)
 	if err != nil {
 		return TaskTransition{}, err
 	}
-	// The summary is the entry's model message, as upstream's is; the data
-	// keeps what derivation needs.
-	entry := &Entry{Kind: "pi.compaction", Data: data, Message: &Message{Role: "user", Content: summaryPrefix + summary + summarySuffix}}
 	var result json.RawMessage
 	if task.Owner.Task != 0 {
 		id, err := tx.Append(cid, *entry)

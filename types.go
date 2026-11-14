@@ -154,9 +154,17 @@ type Entry struct {
 	Data         json.RawMessage `json:"data,omitempty"`
 	// Edits omit or replace earlier entries' messages in model context
 	// (upstream ContextEdit); the newest edit of a target wins.
-	Edits     []ContextEdit `json:"edits,omitempty"`
-	Sequence  uint64        `json:"sequence"`
-	CreatedAt time.Time     `json:"createdAt"`
+	Edits []ContextEdit `json:"edits,omitempty"`
+	// Head makes the entry a head marker (upstream EntryRecord.head): the
+	// first entry of the active context it selects, which then runs from Head
+	// through the tail with the newest head marker leading it. HeadSelf, when
+	// the entry is appended, starts the context at the entry itself. Unrelated
+	// to ConversationRecord.Head, the newest entry.
+	Head EntryID `json:"head,omitempty"`
+	// ByTask is the task whose commit appended the entry (upstream byTaskId).
+	ByTask    TaskID    `json:"byTaskId,omitempty"`
+	Sequence  uint64    `json:"sequence"`
+	CreatedAt time.Time `json:"createdAt"`
 }
 
 // ContextEdit changes what an earlier entry contributes to model context:

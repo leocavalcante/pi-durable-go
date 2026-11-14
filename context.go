@@ -46,8 +46,15 @@ func deriveContextView(state *State, cid ConversationID, at EntryID) (contextVie
 	return deriveContext(entries)
 }
 
-// isHeadMarker reports whether an entry starts a new context range.
-func isHeadMarker(e Entry) bool { return e.Kind == "pi.reset" || e.Kind == "pi.compaction" }
+// isHeadMarker reports whether an entry starts a new context range: it has
+// a Head, or is a reset or summary stored before entries had heads.
+func isHeadMarker(e Entry) bool {
+	return e.Head != 0 || e.Kind == "pi.reset" || e.Kind == "pi.compaction"
+}
+
+// legacySummary reports whether an entry is a summary stored before entries
+// had heads: it keeps the entries after its data's cut.
+func legacySummary(e Entry) bool { return e.Head == 0 && e.Kind == "pi.compaction" }
 
 // isSystemEntry reports whether an entry is a positional prompt and tool
 // change (pi.system with a system message). Earlier versions journaled
@@ -85,15 +92,19 @@ func deriveContext(history []Entry) (contextView, error) {
 			break
 		}
 	}
-	// The range runs from the head marker's start through the tail: a reset
-	// starts at itself, a summary at the first entry it keeps.
+	// The range runs from the head marker's Head through the tail. Markers
+	// stored before entries had heads: a reset starts at itself, a summary
+	// after its cut.
 	inRange := func(Entry) bool { return true }
 	if head != nil {
-		switch head.Kind {
-		case "pi.reset":
+		switch {
+		case head.Head != 0:
+			start := head.Head
+			inRange = func(e Entry) bool { return e.ID >= start }
+		case head.Kind == "pi.reset":
 			start := head.ID
 			inRange = func(e Entry) bool { return e.ID >= start }
-		case "pi.compaction":
+		case head.Kind == "pi.compaction":
 			_, cut, err := compactionSummary(*head)
 			if err != nil {
 				return contextView{}, err
@@ -169,13 +180,13 @@ func contribute(e Entry, edit ContextEdit, edited bool) ([]Message, error) {
 		for _, m := range edit.Messages {
 			messages = append(messages, m.detached())
 		}
-	case e.Kind == "pi.compaction":
+	case legacySummary(e):
 		summary, _, err := compactionSummary(e)
 		if err != nil {
 			return nil, err
 		}
 		messages = []Message{summary}
-	case e.Kind == "pi.reset":
+	case e.Kind == "pi.reset" && e.Head == 0:
 		// A plain reset contributes nothing; a handoff carries its text.
 		if e.Message != nil && e.Message.Content != "" {
 			messages = []Message{*e.Message}

@@ -811,7 +811,7 @@ func finishToolRound(ctx context.Context, r *TaskRuntime, task TaskRecord, cp ge
 		if handoff != "" {
 			// The handoff's reset precedes every queued item, so queued writes
 			// and selected steers land in its context.
-			reset, err := tx.Append(cid, Entry{Kind: "pi.reset", Message: &Message{Role: "user", Content: handoff}})
+			reset, err := tx.Append(cid, Entry{Kind: "pi.reset", Head: HeadSelf, Message: &Message{Role: "user", Content: handoff}})
 			if err != nil {
 				return TaskTransition{}, err
 			}

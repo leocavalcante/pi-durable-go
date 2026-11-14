@@ -148,6 +148,7 @@ func (r *TaskRuntime) CommitWith(ctx context.Context, options CommitOptions, cha
 	phaseChange := ""
 	err := r.h.CommitWith(ctx, options, func(tx *Tx) error {
 		interrupted = nil
+		tx.task = r.ID
 		if err := r.check(); err != nil {
 			return err
 		}

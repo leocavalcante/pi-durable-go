@@ -1,0 +1,88 @@
+{
+ "name": "custom head entries",
+ "model": [
+  {
+   "text": "one"
+  },
+  {
+   "text": "two"
+  },
+  {
+   "text": "three"
+  }
+ ],
+ "steps": [
+  {
+   "submit": {
+    "type": "input",
+    "content": "first"
+   }
+  },
+  {
+   "wait": "idle"
+  },
+  {
+   "submit": {
+    "type": "write",
+    "entry": {
+     "kind": "app.topic",
+     "head": "self",
+     "model": [
+      {
+       "role": "user",
+       "content": "New topic: databases",
+       "timestamp": 0
+      }
+     ],
+     "data": {
+      "topic": "databases"
+     }
+    }
+   }
+  },
+  {
+   "wait": "idle"
+  },
+  {
+   "submit": {
+    "type": "input",
+    "content": "second"
+   }
+  },
+  {
+   "wait": "idle"
+  },
+  {
+   "submit": {
+    "type": "write",
+    "entry": {
+     "kind": "app.note",
+     "data": {
+      "note": "display only"
+     }
+    }
+   }
+  },
+  {
+   "submit": {
+    "type": "write",
+    "entry": {
+     "kind": "app.marker",
+     "head": "self",
+     "data": {
+      "empty": true
+     }
+    }
+   }
+  },
+  {
+   "submit": {
+    "type": "input",
+    "content": "third"
+   }
+  },
+  {
+   "wait": "idle"
+  }
+ ]
+}

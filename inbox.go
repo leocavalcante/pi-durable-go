@@ -17,29 +17,56 @@ func inputEntry(request SubmissionRequest) Entry {
 	return Entry{Kind: kind, Message: &Message{Role: "user", Content: request.Content, Images: request.Images, ImageOffsets: request.ImageOffsets}, Data: data}
 }
 
-// isDisplayOnlyWrite: a write that changes nothing the model sees (no
-// message, not a reset or compaction summary) needs no boundary.
+// isDisplayOnlyWrite: a write that changes nothing the model sees, with no
+// message, head, or edits, needs no boundary (upstream isDisplayOnly). Resets
+// and summaries queued before entries had heads are heads.
 func isDisplayOnlyWrite(request SubmissionRequest) bool {
-	return request.Type == "write" && request.Entry != nil && request.Entry.Kind != "pi.reset" && request.Entry.Kind != "pi.compaction" && request.Entry.Message == nil
+	e := request.Entry
+	return request.Type == "write" && e != nil && e.Message == nil && e.Head == 0 && len(e.Edits) == 0 &&
+		e.Kind != "pi.reset" && e.Kind != "pi.compaction"
 }
 
+// isResetWrite: a write whose entry starts the context at itself (upstream
+// head: "self"), or a reset queued before entries had heads.
+func isResetWrite(request SubmissionRequest) bool {
+	e := request.Entry
+	return request.Type == "write" && e != nil && (e.Head == HeadSelf || e.Head == 0 && e.Kind == "pi.reset")
+}
+
+// queuedResetExists: entries appended before a queued reset leave the
+// active range when it lands (upstream hasQueuedReset).
 func queuedResetExists(tx *Tx, cid ConversationID) bool {
 	for _, submission := range tx.state.Submissions {
-		if submission.Conversation == cid && submission.Status == "queued" && submission.Request.Type == "write" && submission.Request.Entry != nil && submission.Request.Entry.Kind == "pi.reset" {
+		if submission.Conversation == cid && submission.Status == "queued" && isResetWrite(submission.Request) {
 			return true
 		}
 	}
 	return false
 }
 
-// A queued compaction must be validated at placement, not only when its task
-// queues it: a reset or newer summary may have arrived in between.
+// placeWrite appends a write's entry, or settles it stale when its head lies
+// before the active range: placing it would bring back cut history (upstream
+// isStale). Writes are placed in order, so each sees the heads placed before
+// it.
 func placeWrite(tx *Tx, cid ConversationID, submission *SubmissionRecord) error {
 	entry := submission.Request.Entry
 	if entry == nil {
 		return ErrInvalid
 	}
-	if entry.Kind == "pi.compaction" {
+	if entry.Head != 0 && entry.Head != HeadSelf {
+		start, err := rangeStart(tx.state, cid)
+		if err != nil {
+			return err
+		}
+		if start != 0 && entry.Head < start {
+			submission.Status = "unanswered"
+			submission.Reason = "stale"
+			return nil
+		}
+	}
+	// A summary queued before entries had heads: stale after a later reset
+	// or a summary of as much.
+	if legacySummary(*entry) {
 		var summary struct {
 			Cut EntryID `json:"cut"`
 		}

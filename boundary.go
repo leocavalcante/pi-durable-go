@@ -31,9 +31,7 @@ func queueMode(request SubmissionRequest) string {
 	return "followUp"
 }
 
-func isReset(request SubmissionRequest) bool {
-	return request.Type == "write" && request.Entry != nil && request.Entry.Kind == "pi.reset"
-}
+func isReset(request SubmissionRequest) bool { return isResetWrite(request) }
 
 // boundaryResult: the user items a boundary selected, in ID order, the first
 // entry it placed (a run it starts begins there), and whether it placed a

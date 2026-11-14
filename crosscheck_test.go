@@ -617,6 +617,12 @@ type scenarioSpec struct {
 			Entry    *struct {
 				Kind string          `json:"kind"`
 				Data json.RawMessage `json:"data,omitempty"`
+				// Head is "self" (entry IDs differ between runtimes).
+				Head  string `json:"head,omitempty"`
+				Model []struct {
+					Role    string `json:"role"`
+					Content string `json:"content"`
+				} `json:"model,omitempty"`
 			} `json:"entry,omitempty"`
 		} `json:"submit,omitempty"`
 		Compact   json.RawMessage `json:"compact,omitempty"`
@@ -1211,6 +1217,12 @@ func runScenario(t *testing.T, sc scenarioSpec) json.RawMessage {
 			}
 			if e := step.Submit.Entry; e != nil {
 				request.Entry = &Entry{Kind: e.Kind, Data: e.Data}
+				if e.Head == "self" {
+					request.Entry.Head = HeadSelf
+				}
+				if len(e.Model) == 1 {
+					request.Entry.Message = &Message{Role: e.Model[0].Role, Content: e.Model[0].Content}
+				}
 			}
 			submission, err := current.Submit(ctx, request)
 			switch {

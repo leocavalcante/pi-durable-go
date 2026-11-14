@@ -521,7 +521,7 @@ func (c *Conversation) Reset(ctx context.Context, note string) (*Submission, err
 	if note != "" {
 		msg = &Message{Role: "user", Content: note}
 	}
-	return c.Submit(ctx, SubmissionRequest{Type: "write", Entry: &Entry{Kind: "pi.reset", Message: msg}})
+	return c.Submit(ctx, SubmissionRequest{Type: "write", Entry: &Entry{Kind: "pi.reset", Head: HeadSelf, Message: msg}})
 }
 func (c *Conversation) Abort(ctx context.Context, includeBackground bool) error {
 	state, err := c.h.read(ctx)

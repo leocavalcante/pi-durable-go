@@ -140,14 +140,17 @@ func rangeEntries(s *State, cid ConversationID) ([]Entry, error) {
 	return entries, nil
 }
 
-// markerBound is the oldest entry a head marker's range keeps: a reset
-// itself, a compaction's cut (which context derivation looks up). Zero keeps
-// the whole lineage, for a marker it cannot read.
+// markerBound is the oldest entry a head marker's range keeps: its Head; for
+// markers stored before entries had heads, a reset itself, a compaction's
+// cut (which context derivation looks up). Zero keeps the whole lineage, for
+// a marker it cannot read.
 func markerBound(e Entry) EntryID {
-	switch e.Kind {
-	case "pi.reset":
+	switch {
+	case e.Head != 0:
+		return e.Head
+	case e.Kind == "pi.reset":
 		return e.ID
-	case "pi.compaction":
+	case e.Kind == "pi.compaction":
 		if _, cut, err := compactionSummary(e); err == nil {
 			return cut
 		}
