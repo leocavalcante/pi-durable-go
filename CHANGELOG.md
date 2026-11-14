@@ -18,7 +18,8 @@ says how the port is compared with upstream's own code.
   owning Session. Group commits, deferred progress commits, and bounded memory over
   record storage are supported. Any storage error fails the Session. Every
   conversation and fork starts with upstream's built-in documents: `pi.live`,
-  `pi.inbox`, `pi.usage`, `pi.provider`, and `pi.agent`.
+  `pi.inbox`, `pi.usage`, `pi.provider`, and `pi.agent`. Any entry can start a new
+  context with a head, as upstream's do, and entries name the task that appended them.
 - **Agent harness.** Ported from upstream:
   - generation runs with retries, steering, follow-ups, turn limits, and failed-run
     policies;
@@ -50,7 +51,9 @@ says how the port is compared with upstream's own code.
   - 101 conversation scenarios replayed through upstream's Harness, 10 of them
     with code mode;
   - checks of argument coercion and validation, JSON parsing, partial arguments, the
-    read and edit tools, compaction, and OpenAI requests and responses.
+    read and edit tools, compaction, and OpenAI requests and responses;
+  - code mode's declarations, source parsing, prompt section, result formatting, and
+    `models.*` checks, and scripts run in the Go VM and in pi-codemode's own.
 
 ### Breaking changes since the first commits on `main`
 
