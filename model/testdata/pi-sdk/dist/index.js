@@ -30,6 +30,38 @@ export class ModelRuntime {
     if (process.env.PI_DURABLE_TEST_CANCELLED) await writeFile(process.env.PI_DURABLE_TEST_CANCELLED, handle.id);
   }
   getError() { return undefined; }
+  // A catalog of a classifier (with credentials in its headers) and an
+  // image model, for code mode's models.*.
+  catalog() {
+    return [
+      { id: "judge", provider: "test", api: "test-classifier", type: "classifier", headers: { authorization: "secret" } },
+      { id: "painter", provider: "test", api: "test-images", type: "image" },
+    ];
+  }
+  getModelsOfType(type, provider) {
+    return this.catalog().filter((model) => model.type === type && (provider === undefined || model.provider === provider));
+  }
+  async getAvailableOfType(type, provider, options) {
+    if (!options?.signal) throw new Error("no signal");
+    return this.getModelsOfType(type, provider);
+  }
+  getModelOfType(type, provider, id) {
+    return this.catalog().find((model) => model.type === type && model.provider === provider && model.id === id);
+  }
+  async classify(model, context, options) {
+    if (!options?.signal) throw new Error("no signal");
+    if (context.state?.fail) {
+      return { api: model.api, provider: model.provider, model: model.id, answers: {}, stopReason: "error",
+        errorMessage: "super-secret-provider-error", timestamp: 0 };
+    }
+    return { api: model.api, provider: model.provider, model: model.id, answers: { good: { value: true } }, usage,
+      stopReason: "stop", timestamp: 0, sawHeaders: model.headers !== undefined, context };
+  }
+  async generateImages(model, context, options) {
+    if (!options?.signal) throw new Error("no signal");
+    return { api: model.api, provider: model.provider, model: model.id,
+      output: [{ type: "image", data: "aGk=", mimeType: "image/png" }], stopReason: "stop", timestamp: 0 };
+  }
   getModel(provider, id) {
     return id === "unknown" ? undefined : { provider, id, api: "fake-api", contextWindow: id === "small-window" ? 4096 : 128000,
       input: id === "text-only" ? ["text"] : ["text", "image"],

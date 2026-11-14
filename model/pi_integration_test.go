@@ -338,3 +338,31 @@ func TestPiInstalledSDKPositionalSystemMessages(t *testing.T) {
 		t.Fatalf("tools=%v", body.Tools)
 	}
 }
+
+// The installed SDK's catalog answers code mode's models.* offline.
+func TestPiInstalledModelsCatalog(t *testing.T) {
+	// No request leaves the host: the wrapper denies non-loopback fetches.
+	p := installedPi(t, "http://127.0.0.1:1")
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	chat, err := p.ModelsOfType(ctx, "chat", "")
+	if err != nil || len(chat) == 0 {
+		t.Fatalf("%d chat models, %v", len(chat), err)
+	}
+	var first struct{ Provider, ID string }
+	if err := json.Unmarshal(chat[0], &first); err != nil || first.Provider == "" || first.ID == "" {
+		t.Fatalf("first model %s, %v", chat[0], err)
+	}
+	for _, model := range chat {
+		if strings.Contains(string(model), `"headers"`) {
+			t.Fatalf("a catalog entry kept its headers: %s", model)
+		}
+	}
+	found, err := p.ModelOfType(ctx, "chat", first.Provider, first.ID)
+	if err != nil || found == nil {
+		t.Fatalf("%s/%s: %s, %v", first.Provider, first.ID, found, err)
+	}
+	if _, err := p.ModelsOfType(ctx, "classifier", ""); err != nil {
+		t.Fatal(err)
+	}
+}

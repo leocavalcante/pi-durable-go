@@ -147,6 +147,123 @@ func (p Pi) describe(ctx context.Context, ref durable.ModelRef) (catalogEntry, e
 	return catalogEntry{window: event.ContextWindow, images: event.Images == nil || *event.Images, limits: event.ImageLimits}, nil
 }
 
+// piModelsOp is a models.* request of code mode to Pi's SDK.
+type piModelsOp struct {
+	Op       string          `json:"op"`
+	Type     string          `json:"type"`
+	Provider string          `json:"provider,omitempty"`
+	ID       string          `json:"id,omitempty"`
+	Context  json.RawMessage `json:"context,omitempty"`
+}
+
+// maxModelsResponseBytes bounds a models.* answer, generated images included.
+const maxModelsResponseBytes = 64 << 20
+
+// models asks Pi's SDK for a catalog listing or a classifier or image model
+// call (codemode.Models).
+func (p Pi) models(ctx context.Context, op piModelsOp) (json.RawMessage, error) {
+	body, err := json.Marshal(struct {
+		Models     piModelsOp `json:"models"`
+		PackageDir string     `json:"packageDir,omitempty"`
+		AgentDir   string     `json:"agentDir,omitempty"`
+	}{op, p.packageDir(), p.AgentDir})
+	if err != nil {
+		return nil, err
+	}
+	cmd := exec.CommandContext(ctx, p.nodePath(), "--input-type=module", "--eval", piBridge)
+	cmd.Stdin = bytes.NewReader(append(body, '\n'))
+	cmd.Stderr = io.Discard
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return nil, err
+	}
+	if err := cmd.Start(); err != nil {
+		return nil, sanitizedError("pi: cannot start Node; configure NodePath or install Node.js 22.19+", false)
+	}
+	out, readErr := io.ReadAll(io.LimitReader(stdout, maxModelsResponseBytes+1))
+	waitErr := cmd.Wait()
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if readErr != nil || waitErr != nil {
+		return nil, sanitizedError("pi: SDK call failed", false)
+	}
+	if len(out) > maxModelsResponseBytes {
+		return nil, errResponseTooLarge
+	}
+	var event struct {
+		Type  string          `json:"type"`
+		Code  string          `json:"code"`
+		Value json.RawMessage `json:"value"`
+	}
+	if err := json.Unmarshal(bytes.TrimSpace(out), &event); err != nil {
+		return nil, sanitizedError("pi: invalid SDK event", false)
+	}
+	if event.Type != "models" {
+		return nil, piBridgeError(event.Code, false, false)
+	}
+	return event.Value, nil
+}
+
+func modelList(value json.RawMessage) ([]json.RawMessage, error) {
+	var list []json.RawMessage
+	if err := json.Unmarshal(value, &list); err != nil {
+		return nil, sanitizedError("pi: invalid SDK event", false)
+	}
+	return list, nil
+}
+
+// ModelsOfType lists Pi's catalog models of a type (chat, image, or
+// classifier), of one provider unless provider is empty, without their
+// headers. With AvailableOfType, ModelOfType, Classify, and GenerateImages,
+// Pi is a codemode.Models.
+func (p Pi) ModelsOfType(ctx context.Context, modelType, provider string) ([]json.RawMessage, error) {
+	value, err := p.models(ctx, piModelsOp{Op: "ofType", Type: modelType, Provider: provider})
+	if err != nil {
+		return nil, err
+	}
+	return modelList(value)
+}
+
+// AvailableOfType lists the models of a type with configured
+// authentication.
+func (p Pi) AvailableOfType(ctx context.Context, modelType, provider string) ([]json.RawMessage, error) {
+	value, err := p.models(ctx, piModelsOp{Op: "available", Type: modelType, Provider: provider})
+	if err != nil {
+		return nil, err
+	}
+	return modelList(value)
+}
+
+// ModelOfType is one catalog model, nil when there is none.
+func (p Pi) ModelOfType(ctx context.Context, modelType, provider, id string) (json.RawMessage, error) {
+	value, err := p.models(ctx, piModelsOp{Op: "model", Type: modelType, Provider: provider, ID: id})
+	if err != nil || string(value) == "null" {
+		return nil, err
+	}
+	return value, nil
+}
+
+// modelCall runs a classifier or image model by the model's provider and ID
+// only. A failed call's error text is replaced, as provider errors are.
+func (p Pi) modelCall(ctx context.Context, op, modelType string, model, context json.RawMessage) (json.RawMessage, error) {
+	var ref struct{ Provider, ID string }
+	if err := json.Unmarshal(model, &ref); err != nil || ref.Provider == "" || ref.ID == "" {
+		return nil, sanitizedError("pi: unsupported or invalid model request", false)
+	}
+	return p.models(ctx, piModelsOp{Op: op, Type: modelType, Provider: ref.Provider, ID: ref.ID, Context: context})
+}
+
+// Classify runs a classifier model and returns pi-ai's ClassifierResult.
+func (p Pi) Classify(ctx context.Context, model, context json.RawMessage) (json.RawMessage, error) {
+	return p.modelCall(ctx, "classify", "classifier", model, context)
+}
+
+// GenerateImages runs an image model and returns pi-ai's AssistantImages.
+func (p Pi) GenerateImages(ctx context.Context, model, context json.RawMessage) (json.RawMessage, error) {
+	return p.modelCall(ctx, "generateImages", "image", model, context)
+}
+
 func (p Pi) Generate(ctx context.Context, req durable.ModelRequest, onDelta func(string) error) (durable.ModelResponse, error) {
 	return p.GenerateEvents(ctx, req, func(event durable.StreamEvent) error {
 		if event.Type != "text_delta" || onDelta == nil {

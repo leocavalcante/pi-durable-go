@@ -60,20 +60,26 @@ type Models interface {
 	// ModelOfType is one model, nil when the catalog has none.
 	ModelOfType(ctx context.Context, modelType, provider, id string) (json.RawMessage, error)
 	// Classify and GenerateImages call a model with a context the script
-	// gave, checked for its shape.
-	Classify(ctx context.Context, model, context json.RawMessage) (ModelResult, error)
-	GenerateImages(ctx context.Context, model, context json.RawMessage) (ModelResult, error)
+	// gave, checked for its shape, and return pi-ai's result object, which
+	// the script gets: { answers } or { output }, with stopReason ("stop" is
+	// a success), errorMessage, and usage, which the Harness counts.
+	Classify(ctx context.Context, model, context json.RawMessage) (json.RawMessage, error)
+	GenerateImages(ctx context.Context, model, context json.RawMessage) (json.RawMessage, error)
 }
 
-// ModelResult is a classifier's or image model's result. Value is what the
-// script gets: pi-ai's result object ({ answers } or { output }, with
-// stopReason, errorMessage, and usage). StopReason "stop" is a success; the
-// Harness counts Usage.
-type ModelResult struct {
-	Value        json.RawMessage
-	StopReason   string
-	ErrorMessage string
-	Usage        durable.Usage
+// modelOutcome is what a model call's result says of itself.
+type modelOutcome struct {
+	StopReason   string `json:"stopReason"`
+	ErrorMessage string `json:"errorMessage"`
+	Usage        *struct {
+		Input      int64 `json:"input"`
+		Output     int64 `json:"output"`
+		CacheRead  int64 `json:"cacheRead"`
+		CacheWrite int64 `json:"cacheWrite"`
+		Cost       struct {
+			Total float64 `json:"total"`
+		} `json:"cost"`
+	} `json:"usage"`
 }
 
 var modelTypes = []string{"chat", "image", "classifier"}
@@ -417,17 +423,23 @@ var modelCallParameters = json.RawMessage(`{"type":"object","properties":{"model
 
 // modelResult is a model call's result as the tool returns it: the whole
 // result for the script, usage counted by the Harness.
-func modelResult(label string, result ModelResult) durable.ToolResult {
-	ok := result.StopReason == "stop"
-	text := label + " done"
-	if !ok {
-		text = label + " " + result.StopReason + ": " + result.ErrorMessage
-	}
-	value := result.Value
+func modelResult(label string, value json.RawMessage) durable.ToolResult {
 	if len(value) == 0 {
 		value = json.RawMessage("{}")
 	}
-	return durable.ToolResult{Content: text, StructuredOutput: json.RawMessage(js.StringifyRaw(value)), IsError: !ok, Usage: result.Usage}
+	var outcome modelOutcome
+	_ = json.Unmarshal(value, &outcome)
+	ok := outcome.StopReason == "stop"
+	text := label + " done"
+	if !ok {
+		text = label + " " + outcome.StopReason + ": " + outcome.ErrorMessage
+	}
+	result := durable.ToolResult{Content: text, StructuredOutput: json.RawMessage(js.StringifyRaw(value)), IsError: !ok}
+	if usage := outcome.Usage; usage != nil {
+		result.Usage = durable.Usage{InputTokens: usage.Input, OutputTokens: usage.Output, CacheReadTokens: usage.CacheRead,
+			CacheWriteTokens: usage.CacheWrite, Cost: usage.Cost.Total}
+	}
+	return result
 }
 
 // modelTools are the internal tools behind models.classify() and
@@ -435,7 +447,7 @@ func modelResult(label string, result ModelResult) durable.ToolResult {
 // row, abort, usage accounting, and replay policy.
 func modelTools(models Models) []durable.ToolDefinition {
 	call := func(name, global, modelType string, check func(json.RawMessage) error,
-		run func(context.Context, json.RawMessage, json.RawMessage) (ModelResult, error)) durable.ToolDefinition {
+		run func(context.Context, json.RawMessage, json.RawMessage) (json.RawMessage, error)) durable.ToolDefinition {
 		return durable.ToolDefinition{
 			ToolSpec:               durable.ToolSpec{Name: name, Description: global + "() of code mode scripts.", Parameters: modelCallParameters},
 			StructuredOutputSchema: json.RawMessage(`{}`),

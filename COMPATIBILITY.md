@@ -134,7 +134,7 @@ Experimental. APIs and storage migrations can change. Do not infer Go API stabil
 What differs:
 
 - **The VM.** `codemode.Sandbox` stands for upstream's `CodemodeSandboxBase.start()`. `codemode.NodeSandbox` runs pi-codemode's own `CodemodeSandbox` (QuickJS in a worker thread) from the installed Pi, in a Node process per run, so the script environment, determinism, and fingerprint are upstream's. It needs Node.js 22.19+ and Pi 1.5.2. There is no pure-Go VM; a host can implement `Sandbox` itself.
-- **`models.*`.** Go has no pi-ai model catalog, so `Options.Models` (a `codemode.Models`) is nil by default, which leaves `models.*` out of scripts and the tool's description, as upstream's `models: false`. Upstream's default is `true`.
+- **`models.*`.** `Options.Models` (a `codemode.Models`) is nil by default, which leaves `models.*` out of scripts and the tool's description, as upstream's `models: false`; upstream's default is `true`. `model.Pi` is a `codemode.Models` over Pi's catalog, classifiers, and image models. A failed call's `errorMessage` is replaced by the sanitized provider error, as `model.Pi` never passes provider error text.
 - **Output files** are written through the conversation's `ExecutionEnv`. Temp directories need `durable.TempDirEnv`, which `tools.LocalEnv` implements. Error texts are Go's.
 - **Text cut at the token budget** splits UTF-16 code units as upstream does, but a surrogate pair cut in half becomes U+FFFD.
 - **Results** are a `ToolResult`: text blocks joined by `"\n"`, as pi-ai joins a tool result's text, with images at their offsets.

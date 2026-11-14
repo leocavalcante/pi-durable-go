@@ -127,7 +127,8 @@ A generation retries a failed model attempt only when the error is transient and
   ```go
   sandbox := &codemode.NodeSandbox{} // finds Node and Pi as model.Pi does
   defer sandbox.Close()
-  if err := registry.Install(codemode.Extension(codemode.Options{Sandbox: sandbox})); err != nil {
+  // Models gives scripts models.*: Pi's catalog, classifiers, and image models.
+  if err := registry.Install(codemode.Extension(codemode.Options{Sandbox: sandbox, Models: model.Pi{}})); err != nil {
       return err
   }
   ```

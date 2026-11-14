@@ -71,7 +71,7 @@ func (m *testModels) ModelOfType(_ context.Context, modelType, provider, id stri
 	return nil, nil
 }
 
-func (m *testModels) Classify(ctx context.Context, _ json.RawMessage, classifierContext json.RawMessage) (ModelResult, error) {
+func (m *testModels) Classify(ctx context.Context, _ json.RawMessage, classifierContext json.RawMessage) (json.RawMessage, error) {
 	var input struct {
 		State struct{ Fail bool } `json:"state"`
 	}
@@ -80,8 +80,7 @@ func (m *testModels) Classify(ctx context.Context, _ json.RawMessage, classifier
 	m.classify++
 	if input.State.Fail {
 		m.mu.Unlock()
-		return ModelResult{Value: json.RawMessage(`{"answers":{},"stopReason":"error","errorMessage":"quota exceeded"}`),
-			StopReason: "error", ErrorMessage: "quota exceeded"}, nil
+		return json.RawMessage(`{"answers":{},"stopReason":"error","errorMessage":"quota exceeded"}`), nil
 	}
 	m.inFlight++
 	m.maxInFlight = max(m.maxInFlight, m.inFlight)
@@ -97,20 +96,19 @@ func (m *testModels) Classify(ctx context.Context, _ json.RawMessage, classifier
 	select {
 	case <-open:
 	case <-ctx.Done():
-		return ModelResult{}, ctx.Err()
+		return nil, ctx.Err()
 	}
 	m.mu.Lock()
 	m.inFlight--
 	m.mu.Unlock()
-	return ModelResult{Value: json.RawMessage(`{"answers":{"good":{"value":true}},"usage":{"input":10,"output":2,"totalTokens":12,"cost":{"total":0.0012}},"stopReason":"stop"}`),
-		StopReason: "stop", Usage: durable.Usage{InputTokens: 10, OutputTokens: 2, Cost: 0.0012}}, nil
+	return json.RawMessage(`{"answers":{"good":{"value":true}},"usage":{"input":10,"output":2,"cacheRead":0,"cacheWrite":0,"totalTokens":12,"cost":{"input":0.001,"output":0.0002,"cacheRead":0,"cacheWrite":0,"total":0.0012}},"stopReason":"stop"}`), nil
 }
 
-func (m *testModels) GenerateImages(context.Context, json.RawMessage, json.RawMessage) (ModelResult, error) {
+func (m *testModels) GenerateImages(context.Context, json.RawMessage, json.RawMessage) (json.RawMessage, error) {
 	m.mu.Lock()
 	m.images++
 	m.mu.Unlock()
-	return ModelResult{Value: json.RawMessage(`{"output":[{"type":"image","data":"` + testPNG + `","mimeType":"image/png"}],"stopReason":"stop"}`), StopReason: "stop"}, nil
+	return json.RawMessage(`{"output":[{"type":"image","data":"` + testPNG + `","mimeType":"image/png"}],"stopReason":"stop"}`), nil
 }
 
 type modelsRun struct {

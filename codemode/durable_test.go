@@ -238,11 +238,11 @@ func (noModels) AvailableOfType(context.Context, string, string) ([]json.RawMess
 func (noModels) ModelOfType(context.Context, string, string, string) (json.RawMessage, error) {
 	return nil, nil
 }
-func (noModels) Classify(context.Context, json.RawMessage, json.RawMessage) (ModelResult, error) {
-	return ModelResult{}, nil
+func (noModels) Classify(context.Context, json.RawMessage, json.RawMessage) (json.RawMessage, error) {
+	return nil, nil
 }
-func (noModels) GenerateImages(context.Context, json.RawMessage, json.RawMessage) (ModelResult, error) {
-	return ModelResult{}, nil
+func (noModels) GenerateImages(context.Context, json.RawMessage, json.RawMessage) (json.RawMessage, error) {
+	return nil, nil
 }
 
 // discover answers from the start data, with upstream's argument checks:

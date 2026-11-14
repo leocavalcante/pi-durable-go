@@ -254,6 +254,49 @@ function classify(ai, message) {
   return flags;
 }
 
+// The model catalog and the classifier and image models, for code mode's
+// models.* (codemode.Models). Catalog entries cross without headers, which
+// can carry credentials; a failed call's error text is replaced, as provider
+// errors never cross the boundary.
+const MODEL_TYPES = new Set(["chat", "image", "classifier"]);
+const PROVIDER_FAILED = "pi: provider request failed; check credentials with Pi /login and provider configuration";
+
+function catalogEntry(model) {
+  if (!model) return null;
+  const info = { ...model };
+  delete info.headers;
+  return JSON.parse(JSON.stringify(info));
+}
+
+async function modelsOp(runtime, op) {
+  if (typeof op !== "object" || op === null || !MODEL_TYPES.has(op.type)) return { type: "error", code: "request" };
+  const provider = typeof op.provider === "string" && op.provider !== "" ? op.provider : undefined;
+  switch (op.op) {
+    case "ofType":
+      return { type: "models", value: runtime.getModelsOfType(op.type, provider).map(catalogEntry) };
+    case "available":
+      return { type: "models", value: (await runtime.getAvailableOfType(op.type, provider, { signal: controller.signal })).map(catalogEntry) };
+    case "model":
+      return { type: "models", value: catalogEntry(runtime.getModelOfType(op.type, op.provider, op.id)) };
+    case "classify":
+    case "generateImages": {
+      // Resolved by provider and ID only, so a script's baseUrl or headers
+      // never receive the credentials.
+      const model = runtime.getModelOfType(op.type, op.provider, op.id);
+      if (!model) return { type: "error", code: "model" };
+      const options = { signal: controller.signal };
+      const result = op.op === "classify"
+        ? await runtime.classify(model, op.context, options)
+        : await runtime.generateImages(model, op.context, options);
+      if (controller.signal.aborted) return { type: "error", code: "provider" };
+      const value = JSON.parse(JSON.stringify(result ?? {}));
+      if (value.errorMessage !== undefined) value.errorMessage = PROVIDER_FAILED;
+      return { type: "models", value };
+    }
+  }
+  return { type: "error", code: "request" };
+}
+
 async function main() {
   let config;
   try {
@@ -280,6 +323,7 @@ async function main() {
     runtime = await sdk.ModelRuntime.create({ ...paths, refreshOnCreate: false, allowModelNetwork: false,
       signal: controller.signal });
     if (runtime.getError()) return { type: "error", code: "config" };
+    if (config.models) return await modelsOp(runtime, config.models);
     const request = config.request;
     const model = runtime.getModel(request.model.provider, request.model.id);
     if (!model) return { type: "error", code: "model" };
