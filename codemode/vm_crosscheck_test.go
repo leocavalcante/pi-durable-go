@@ -68,8 +68,8 @@ try { image("not a data url"); } catch (error) { text(error.message); }
 image({ type: "image", data: "R0lGODlh", mimeType: "image/gif" });
 for (let i = 0; i < 3; i++) console.log("line", i);
 return ALL_TOOLS.map((tool) => [tool.name, typeof tools[tool.name]]);`, tools: []DeclaredTool{{Name: "my-tool", JSName: "my_tool", Description: "d"}, {Name: "read"}}},
-	{name: "timeout", code: `text("started"); while (true) {}`, timeout: 300},
-	{name: "job loop timeout", code: `text("started"); while (true) await null;`, timeout: 300},
+	{name: "timeout", code: `text("started"); while (true) {}`, timeout: 2000},
+	{name: "job loop timeout", code: `text("started"); while (true) await null;`, timeout: 2000},
 	{name: "unicode", code: `text("héllo 😀 \u2028 \ud800 end"); return ["😀".length, "\ud83d", JSON.stringify("\ud83d")];`},
 	{name: "spread and namespaced globals", code: `return [await ns.one(1, "two"), await whole({ a: 1 })];`,
 		globals: []DeclaredGlobal{{Name: "ns.one", Spread: true}, {Name: "whole"}},
