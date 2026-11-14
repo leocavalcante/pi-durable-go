@@ -26,6 +26,7 @@ For another upstream release, set `PI_DURABLE_UPSTREAM_TAG` with Pi of that vers
 | Tool argument coercion and validation | pi-schema `parse()` with `coerce: true`, pi-ai `validateToolArguments` | Ported; 147 cases equal, including error wording and ECMAScript patterns |
 | Edit tool | `edit-diff.ts`: fuzzy normalization, edits, diff, patch, errors | Equal (13 cases) |
 | Read tool | `read.ts` over a Node environment: 37 files and ranges, fractional and negative numbers included | Ported to equal: lines taken as `Array.prototype.slice` takes them and notes printed with JavaScript's numbers |
+| Tool paths | `read.ts` path resolution over a Node environment: mentions, Unicode spaces, screenshot names, curly apostrophes, decomposed accents, file URLs | Ported to equal |
 | Coding tool specs | `createReadTool` and the other coding tools' schemas, output schemas, limits | Ported to equal |
 | `tool_search` | `rankDocuments` | Equal (12 queries) |
 | Context ordering | `orderToolResults` | Equal (6 sequences) |

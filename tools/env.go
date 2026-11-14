@@ -54,10 +54,27 @@ func NewLocalEnv(cwd string) (*LocalEnv, error) {
 }
 
 func (e *LocalEnv) resolve(path string) string {
-	if filepath.IsAbs(path) {
-		return filepath.Clean(path)
+	return resolveLocalPath(e.cwd, path)
+}
+
+// AbsolutePath resolves path as upstream's Node environment does (PathResolver).
+func (e *LocalEnv) AbsolutePath(ctx context.Context, path string) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
 	}
-	return filepath.Join(e.cwd, filepath.Clean(path))
+	return e.resolve(path), nil
+}
+
+// Exists reports whether path exists (PathResolver).
+func (e *LocalEnv) Exists(ctx context.Context, path string) (bool, error) {
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	_, err := os.Lstat(e.resolve(path))
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	return err == nil, err
 }
 
 // ReadFile reads the named file; relative paths are based at CWD.

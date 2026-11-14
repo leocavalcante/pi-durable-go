@@ -223,3 +223,42 @@ func TestCrosscheckNumbers(t *testing.T) {
 		}
 	}
 }
+
+// The paths the read tool resolves: a mention, Unicode spaces, macOS
+// screenshot names, curly apostrophes, decomposed accents, and file URLs.
+func TestCrosscheckReadPaths(t *testing.T) {
+	dir := t.TempDir()
+	files := map[string]string{
+		"three.txt": "a\nb\nc", "a b.txt": "spaced", "Shot at 10.00.00\u202fAM.txt": "screenshot",
+		"it\u2019s.txt": "curly", "cafe\u0301.txt": "decomposed",
+	}
+	for name, content := range files {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	paths := []string{"@three.txt", "a\u00a0b.txt", "Shot at 10.00.00 AM.txt", "Shot at 10.00.00 am.txt", "it's.txt", "caf\u00e9.txt", "file://" + filepath.ToSlash(filepath.Join(dir, "three.txt"))}
+	var cases [][2]any
+	for _, path := range paths {
+		cases = append(cases, [2]any{path, map[string]any{}})
+	}
+	var want []struct {
+		Text  string `json:"text"`
+		Error string `json:"error"`
+	}
+	crosscheck.Run(t, "read", map[string]any{"dir": dir, "cases": cases}, &want)
+	for i, path := range paths {
+		args, _ := json.Marshal(map[string]string{"path": path})
+		result, _ := runCoding(t, dir, "read", string(args))
+		// A file neither finds fails on both sides, in each platform's words.
+		if want[i].Error != "" {
+			if !result.IsError {
+				t.Errorf("%q: %q, upstream failed: %s", path, result.Content, want[i].Error)
+			}
+			continue
+		}
+		if result.IsError || result.Content != want[i].Text {
+			t.Errorf("%q: %q (error %v), upstream %q", path, result.Content, result.IsError, want[i].Text)
+		}
+	}
+}

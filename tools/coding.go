@@ -155,24 +155,29 @@ func readTool(ctx context.Context, raw json.RawMessage, rt *durable.ToolRuntime,
 	if err != nil {
 		return durable.ToolResult{}, err
 	}
+	// The file read is the resolved path; messages name the path given.
+	target, err := resolveReadToolPath(ctx, e, a.Path)
+	if err != nil {
+		return durable.ToolResult{}, err
+	}
 	var reader io.Reader
 	var reopen func() (io.Reader, func(), error)
 	if opener, ok := e.(FileOpener); ok {
-		file, err := opener.OpenFile(ctx, a.Path)
+		file, err := opener.OpenFile(ctx, target)
 		if err != nil {
 			return durable.ToolResult{}, err
 		}
 		defer file.Close()
 		reader = file
 		reopen = func() (io.Reader, func(), error) {
-			again, err := opener.OpenFile(ctx, a.Path)
+			again, err := opener.OpenFile(ctx, target)
 			if err != nil {
 				return nil, nil, err
 			}
 			return again, func() { _ = again.Close() }, nil
 		}
 	} else {
-		data, err := e.ReadFile(ctx, a.Path)
+		data, err := e.ReadFile(ctx, target)
 		if err != nil {
 			return durable.ToolResult{}, err
 		}
@@ -209,9 +214,13 @@ func writeTool(ctx context.Context, raw json.RawMessage, rt *durable.ToolRuntime
 	if err != nil {
 		return durable.ToolResult{}, err
 	}
-	unlock := lockMutation(e, a.Path)
+	target, err := resolveToolPath(ctx, e, a.Path)
+	if err != nil {
+		return durable.ToolResult{}, err
+	}
+	unlock := lockMutation(e, target)
 	defer unlock()
-	if err := e.WriteFile(ctx, a.Path, []byte(a.Content)); err != nil {
+	if err := e.WriteFile(ctx, target, []byte(a.Content)); err != nil {
 		return durable.ToolResult{}, err
 	}
 	return result("Successfully wrote to " + a.Path)
@@ -232,9 +241,13 @@ func editTool(ctx context.Context, raw json.RawMessage, rt *durable.ToolRuntime)
 	if err != nil {
 		return durable.ToolResult{}, err
 	}
-	unlock := lockMutation(e, a.Path)
+	target, err := resolveToolPath(ctx, e, a.Path)
+	if err != nil {
+		return durable.ToolResult{}, err
+	}
+	unlock := lockMutation(e, target)
 	defer unlock()
-	original, err := e.ReadFile(ctx, a.Path)
+	original, err := e.ReadFile(ctx, target)
 	if err != nil {
 		return durable.ToolResult{}, editAccessError(ctx, a.Path, err)
 	}
@@ -251,7 +264,7 @@ func editTool(ctx context.Context, raw json.RawMessage, rt *durable.ToolRuntime)
 	if err != nil {
 		return durable.ToolResult{}, err
 	}
-	if err := e.WriteFile(ctx, a.Path, []byte(bom+restoreLineEndings(updated, ending))); err != nil {
+	if err := e.WriteFile(ctx, target, []byte(bom+restoreLineEndings(updated, ending))); err != nil {
 		return durable.ToolResult{}, editAccessError(ctx, a.Path, err)
 	}
 	diff, firstChanged := generateDiffString(base, updated, 4)
