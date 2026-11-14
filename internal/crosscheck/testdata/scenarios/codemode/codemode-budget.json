@@ -1,0 +1,44 @@
+{
+ "name": "code mode token budget",
+ "codemode": {},
+ "tools": [
+  {
+   "name": "echo",
+   "parameters": {
+    "type": "object",
+    "properties": {
+     "text": {
+      "type": "string"
+     }
+    }
+   }
+  }
+ ],
+ "model": [
+  {
+   "calls": [
+    {
+     "id": "s1",
+     "name": "codemode",
+     "args": {
+      "code": "// @options: {\"max_output_tokens\": 5}\ntext(\"BEGIN\" + \"x\".repeat(200) + \"END\");\nreturn \"tail\";"
+     }
+    }
+   ]
+  },
+  {
+   "text": "done"
+  }
+ ],
+ "steps": [
+  {
+   "submit": {
+    "type": "input",
+    "content": "go"
+   }
+  },
+  {
+   "wait": "settled"
+  }
+ ]
+}

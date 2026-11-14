@@ -353,6 +353,20 @@ export async function runScenario(
 		}
 		registry.install(pd.defineExtension({ name: ext.name, sections, hooks }));
 	}
+	// Code mode with pi-codemode's sandbox, without models.* (Go has no
+	// catalog by default).
+	if (scenario.codemode) {
+		const { createCodemodeExtension } = await load.durable("codemode/index.ts");
+		const { CodemodeSandbox } = await load.installed("@earendil-works/pi-codemode/dist/index.js");
+		registry.install(
+			createCodemodeExtension({
+				sandbox: new CodemodeSandbox(),
+				models: false,
+				...(scenario.codemode.namespaces ? { namespaces: scenario.codemode.namespaces } : {}),
+				...(scenario.codemode.inlineBudget !== undefined ? { inlineBudget: scenario.codemode.inlineBudget } : {}),
+			}),
+		);
+	}
 	// Real time: retries and timers wait for it; timestamps are not compared.
 	// A scenario that reopens needs storage that outlives its Harness.
 	const reopens = (scenario.steps ?? []).some((step: any) => step.reopen);

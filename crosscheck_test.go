@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -446,7 +447,10 @@ func TestCrosscheckPartialArguments(t *testing.T) {
 type scenarioSpec struct {
 	Name          string `json:"name"`
 	ContextWindow int    `json:"contextWindow,omitempty"`
-	AfterRun      *struct {
+	// Codemode installs the code mode extension with these options
+	// (namespaces), through scenarioCodemode.
+	Codemode json.RawMessage `json:"codemode,omitempty"`
+	AfterRun *struct {
 		Hold string `json:"hold,omitempty"`
 	} `json:"afterRun,omitempty"`
 	Documents []struct {
@@ -1008,6 +1012,16 @@ func runScenario(t *testing.T, sc scenarioSpec) json.RawMessage {
 			t.Fatal(err)
 		}
 	}
+	if sc.Codemode != nil {
+		if scenarioCodemode == nil {
+			t.Skip("a code mode scenario runs from TestCrosscheckCodemodeScenarios")
+		}
+		for _, extension := range scenarioCodemode(t, sc.Codemode) {
+			if err := registry.Install(extension); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
 	settings := Settings{ToolExecution: sc.Settings.ToolExecution, SteeringMode: sc.Settings.SteeringMode, FollowUpMode: sc.Settings.FollowUpMode, AfterFailedRun: sc.Settings.AfterFailedRun}
 	if sc.Settings.Compaction != nil {
 		settings.Compaction = *sc.Settings.Compaction
@@ -1377,18 +1391,34 @@ func TestCrosscheckScenarios(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			var raw json.RawMessage
 			crosscheck.Cases(t, "scenarios/"+name+".json", &raw)
-			var sc scenarioSpec
-			if err := json.Unmarshal(raw, &sc); err != nil {
-				t.Fatal(err)
-			}
-			var want json.RawMessage
-			crosscheck.Run(t, "scenario", raw, &want)
-			got := runScenario(t, sc)
-			got, want = roundsInCallOrder(t, got), roundsInCallOrder(t, want)
-			if !crosscheck.Same(got, want) {
-				t.Errorf("differs from upstream:\n%s", crosscheck.Diff(want, got))
-			}
+			compareScenario(t, raw)
 		})
+	}
+}
+
+// scenarioCodemode builds the code mode extension a scenario asks for; the
+// external test package sets it, as this package cannot import codemode.
+var scenarioCodemode func(t *testing.T, options json.RawMessage) []Extension
+
+// wallTime is a code mode result's wall time, which differs run to run.
+var wallTime = regexp.MustCompile(`Wall time [0-9.]+ seconds`)
+
+// compareScenario runs a scenario here and in upstream's Harness and
+// reports how they differ.
+func compareScenario(t *testing.T, raw json.RawMessage) {
+	t.Helper()
+	var sc scenarioSpec
+	if err := json.Unmarshal(raw, &sc); err != nil {
+		t.Fatal(err)
+	}
+	var want json.RawMessage
+	crosscheck.Run(t, "scenario", raw, &want)
+	got := runScenario(t, sc)
+	got, want = roundsInCallOrder(t, got), roundsInCallOrder(t, want)
+	got = json.RawMessage(wallTime.ReplaceAllString(string(got), "Wall time T seconds"))
+	want = json.RawMessage(wallTime.ReplaceAllString(string(want), "Wall time T seconds"))
+	if !crosscheck.Same(got, want) {
+		t.Errorf("differs from upstream:\n%s", crosscheck.Diff(want, got))
 	}
 }
 
@@ -1538,8 +1568,14 @@ func fauxText(m Message) string {
 			parts = append(parts, "tool-:"+jsStringifyRaw(json.RawMessage(fmt.Sprintf(`{"name":%q}`, name))))
 		}
 		for _, tool := range m.ToolsAdded {
-			decl, _ := json.Marshal(map[string]any{"name": tool.Name, "description": tool.Description, "parameters": json.RawMessage(tool.Parameters)})
-			parts = append(parts, "tool+:"+jsStringifyRaw(decl))
+			// pi-ai's toToolDeclaration, in its key order.
+			name, _ := json.Marshal(tool.Name)
+			description, _ := json.Marshal(tool.Description)
+			decl := `{"name":` + jsStringifyRaw(name) + `,"description":` + jsStringifyRaw(description) + `,"parameters":` + jsStringifyRaw(tool.Parameters)
+			if len(tool.ConstrainedSampling) > 0 {
+				decl += `,"constrainedSampling":` + jsStringifyRaw(tool.ConstrainedSampling)
+			}
+			parts = append(parts, "tool+:"+decl+"}")
 		}
 		var kept []string
 		for _, part := range parts {

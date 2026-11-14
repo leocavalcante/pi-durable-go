@@ -1,0 +1,44 @@
+{
+ "name": "code mode script",
+ "codemode": {},
+ "tools": [
+  {
+   "name": "echo",
+   "parameters": {
+    "type": "object",
+    "properties": {
+     "text": {
+      "type": "string"
+     }
+    }
+   }
+  }
+ ],
+ "model": [
+  {
+   "calls": [
+    {
+     "id": "s1",
+     "name": "codemode",
+     "args": {
+      "code": "const a = await tools.echo({ text: \"hi\" });\nconsole.log(\"got\", a);\ntext(\"one\");\nreturn { a, n: 2 };"
+     }
+    }
+   ]
+  },
+  {
+   "text": "done"
+  }
+ ],
+ "steps": [
+  {
+   "submit": {
+    "type": "input",
+    "content": "go"
+   }
+  },
+  {
+   "wait": "settled"
+  }
+ ]
+}

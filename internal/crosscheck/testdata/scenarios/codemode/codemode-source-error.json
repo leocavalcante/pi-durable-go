@@ -1,0 +1,66 @@
+{
+ "name": "code mode empty source",
+ "codemode": {},
+ "tools": [
+  {
+   "name": "echo",
+   "parameters": {
+    "type": "object",
+    "properties": {
+     "text": {
+      "type": "string"
+     }
+    }
+   }
+  }
+ ],
+ "model": [
+  {
+   "calls": [
+    {
+     "id": "s1",
+     "name": "codemode",
+     "args": {
+      "code": "   "
+     }
+    }
+   ]
+  },
+  {
+   "calls": [
+    {
+     "id": "s2",
+     "name": "codemode",
+     "args": {
+      "code": "// @options: {\"bad\": 1}\nreturn 1;"
+     }
+    }
+   ]
+  },
+  {
+   "calls": [
+    {
+     "id": "s3",
+     "name": "codemode",
+     "args": {
+      "code": "return 1;\n// @options: {}"
+     }
+    }
+   ]
+  },
+  {
+   "text": "done"
+  }
+ ],
+ "steps": [
+  {
+   "submit": {
+    "type": "input",
+    "content": "go"
+   }
+  },
+  {
+   "wait": "settled"
+  }
+ ]
+}

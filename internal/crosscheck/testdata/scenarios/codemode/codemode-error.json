@@ -1,0 +1,44 @@
+{
+ "name": "code mode script error",
+ "codemode": {},
+ "tools": [
+  {
+   "name": "echo",
+   "parameters": {
+    "type": "object",
+    "properties": {
+     "text": {
+      "type": "string"
+     }
+    }
+   }
+  }
+ ],
+ "model": [
+  {
+   "calls": [
+    {
+     "id": "s1",
+     "name": "codemode",
+     "args": {
+      "code": "await tools.echo({ text: \"a\" });\nthrow new TypeError(\"boom\");"
+     }
+    }
+   ]
+  },
+  {
+   "text": "done"
+  }
+ ],
+ "steps": [
+  {
+   "submit": {
+    "type": "input",
+    "content": "go"
+   }
+  },
+  {
+   "wait": "settled"
+  }
+ ]
+}

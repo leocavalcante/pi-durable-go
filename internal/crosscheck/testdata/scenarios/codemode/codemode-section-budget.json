@@ -1,0 +1,61 @@
+{
+ "name": "code mode section budget",
+ "codemode": {
+  "inlineBudget": 120,
+  "namespaces": [
+   {
+    "name": "beta",
+    "prefix": "beta_",
+    "description": "Beta tools."
+   },
+   {
+    "name": "Alpha",
+    "prefix": "alpha_"
+   }
+  ]
+ },
+ "tools": [
+  {
+   "name": "echo",
+   "parameters": {
+    "type": "object",
+    "properties": {
+     "text": {
+      "type": "string"
+     }
+    }
+   }
+  },
+  {
+   "name": "beta_one",
+   "description": "First beta tool"
+  },
+  {
+   "name": "beta_two",
+   "description": "Second beta tool with a much longer description that costs more tokens than the budget allows"
+  },
+  {
+   "name": "alpha_a"
+  },
+  {
+   "name": "my-tool",
+   "description": "Has a dash"
+  }
+ ],
+ "model": [
+  {
+   "text": "done"
+  }
+ ],
+ "steps": [
+  {
+   "submit": {
+    "type": "input",
+    "content": "go"
+   }
+  },
+  {
+   "wait": "settled"
+  }
+ ]
+}

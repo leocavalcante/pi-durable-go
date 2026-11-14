@@ -1,0 +1,68 @@
+{
+ "name": "code mode tool search",
+ "codemode": {
+  "namespaces": [
+   {
+    "name": "github",
+    "description": "GitHub MCP server",
+    "prefix": "mcp__github__"
+   }
+  ]
+ },
+ "tools": [
+  {
+   "name": "echo",
+   "parameters": {
+    "type": "object",
+    "properties": {
+     "text": {
+      "type": "string"
+     }
+    }
+   }
+  },
+  {
+   "name": "mcp__github__list_issues",
+   "description": "List the issues of a repository",
+   "parameters": {
+    "type": "object",
+    "properties": {
+     "repo": {
+      "type": "string",
+      "description": "owner/name"
+     }
+    },
+    "required": [
+     "repo"
+    ]
+   }
+  }
+ ],
+ "model": [
+  {
+   "calls": [
+    {
+     "id": "s1",
+     "name": "codemode",
+     "args": {
+      "code": "const found = await searchTools(\"issues\");\nconst scoped = await searchTools(\"echo\", { namespace: \"github\" });\nreturn { found, scoped, ns: await describeNamespace(\"github\"), echo: await describeTool(\"echo\"), all: ALL_TOOLS.map((tool) => tool.name) };"
+     }
+    }
+   ]
+  },
+  {
+   "text": "done"
+  }
+ ],
+ "steps": [
+  {
+   "submit": {
+    "type": "input",
+    "content": "go"
+   }
+  },
+  {
+   "wait": "settled"
+  }
+ ]
+}

@@ -45,7 +45,8 @@ says how the port is compared with upstream's own code.
   them, and `LocalEnv` writes files in place as upstream's Node environment does.
 - **Cross-checks.** `make crosscheck` runs upstream's TypeScript sources on the same
   inputs as the Go code:
-  - 90 conversation scenarios replayed through upstream's Harness;
+  - 100 conversation scenarios replayed through upstream's Harness, 10 of them
+    with code mode;
   - checks of argument coercion and validation, JSON parsing, partial arguments, the
     read and edit tools, compaction, and OpenAI requests and responses.
 

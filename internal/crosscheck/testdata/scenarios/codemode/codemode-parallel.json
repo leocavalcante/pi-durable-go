@@ -1,0 +1,56 @@
+{
+ "name": "code mode parallel calls",
+ "codemode": {},
+ "tools": [
+  {
+   "name": "echo",
+   "parameters": {
+    "type": "object",
+    "properties": {
+     "text": {
+      "type": "string"
+     }
+    }
+   }
+  },
+  {
+   "name": "fails",
+   "parameters": {
+    "type": "object"
+   },
+   "results": [
+    {
+     "text": "permission denied",
+     "isError": true
+    }
+   ]
+  }
+ ],
+ "model": [
+  {
+   "calls": [
+    {
+     "id": "s1",
+     "name": "codemode",
+     "args": {
+      "code": "const [a, b] = await Promise.all([tools.echo({ text: \"one\" }), tools.echo({ text: \"two\" })]);\nlet failure;\ntry { await tools.fails({}); } catch (error) { failure = [error.message, error.structuredOutput]; }\nreturn [a, b, failure];"
+     }
+    }
+   ]
+  },
+  {
+   "text": "done"
+  }
+ ],
+ "steps": [
+  {
+   "submit": {
+    "type": "input",
+    "content": "go"
+   }
+  },
+  {
+   "wait": "settled"
+  }
+ ]
+}

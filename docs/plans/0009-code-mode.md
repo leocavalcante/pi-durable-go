@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Status | In progress |
+| Status | Done (M1–M6) |
 | Compatibility target | Pi Durable **v1.5.2** (commit `b4afdddf44e059c67ccf5097e5317d913521b470`) |
 | Upstream | `src/codemode/{codemode,describe,output,models,index}.ts`, `src/search.ts`; pi-codemode 1.5.2 (`CodemodeSandboxBase.start`, `renderToolSample`, `parseCodemodeSource`, `toCodemodeIdentifier`), installed with Pi |
 
@@ -69,3 +69,6 @@ Each milestone keeps `make check` green and is pushed on its own. Tests that run
   - Not ported: the two tests that need upstream's `ControlledStorage`.
   - `codemode/fake_test.go`'s scripted sandbox tests the durable side in `make check`: first runs, restarts, divergence, fingerprint and version refusals, globals, the store, errors, and the section.
 - **M5.** `models.*` over `codemode.Models`: the catalog globals, the internal `pi.codemode.models.classify` and `pi.codemode.models.generateImages` tools (`callers: tools`, hidden from scripts' listings, usage counted by the Harness), at most four model calls at once, and the note about images the script did not show. Upstream's `codemode-models.test.ts` and its output tests are ported against the installed Pi's sandbox. The `codemodeModels` oracle op checks the catalog functions, model resolution, and context checks against a copy of `models.ts` that exports them. `searchTools()` takes a null limit as the default and any positive integer, as `options?.limit ?? 8` does.
+- **M6.** Ten code mode scenarios play through upstream's Harness with `createCodemodeExtension` and this Harness with `codemode.Extension`, both on pi-codemode's sandbox from the checkout's dependencies. They cover scripts, parallel calls, errors, source and option errors, the token budget, tool search, the store, the section's budget, output values with images, and invalid nested arguments. Model requests, transcripts, and settlements are equal. The root scenario runner gains a `codemode` field; the external test package installs the extension through `SetScenarioCodemode` (`export_crosscheck_test.go`). The faux usage helper now counts a tool's `constrainedSampling`, as pi-ai's `toToolDeclaration` keeps it.
+
+Remaining: a pure-Go VM (wazero with quickjs-wasi's WASM), so code mode runs without Node; and a `codemode.Models` over Pi's catalog through `model.Pi`.

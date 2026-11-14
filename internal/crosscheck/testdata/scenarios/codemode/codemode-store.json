@@ -1,0 +1,55 @@
+{
+ "name": "code mode store across calls",
+ "codemode": {},
+ "tools": [
+  {
+   "name": "echo",
+   "parameters": {
+    "type": "object",
+    "properties": {
+     "text": {
+      "type": "string"
+     }
+    }
+   }
+  }
+ ],
+ "model": [
+  {
+   "calls": [
+    {
+     "id": "s1",
+     "name": "codemode",
+     "args": {
+      "code": "store(\"kept\", { n: 1 });\nreturn load(\"kept\");"
+     }
+    }
+   ]
+  },
+  {
+   "calls": [
+    {
+     "id": "s2",
+     "name": "codemode",
+     "args": {
+      "code": "return [load(\"kept\"), load(\"missing\") ?? null];"
+     }
+    }
+   ]
+  },
+  {
+   "text": "done"
+  }
+ ],
+ "steps": [
+  {
+   "submit": {
+    "type": "input",
+    "content": "go"
+   }
+  },
+  {
+   "wait": "settled"
+  }
+ ]
+}
