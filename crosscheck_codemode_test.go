@@ -4,6 +4,7 @@ package durable_test
 
 import (
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -12,15 +13,22 @@ import (
 	"github.com/leocavalcante/pi-durable-go/internal/crosscheck"
 )
 
-// TestCrosscheckCodemodeScenarios plays the code mode scenarios here and in
-// upstream's Harness, both with pi-codemode's sandbox from the prepared
-// checkout's dependencies, which the installed Pi provides.
+// TestCrosscheckCodemodeScenarios plays the code mode scenarios here, with
+// the Go VM (QuickJSSandbox), and in upstream's Harness with pi-codemode's
+// own sandbox. PI_DURABLE_CROSSCHECK_CODEMODE=node plays them here with
+// pi-codemode's sandbox too, from the prepared checkout's dependencies.
 func TestCrosscheckCodemodeScenarios(t *testing.T) {
 	upstream := crosscheck.Upstream()
 	if upstream == "" {
 		t.Skip("no upstream checkout: run make crosscheck, or set PI_DURABLE_CROSSCHECK_UPSTREAM")
 	}
-	sandbox := &codemode.NodeSandbox{CodemodeDir: filepath.Join(upstream, "packages", "durable", "node_modules", "@earendil-works", "pi-codemode")}
+	var sandbox interface {
+		codemode.Sandbox
+		Close() error
+	} = &codemode.QuickJSSandbox{}
+	if os.Getenv("PI_DURABLE_CROSSCHECK_CODEMODE") == "node" {
+		sandbox = &codemode.NodeSandbox{CodemodeDir: filepath.Join(upstream, "packages", "durable", "node_modules", "@earendil-works", "pi-codemode")}
+	}
 	defer sandbox.Close()
 	durable.SetScenarioCodemode(func(t *testing.T, raw json.RawMessage) []durable.Extension {
 		var options struct {
