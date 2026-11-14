@@ -146,6 +146,11 @@ func (o OpenAI) GenerateEvents(ctx context.Context, req durable.ModelRequest, on
 		tools, folded = transcriptToolAdditions(req.Messages)
 	}
 	systemIndex := 0
+	// Grammar tools by name: the property their input fills.
+	grammars, err := grammarProperties(declaredTools(req.Messages, req.Tools), c.supportsOpenAIGrammarTools)
+	if err != nil {
+		return durable.ModelResponse{}, err
+	}
 	// pi-ai sends a reasoning model's instructions as a developer message
 	// where the endpoint takes that role.
 	instructionRole := "system"
@@ -156,7 +161,7 @@ func (o OpenAI) GenerateEvents(ctx context.Context, req durable.ModelRequest, on
 		if m.Role == "system" {
 			// Tools added after the folded ones are declared in place.
 			if folded >= 0 && systemIndex >= folded && len(m.ToolsAdded) > 0 {
-				added, err := o.convertTools(m.ToolsAdded)
+				added, err := o.convertTools(m.ToolsAdded, c)
 				if err != nil {
 					return durable.ModelResponse{}, err
 				}
@@ -245,7 +250,11 @@ func (o OpenAI) GenerateEvents(ctx context.Context, req durable.ModelRequest, on
 				}
 			}
 		case role == "assistant":
-			if !o.assistantMessage(&msg, m, req.Model, c) {
+			keep, err := o.assistantMessage(&msg, m, req.Model, c, grammars)
+			if err != nil {
+				return durable.ModelResponse{}, err
+			}
+			if !keep {
 				continue
 			}
 		default:
@@ -258,7 +267,7 @@ func (o OpenAI) GenerateEvents(ctx context.Context, req durable.ModelRequest, on
 		}
 	}
 	flushToolImages()
-	offered, err := o.convertTools(tools)
+	offered, err := o.convertTools(tools, c)
 	if err != nil {
 		return durable.ModelResponse{}, err
 	}
@@ -331,7 +340,7 @@ func (o OpenAI) GenerateEvents(ctx context.Context, req durable.ModelRequest, on
 		maxBytes = defaultMaxResponseBytes
 	}
 	limited := &limitedReader{r: resp.Body, remaining: maxBytes}
-	response, err := parseSSE(ctx, limited, onEvent, req.Model, c.supportsFinishReason)
+	response, err := parseSSE(ctx, limited, onEvent, req.Model, c.supportsFinishReason, grammars)
 	if err != nil {
 		return durable.ModelResponse{}, err
 	}
@@ -425,9 +434,23 @@ type openAIImageURL struct {
 	URL string `json:"url"`
 }
 type openAITool struct {
-	Type         string                   `json:"type"`
-	Function     openAIFunctionDefinition `json:"function"`
-	CacheControl map[string]any           `json:"cache_control,omitempty"`
+	Type         string                    `json:"type"`
+	Function     *openAIFunctionDefinition `json:"function,omitempty"`
+	Custom       *openAICustomTool         `json:"custom,omitempty"`
+	CacheControl map[string]any            `json:"cache_control,omitempty"`
+}
+
+// openAICustomTool is a grammar-constrained tool (OpenAI custom tools).
+type openAICustomTool struct {
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	Format      struct {
+		Type    string `json:"type"`
+		Grammar struct {
+			Syntax     string `json:"syntax"`
+			Definition string `json:"definition"`
+		} `json:"grammar"`
+	} `json:"format"`
 }
 type openAIFunctionDefinition struct {
 	Name        string          `json:"name"`
@@ -445,10 +468,28 @@ func compactParameters(raw json.RawMessage) []byte {
 }
 
 type openAIToolCall struct {
-	Index    int            `json:"index,omitempty"`
-	ID       string         `json:"id,omitempty"`
-	Type     string         `json:"type,omitempty"`
-	Function openAIFunction `json:"function"`
+	ID       string            `json:"id,omitempty"`
+	Type     string            `json:"type,omitempty"`
+	Function *openAIFunction   `json:"function,omitempty"`
+	Custom   *openAICustomCall `json:"custom,omitempty"`
+}
+
+// openAICustomCall is a grammar tool's call: its input text.
+type openAICustomCall struct {
+	Name  string `json:"name"`
+	Input string `json:"input"`
+}
+
+// streamToolCallDelta is a streamed piece of a tool call: a function's
+// arguments text or a custom tool's input text.
+type streamToolCallDelta struct {
+	Index    *int            `json:"index"`
+	ID       string          `json:"id"`
+	Function *openAIFunction `json:"function"`
+	Custom   *struct {
+		Name  string `json:"name"`
+		Input string `json:"input"`
+	} `json:"custom"`
 }
 type openAIFunction struct {
 	Name      string `json:"name,omitempty"`
@@ -458,8 +499,8 @@ type streamChunk struct {
 	Error   json.RawMessage `json:"error"`
 	Choices []struct {
 		Delta struct {
-			Content   string           `json:"content"`
-			ToolCalls []openAIToolCall `json:"tool_calls"`
+			Content   string                `json:"content"`
+			ToolCalls []streamToolCallDelta `json:"tool_calls"`
 			// Reasoning fields some endpoints send; pi-ai reads the first
 			// non-empty one.
 			ReasoningContent string `json:"reasoning_content"`
@@ -510,21 +551,40 @@ func (r *limitedReader) Read(p []byte) (int, error) {
 type streamTool struct {
 	id, name  string
 	index     int
-	started   bool
 	arguments strings.Builder
+	// A grammar tool's call: its input text, which fills property.
+	custom      bool
+	property    string
+	input       strings.Builder
+	jsonStarted bool
+}
+
+// customPiece is pi-ai's appendGrammarToolInputJsonDelta: the JSON text of
+// the arguments {property: input} that a piece of input adds.
+func (t *streamTool) customPiece(input string) string {
+	piece := ""
+	if !t.jsonStarted {
+		t.jsonStarted = true
+		piece = "{" + jsQuote(t.property) + `:"`
+	}
+	t.input.WriteString(input)
+	quoted := jsQuote(input)
+	return piece + quoted[1:len(quoted)-1]
 }
 
 // parseSSE reads a Chat Completions stream as pi-ai does. The answer ends
 // with the stream: its finish reason says how, and without one it is an
 // error, or with supportsFinishReason false a stop or a tool use.
-func parseSSE(ctx context.Context, r io.Reader, onEvent func(durable.StreamEvent) error, model durable.ModelRef, supportsFinishReason bool) (durable.ModelResponse, error) {
+func parseSSE(ctx context.Context, r io.Reader, onEvent func(durable.StreamEvent) error, model durable.ModelRef, supportsFinishReason bool, grammars map[string]string) (durable.ModelResponse, error) {
 	provider := model.Provider
 	response := durable.ModelResponse{}
 	// The field the thinking came in, and OpenRouter's reasoning details,
 	// for replaying them to the same model.
 	reasoningField := ""
 	var reasoningDetails []map[string]any
-	tools := map[int]*streamTool{}
+	// Tool calls in content order, found by stream index or else by ID.
+	var tools []*streamTool
+	byIndex, byID := map[int]*streamTool{}, map[string]*streamTool{}
 	emit := func(event durable.StreamEvent) error {
 		if onEvent == nil {
 			return nil
@@ -634,27 +694,56 @@ func parseSSE(ctx context.Context, r io.Reader, onEvent func(durable.StreamEvent
 				}
 			}
 			for _, delta := range choice.Delta.ToolCalls {
-				t := tools[delta.Index]
+				name := ""
+				if delta.Function != nil {
+					name = delta.Function.Name
+				} else if delta.Custom != nil {
+					name = delta.Custom.Name
+				}
+				custom := delta.Custom != nil && delta.Function == nil
+				var t *streamTool
+				if delta.Index != nil {
+					t = byIndex[*delta.Index]
+				}
+				if t == nil && delta.ID != "" {
+					t = byID[delta.ID]
+				}
 				if t == nil {
-					t = &streamTool{index: blocks}
+					t = &streamTool{index: blocks, id: delta.ID, name: name}
 					blocks++
-					tools[delta.Index] = t
-				}
-				if delta.ID != "" {
-					t.id = delta.ID
-				}
-				if delta.Function.Name != "" {
-					t.name += delta.Function.Name
-				}
-				if !t.started {
-					t.started = true
+					tools = append(tools, t)
 					if err := emit(durable.StreamEvent{Type: "toolcall_start", Index: t.index, ID: t.id, Name: t.name}); err != nil {
 						return err
 					}
 				}
-				t.arguments.WriteString(delta.Function.Arguments)
-				if delta.Function.Arguments != "" {
-					if err := emit(durable.StreamEvent{Type: "toolcall_delta", Index: t.index, Delta: delta.Function.Arguments}); err != nil {
+				if delta.Index != nil && byIndex[*delta.Index] == nil {
+					byIndex[*delta.Index] = t
+				}
+				if delta.ID != "" {
+					byID[delta.ID] = t
+					if t.id == "" {
+						t.id = delta.ID
+					}
+				}
+				if t.name == "" && name != "" {
+					t.name = name
+				}
+				if custom && !t.custom {
+					t.custom, t.property = true, "input"
+					if property, ok := grammars[t.name]; ok {
+						t.property = property
+					}
+				}
+				piece := ""
+				switch {
+				case delta.Function != nil && delta.Function.Arguments != "" && !t.custom:
+					piece = delta.Function.Arguments
+				case custom && delta.Custom.Input != "" && t.custom:
+					piece = t.customPiece(delta.Custom.Input)
+				}
+				t.arguments.WriteString(piece)
+				if piece != "" {
+					if err := emit(durable.StreamEvent{Type: "toolcall_delta", Index: t.index, Delta: piece}); err != nil {
 						return err
 					}
 				}
@@ -703,24 +792,28 @@ func parseSSE(ctx context.Context, r io.Reader, onEvent func(durable.StreamEvent
 			return durable.ModelResponse{}, err
 		}
 	}
-	indices := make([]int, 0, len(tools))
-	for i := range tools {
-		indices = append(indices, i)
-	}
-	// Tool indices are normally contiguous, but sort via a small insertion sort
-	// to preserve the provider's requested order without another dependency.
-	for i := 1; i < len(indices); i++ {
-		for j := i; j > 0 && indices[j] < indices[j-1]; j-- {
-			indices[j], indices[j-1] = indices[j-1], indices[j]
+	for _, t := range tools {
+		// A grammar call's arguments close with its input.
+		if t.custom {
+			piece := `"}`
+			if !t.jsonStarted {
+				t.jsonStarted = true
+				piece = "{" + jsQuote(t.property) + `:""}`
+			}
+			if err := emit(durable.StreamEvent{Type: "toolcall_delta", Index: t.index, Delta: piece}); err != nil {
+				return durable.ModelResponse{}, err
+			}
 		}
-	}
-	for _, i := range indices {
-		if err := emit(durable.StreamEvent{Type: "toolcall_end", Index: tools[i].index}); err != nil {
+		if err := emit(durable.StreamEvent{Type: "toolcall_end", Index: t.index}); err != nil {
 			return durable.ModelResponse{}, err
 		}
 	}
-	for _, i := range indices {
-		t := tools[i]
+	for _, t := range tools {
+		if t.custom {
+			args, _ := marshalNoEscape(map[string]string{t.property: t.input.String()})
+			response.ToolCalls = append(response.ToolCalls, durable.ToolCall{ID: t.id, Name: t.name, Arguments: args})
+			continue
+		}
 		// Malformed arguments are the model's error, reported back to it by
 		// tool validation (pi-ai parseToolCallArguments).
 		args, argumentsError := durable.ParseToolCallArguments(t.arguments.String())
@@ -897,7 +990,7 @@ const openAIReplayFormat = "openai-completions-v1"
 // or as text, its tool calls, and an empty reasoning_content where the
 // compat requires one. False for an answer without content or tool calls,
 // which is not sent.
-func (o OpenAI) assistantMessage(msg *openAIMessage, m durable.Message, model durable.ModelRef, c completionsCompat) bool {
+func (o OpenAI) assistantMessage(msg *openAIMessage, m durable.Message, model durable.ModelRef, c completionsCompat, grammars map[string]string) (bool, error) {
 	if c.requiresAssistantAfterToolResult || c.requiresNonNullAssistantContent {
 		msg.Content = ""
 	}
@@ -943,7 +1036,18 @@ func (o OpenAI) assistantMessage(msg *openAIMessage, m durable.Message, model du
 		if len(args) == 0 {
 			args = json.RawMessage(`{}`)
 		}
-		msg.ToolCalls = append(msg.ToolCalls, openAIToolCall{ID: call.ID, Type: "function", Function: openAIFunction{Name: call.Name, Arguments: string(args)}})
+		if property, ok := grammars[call.Name]; ok {
+			// A grammar tool's call goes back as its input text.
+			var arguments map[string]any
+			_ = json.Unmarshal(args, &arguments)
+			input, ok := arguments[property].(string)
+			if !ok {
+				return false, sanitizedError(fmt.Sprintf("Grammar tool call %q requires argument %q to be a string.", call.Name, property), false)
+			}
+			msg.ToolCalls = append(msg.ToolCalls, openAIToolCall{ID: call.ID, Type: "custom", Custom: &openAICustomCall{Name: call.Name, Input: input}})
+			continue
+		}
+		msg.ToolCalls = append(msg.ToolCalls, openAIToolCall{ID: call.ID, Type: "function", Function: &openAIFunction{Name: call.Name, Arguments: string(args)}})
 	}
 	if c.requiresReasoningContent && o.Reasoning && msg.ReasoningContent == nil {
 		empty := ""
@@ -951,11 +1055,11 @@ func (o OpenAI) assistantMessage(msg *openAIMessage, m durable.Message, model du
 	}
 	switch content := msg.Content.(type) {
 	case string:
-		return content != "" || len(msg.ToolCalls) > 0
+		return content != "" || len(msg.ToolCalls) > 0, nil
 	case []openAIContentPart:
-		return len(content) > 0 || len(msg.ToolCalls) > 0
+		return len(content) > 0 || len(msg.ToolCalls) > 0, nil
 	}
-	return len(msg.ToolCalls) > 0
+	return len(msg.ToolCalls) > 0, nil
 }
 
 func (o OpenAI) baseURL() string {
@@ -1145,12 +1249,23 @@ func (o OpenAI) clampThinkingLevel(level string) string {
 // convertTools is pi-ai's convertTools: function tools, sent in strict mode
 // with their schema in the strict subset where the endpoint takes strict
 // tools and the tool asks for constrained sampling.
-func (o OpenAI) convertTools(tools []durable.ToolSpec) ([]openAITool, error) {
+func (o OpenAI) convertTools(tools []durable.ToolSpec, c completionsCompat) ([]openAITool, error) {
 	if len(tools) == 0 {
 		return nil, nil
 	}
 	offered := make([]openAITool, 0, len(tools))
 	for _, tool := range tools {
+		grammar, err := resolveGrammar(tool, c.supportsOpenAIGrammarTools)
+		if err != nil {
+			return nil, sanitizedError(err.Error(), false)
+		}
+		if grammar != nil {
+			custom := &openAICustomTool{Name: tool.Name, Description: tool.Description}
+			custom.Format.Type = "grammar"
+			custom.Format.Grammar.Syntax, custom.Format.Grammar.Definition = grammar.syntax, grammar.definition
+			offered = append(offered, openAITool{Type: "custom", Custom: custom})
+			continue
+		}
 		var parameters any
 		if len(tool.Parameters) == 0 || !json.Valid(tool.Parameters) {
 			return nil, sanitizedError(fmt.Sprintf("invalid parameters schema for tool %q", tool.Name), false)
@@ -1176,7 +1291,7 @@ func (o OpenAI) convertTools(tools []durable.ToolSpec) ([]openAITool, error) {
 		} else if _, err := strictSampling(tool, false); err != nil {
 			return nil, sanitizedError(err.Error(), false)
 		}
-		offered = append(offered, openAITool{Type: "function", Function: definition})
+		offered = append(offered, openAITool{Type: "function", Function: &definition})
 	}
 	return offered, nil
 }

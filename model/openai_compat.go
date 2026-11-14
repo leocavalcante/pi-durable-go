@@ -2,6 +2,8 @@ package model
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/url"
 	"strings"
 	"unicode/utf8"
@@ -36,6 +38,11 @@ type OpenAICompat struct {
 	// place, offering only the tools up to the last removal or redefinition.
 	SupportsMidConvoSystemMessages *bool
 	SupportsMidConvoToolAdditions  *bool
+	// SupportsOpenAIGrammarTools sends a tool whose ConstrainedSampling is a
+	// grammar ({"type": "grammar", "variants": {"openai_lark" | "openai_regex":
+	// definition}}) as an OpenAI custom tool: the model writes its single
+	// required string property as grammar-constrained input.
+	SupportsOpenAIGrammarTools *bool
 	// RequiresToolResultName sends a tool result's tool name.
 	RequiresToolResultName *bool
 	// RequiresAssistantAfterToolResult puts an assistant message between
@@ -101,6 +108,7 @@ type GatewayRouting struct {
 type completionsCompat struct {
 	supportsStore, supportsDeveloperRole, supportsReasoningEffort, supportsUsageInStreaming   bool
 	supportsFinishReason                                                                      bool
+	supportsOpenAIGrammarTools                                                                bool
 	supportsMidConvoSystemMessages, supportsMidConvoToolAdditions                             bool
 	maxTokensField                                                                            string
 	requiresToolResultName, requiresAssistantAfterToolResult, requiresNonNullAssistantContent bool
@@ -185,7 +193,7 @@ func (o OpenAI) compat(ref durable.ModelRef) completionsCompat {
 	}{
 		{&c.supportsStore, x.SupportsStore}, {&c.supportsDeveloperRole, x.SupportsDeveloperRole},
 		{&c.supportsReasoningEffort, x.SupportsReasoningEffort}, {&c.supportsUsageInStreaming, x.SupportsUsageInStreaming},
-		{&c.supportsFinishReason, x.SupportsFinishReason},
+		{&c.supportsFinishReason, x.SupportsFinishReason}, {&c.supportsOpenAIGrammarTools, x.SupportsOpenAIGrammarTools},
 		{&c.supportsMidConvoSystemMessages, x.SupportsMidConvoSystemMessages}, {&c.supportsMidConvoToolAdditions, x.SupportsMidConvoToolAdditions},
 		{&c.requiresToolResultName, x.RequiresToolResultName}, {&c.requiresAssistantAfterToolResult, x.RequiresAssistantAfterToolResult},
 		{&c.requiresNonNullAssistantContent, x.RequiresNonNullAssistantContent}, {&c.requiresToolsWithToolHistory, x.RequiresToolsWithToolHistory},
@@ -424,4 +432,147 @@ func attributionHeaders(provider, base string, identity *durable.ClientIdentity)
 		return map[string]string{"x-opencode-client": attribution.Name}
 	}
 	return nil
+}
+
+// grammarSampling is a grammar tool's custom format and input property.
+type grammarSampling struct {
+	syntax, definition, property string
+}
+
+// resolveGrammar is pi-ai's resolveGrammarConstrainedSampling: nil unless
+// the tool asks for a grammar and the endpoint takes grammar tools; the
+// Lark variant before the regex one.
+func resolveGrammar(tool durable.ToolSpec, supported bool) (*grammarSampling, error) {
+	var config struct {
+		Type     string `json:"type"`
+		Variants struct {
+			Lark  *string `json:"openai_lark"`
+			Regex *string `json:"openai_regex"`
+		} `json:"variants"`
+	}
+	if len(tool.ConstrainedSampling) == 0 || json.Unmarshal(tool.ConstrainedSampling, &config) != nil || config.Type != "grammar" || !supported {
+		return nil, nil
+	}
+	lark := config.Variants.Lark != nil && strings.TrimSpace(*config.Variants.Lark) != ""
+	regex := config.Variants.Regex != nil && strings.TrimSpace(*config.Variants.Regex) != ""
+	if !lark && !regex {
+		return nil, fmt.Errorf("Tool %q cannot use grammar constrained sampling: no supported grammar variant was provided.", tool.Name)
+	}
+	property, err := grammarInputProperty(tool.Parameters)
+	if err != nil {
+		return nil, fmt.Errorf("Tool %q cannot use grammar constrained sampling: %s.", tool.Name, err)
+	}
+	if lark {
+		return &grammarSampling{syntax: "lark", definition: *config.Variants.Lark, property: property}, nil
+	}
+	return &grammarSampling{syntax: "regex", definition: *config.Variants.Regex, property: property}, nil
+}
+
+// grammarInputProperty is pi-ai's inferGrammarInputProperty: the one
+// required property, a string, that the input fills.
+func grammarInputProperty(parameters json.RawMessage) (string, error) {
+	var schema struct {
+		Type       any                        `json:"type"`
+		Required   []any                      `json:"required"`
+		Properties map[string]json.RawMessage `json:"properties"`
+	}
+	if json.Unmarshal(parameters, &schema) != nil || schema.Type != "object" {
+		return "", errors.New("grammar constrained sampling requires an object parameter schema")
+	}
+	property, ok := "", len(schema.Required) == 1
+	if ok {
+		property, ok = schema.Required[0].(string)
+	}
+	if !ok {
+		return "", errors.New("grammar constrained sampling requires exactly one required string property")
+	}
+	raw, ok := schema.Properties[property]
+	if !ok || string(raw) == "null" {
+		return "", fmt.Errorf("grammar constrained sampling requires a properties entry for %s", property)
+	}
+	var entry struct {
+		Type any `json:"type"`
+	}
+	if json.Unmarshal(raw, &entry) != nil || entry.Type != "string" {
+		return "", fmt.Errorf("grammar constrained sampling property %s must have type string", property)
+	}
+	return property, nil
+}
+
+// grammarProperties is pi-ai's createGrammarToolInputProperties: the input
+// property of each grammar tool by name.
+func grammarProperties(tools []durable.ToolSpec, supported bool) (map[string]string, error) {
+	properties := map[string]string{}
+	for _, tool := range tools {
+		grammar, err := resolveGrammar(tool, supported)
+		if err != nil {
+			return nil, sanitizedError(err.Error(), false)
+		}
+		if grammar != nil {
+			properties[tool.Name] = grammar.property
+		}
+	}
+	return properties, nil
+}
+
+// declaredTools is pi-ai's getDeclaredTools: every tool the system messages
+// declared, its latest definition in first-declaration order; then the
+// request's tools that none declared.
+func declaredTools(messages []durable.Message, offered []durable.ToolSpec) []durable.ToolSpec {
+	var out []durable.ToolSpec
+	at := map[string]int{}
+	add := func(tool durable.ToolSpec) {
+		if i, ok := at[tool.Name]; ok {
+			out[i] = tool
+			return
+		}
+		at[tool.Name] = len(out)
+		out = append(out, tool)
+	}
+	for _, m := range messages {
+		if m.Role == "system" {
+			for _, tool := range m.ToolsAdded {
+				add(tool)
+			}
+		}
+	}
+	for _, tool := range offered {
+		if _, ok := at[tool.Name]; !ok {
+			add(tool)
+		}
+	}
+	return out
+}
+
+// jsQuote is JSON.stringify of a string: the two escapes, the short
+// control escapes, \u00XX for other control characters.
+func jsQuote(s string) string {
+	var b strings.Builder
+	b.WriteByte('"')
+	for _, r := range s {
+		switch r {
+		case '"':
+			b.WriteString(`\"`)
+		case '\\':
+			b.WriteString(`\\`)
+		case '\b':
+			b.WriteString(`\b`)
+		case '\f':
+			b.WriteString(`\f`)
+		case '\n':
+			b.WriteString(`\n`)
+		case '\r':
+			b.WriteString(`\r`)
+		case '\t':
+			b.WriteString(`\t`)
+		default:
+			if r < 0x20 {
+				fmt.Fprintf(&b, `\u%04x`, r)
+			} else {
+				b.WriteRune(r)
+			}
+		}
+	}
+	b.WriteByte('"')
+	return b.String()
 }

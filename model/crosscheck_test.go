@@ -128,6 +128,13 @@ func TestCrosscheckOpenAIResponses(t *testing.T) {
 		{`data: {"choices":[{"delta":{"reasoning_details":[{"type":"reasoning.text","text":"Think","index":0,"format":"anthropic-claude-v1"}]}}]}`,
 			`data: {"choices":[{"delta":{"reasoning_details":[{"type":"reasoning.text","text":"ing","signature":"sig","index":0},{"type":"bogus"}]}}]}`,
 			`data: {"choices":[{"delta":{"reasoning_details":[{"type":"reasoning.encrypted","data":"QUJD","id":"r1"}],"content":"answer"},"finish_reason":"stop"}]}`, `data: [DONE]`},
+		// A custom (grammar) tool's input fills its property, "input" for a
+		// tool the request did not declare; a call without an index is
+		// found by its ID.
+		{`data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"c1","type":"custom","custom":{"name":"run","input":"pri"}}]}}]}`,
+			`data: {"choices":[{"delta":{"tool_calls":[{"index":0,"custom":{"input":"nt(\"1\")"}}]}}]}`,
+			`data: {"choices":[{"delta":{"tool_calls":[{"id":"c2","type":"function","function":{"name":"lookup","arguments":"{\"q\":"}}]}}]}`,
+			`data: {"choices":[{"delta":{"tool_calls":[{"id":"c2","function":{"arguments":"1}"}}]},"finish_reason":"tool_calls"}]}`},
 		{`data: {"choices":[{"delta":{"reasoning":"visible ","reasoning_details":[{"type":"reasoning.summary","summary":"sum"}]}}]}`,
 			`data: {"choices":[{"delta":{"reasoning":"thought","reasoning_details":[{"type":"reasoning.summary","summary":"mary","id":"s1"}]},"finish_reason":"stop"}]}`},
 	}
@@ -786,6 +793,72 @@ func TestCrosscheckOpenAIReasoningDetailsReplay(t *testing.T) {
 			{Role: "assistant", Thinking: v.thinking, Content: "answer", ProviderData: replay}, {Role: "user", Content: "more"}}}
 		if got := payloadOf(t, OpenAI{BaseURL: "https://openrouter.ai/api/v1", MaxTokens: 1000, Window: 128000, Reasoning: true}, req); !crosscheck.Same(got, want[i]) {
 			t.Errorf("variant %d %+v:\n got %s\nwant %s", i, v, got, want[i])
+		}
+	}
+}
+
+// Grammar-constrained tools: custom tools in requests, their calls replayed
+// as input text, their input streamed into arguments, and pi-ai's errors.
+func TestCrosscheckOpenAIGrammarTools(t *testing.T) {
+	usage := map[string]any{"input": 1, "output": 1, "cacheRead": 0, "cacheWrite": 0, "totalTokens": 2, "cost": map[string]int{"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "total": 0}}
+	codeSchema := json.RawMessage(`{"type":"object","properties":{"code":{"type":"string"}},"required":["code"]}`)
+	tool := func(sampling string, parameters json.RawMessage) durable.ToolSpec {
+		return durable.ToolSpec{Name: "run", Description: "Run code", Parameters: parameters, ConstrainedSampling: json.RawMessage(sampling)}
+	}
+	variants := []struct {
+		tool      durable.ToolSpec
+		supported bool
+		callArgs  string // a replayed call's arguments; "" for none
+	}{
+		{tool(`{"type":"grammar","variants":{"openai_lark":"start: /.+/"}}`, codeSchema), true, ""},
+		{tool(`{"type":"grammar","variants":{"openai_regex":"^print\\(.*\\)$"}}`, codeSchema), true, `{"code":"print(1)"}`},
+		{tool(`{"type":"grammar","variants":{"openai_lark":"start: /.+/","openai_regex":"x"}}`, codeSchema), false, `{"code":"print(1)"}`},
+		{tool(`{"type":"grammar","variants":{}}`, codeSchema), true, ""},
+		{tool(`{"type":"grammar","variants":{"openai_lark":"start: /.+/"}}`, json.RawMessage(`{"type":"object","properties":{"a":{"type":"string"},"b":{"type":"string"}},"required":["a","b"]}`)), true, ""},
+		{tool(`{"type":"grammar","variants":{"openai_lark":"start: /.+/"}}`, json.RawMessage(`{"type":"object","properties":{"code":{"type":"number"}},"required":["code"]}`)), true, ""},
+		{tool(`{"type":"grammar","variants":{"openai_lark":"start: /.+/"}}`, codeSchema), true, `{"code":7}`},
+	}
+	var input []map[string]any
+	for _, v := range variants {
+		piTool := map[string]any{"name": v.tool.Name, "description": v.tool.Description, "parameters": v.tool.Parameters, "constrainedSampling": v.tool.ConstrainedSampling}
+		messages := []any{map[string]any{"role": "system", "content": "", "toolsAdded": []any{piTool}, "timestamp": 1}, map[string]any{"role": "user", "content": "go", "timestamp": 2}}
+		if v.callArgs != "" {
+			messages = append(messages,
+				map[string]any{"role": "assistant", "content": []any{map[string]any{"type": "toolCall", "id": "c1", "name": "run", "arguments": json.RawMessage(v.callArgs)}},
+					"api": "openai-completions", "provider": "custom", "model": "m1", "stopReason": "toolUse", "timestamp": 3, "usage": usage},
+				map[string]any{"role": "toolResult", "toolCallId": "c1", "toolName": "run", "content": []any{map[string]any{"type": "text", "text": "1"}}, "isError": false, "timestamp": 4},
+				map[string]any{"role": "user", "content": "again", "timestamp": 5})
+		}
+		model := map[string]any{"id": "m1", "name": "m1", "api": "openai-completions", "provider": "custom", "baseUrl": "https://example.test/v1",
+			"reasoning": false, "input": []string{"text"}, "cost": map[string]int{"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0}, "contextWindow": 128000, "maxTokens": 1000,
+			"compat": map[string]any{"supportsOpenAIGrammarTools": v.supported}}
+		input = append(input, map[string]any{"model": model, "messages": messages})
+	}
+	var want []json.RawMessage
+	crosscheck.Run(t, "openaiPayload", input, &want)
+	for i, v := range variants {
+		supported := v.supported
+		messages := []durable.Message{{Role: "system", ToolsAdded: []durable.ToolSpec{v.tool}}, {Role: "user", Content: "go"}}
+		if v.callArgs != "" {
+			messages = append(messages,
+				durable.Message{Role: "assistant", ToolCalls: []durable.ToolCall{{ID: "c1", Name: "run", Arguments: json.RawMessage(v.callArgs)}}, StopReason: "toolUse",
+					ProviderData: json.RawMessage(`{"format":"openai-completions-v1","provider":"custom","model":"m1"}`)},
+				durable.Message{Role: "tool", ToolCallID: "c1", ToolName: "run", Content: "1"}, durable.Message{Role: "user", Content: "again"})
+		}
+		adapter := OpenAI{BaseURL: "https://example.test/v1", MaxTokens: 1000, Window: 128000, Compat: OpenAICompat{SupportsOpenAIGrammarTools: &supported}}
+		req := durable.ModelRequest{Model: durable.ModelRef{Provider: "custom", ID: "m1"}, Messages: messages, Tools: []durable.ToolSpec{v.tool}}
+		var wantError struct {
+			Error *string `json:"error"`
+		}
+		if json.Unmarshal(want[i], &wantError) == nil && wantError.Error != nil {
+			_, err := adapter.Generate(context.Background(), req, nil)
+			if err == nil || err.Error() != *wantError.Error {
+				t.Errorf("variant %d: error %v, upstream %q", i, err, *wantError.Error)
+			}
+			continue
+		}
+		if got := payloadOf(t, adapter, req); !crosscheck.Same(got, want[i]) {
+			t.Errorf("variant %d:\n got %s\nwant %s", i, got, want[i])
 		}
 	}
 }

@@ -586,3 +586,46 @@ func TestOpenAIReplaysReasoningDetails(t *testing.T) {
 		t.Fatalf("replayed=%v", replayed)
 	}
 }
+
+// Grammar-constrained tools as pi-ai sends and reads them (expectations
+// from TestCrosscheckOpenAIGrammarTools and TestCrosscheckOpenAIResponses).
+func TestOpenAIGrammarToolsArePiAis(t *testing.T) {
+	yes := true
+	run := durable.ToolSpec{Name: "run", Description: "Run code", Parameters: json.RawMessage(`{"type":"object","properties":{"code":{"type":"string"}},"required":["code"]}`),
+		ConstrainedSampling: json.RawMessage(`{"type":"grammar","variants":{"openai_regex":"^print\\(.*\\)$"}}`)}
+	m := OpenAI{BaseURL: "https://example.test/v1", Compat: OpenAICompat{SupportsOpenAIGrammarTools: &yes}}
+	history := []durable.Message{{Role: "system", ToolsAdded: []durable.ToolSpec{run}}, {Role: "user", Content: "go"},
+		{Role: "assistant", ToolCalls: []durable.ToolCall{{ID: "c1", Name: "run", Arguments: json.RawMessage(`{"code":"print(1)"}`)}}, StopReason: "toolUse"},
+		{Role: "tool", ToolCallID: "c1", ToolName: "run", Content: "1"}, {Role: "user", Content: "again"}}
+	body := sentPayload(t, m, durable.ModelRequest{Model: durable.ModelRef{Provider: "custom", ID: "m1"}, Messages: history, Tools: []durable.ToolSpec{run}})
+	tools, _ := json.Marshal(body["tools"])
+	if string(tools) != `[{"custom":{"description":"Run code","format":{"grammar":{"definition":"^print\\(.*\\)$","syntax":"regex"},"type":"grammar"},"name":"run"},"type":"custom"}]` {
+		t.Fatalf("tools=%s", tools)
+	}
+	call, _ := json.Marshal(body["messages"].([]any)[1].(map[string]any)["tool_calls"])
+	if string(call) != `[{"custom":{"input":"print(1)","name":"run"},"id":"c1","type":"custom"}]` {
+		t.Fatalf("replayed call=%s", call)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		for _, line := range []string{
+			`data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"c2","type":"custom","custom":{"name":"run","input":"print("}}]}}]}`,
+			`data: {"choices":[{"delta":{"tool_calls":[{"index":0,"custom":{"input":"\"x\")"}}]},"finish_reason":"tool_calls"}]}`,
+		} {
+			_, _ = w.Write([]byte(line + "\n\n"))
+		}
+	}))
+	defer server.Close()
+	m.BaseURL = server.URL
+	got, err := m.Generate(context.Background(), durable.ModelRequest{Model: durable.ModelRef{Provider: "custom", ID: "m1"}, Messages: history[:2], Tools: []durable.ToolSpec{run}}, nil)
+	if err != nil || len(got.ToolCalls) != 1 || string(got.ToolCalls[0].Arguments) != `{"code":"print(\"x\")"}` || got.StopReason != "toolUse" {
+		t.Fatalf("response=%+v err=%v", got, err)
+	}
+	broken := run
+	broken.ConstrainedSampling = json.RawMessage(`{"type":"grammar","variants":{}}`)
+	brokenHistory := []durable.Message{{Role: "system", ToolsAdded: []durable.ToolSpec{broken}}, {Role: "user", Content: "go"}}
+	if _, err := m.Generate(context.Background(), durable.ModelRequest{Model: durable.ModelRef{Provider: "custom", ID: "m1"}, Messages: brokenHistory, Tools: []durable.ToolSpec{broken}}, nil); err == nil ||
+		err.Error() != `Tool "run" cannot use grammar constrained sampling: no supported grammar variant was provided.` {
+		t.Fatalf("error=%v", err)
+	}
+}

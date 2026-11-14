@@ -225,7 +225,8 @@ const ops: Record<string, (input: any) => Promise<unknown>> = {
 			});
 			for await (const _ of stream) {
 			}
-			out.push(captured);
+			// Without a payload, the error that stopped the request.
+			out.push(captured ?? { error: (await stream.result()).errorMessage ?? null });
 		}
 		return out;
 	},
