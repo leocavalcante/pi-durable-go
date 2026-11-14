@@ -8,20 +8,18 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"os"
 	"os/exec"
-	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 
 	durable "github.com/leocavalcante/pi-durable-go"
+	"github.com/leocavalcante/pi-durable-go/internal/piinstall"
 )
 
 //go:embed pi_bridge.mjs
 var piBridge string
 
-const piPackageName = "@earendil-works/pi-coding-agent"
+const piPackageName = piinstall.PackageName
 
 // Pi delegates model requests to the installed Pi coding-agent SDK. Pi owns
 // credential resolution/refresh and provider conversion; Go owns the transcript,
@@ -396,81 +394,8 @@ func piBridgeError(code string, retryable, overflow bool) error {
 	}
 }
 
-func (p Pi) nodePath() string {
-	if p.NodePath != "" {
-		return p.NodePath
-	}
-	if node, err := exec.LookPath("node"); err == nil {
-		return node
-	}
-	data := os.Getenv("XDG_DATA_HOME")
-	if data == "" {
-		if home, err := os.UserHomeDir(); err == nil {
-			data = filepath.Join(home, ".local", "share")
-		}
-	}
-	if data != "" {
-		node := filepath.Join(data, "pi-node", "current", "bin", "node")
-		if info, err := os.Stat(node); err == nil && !info.IsDir() && info.Mode()&0111 != 0 {
-			return node
-		}
-	}
-	return "node" // Start returns the sanitized setup error.
-}
+func (p Pi) nodePath() string { return piinstall.NodePath(p.NodePath) }
 
-func (p Pi) packageDir() string {
-	if p.PackageDir != "" {
-		return p.PackageDir
-	}
-	if dir := os.Getenv("PI_PACKAGE_DIR"); dir != "" {
-		return dir
-	}
-	// Pi's managed launcher is not a symlink to its npm entry point. Its
-	// current-version file selects a release without executing the launcher.
-	if root := os.Getenv("PI_MANAGED_INSTALL_ROOT"); root != "" {
-		if dir := managedPiPackage(root); dir != "" {
-			return dir
-		}
-	}
-	if bin, err := exec.LookPath("pi"); err == nil {
-		if bin, err = filepath.EvalSymlinks(bin); err == nil {
-			if dir := managedPiPackage(filepath.Join(filepath.Dir(bin), "..", "install")); dir != "" {
-				return dir
-			}
-			// npm links pi to dist/cli.js or dist/bundle/cli.js.
-			dir := filepath.Dir(bin)
-			for range 3 {
-				if isPiPackage(dir) {
-					return dir
-				}
-				dir = filepath.Dir(dir)
-			}
-		}
-	}
-	return ""
-}
+func (p Pi) packageDir() string { return piinstall.PackageDir(p.PackageDir) }
 
-func managedPiPackage(root string) string {
-	data, err := os.ReadFile(filepath.Join(root, "current-version"))
-	if err != nil {
-		return ""
-	}
-	version := strings.TrimSpace(string(data))
-	if version == "" || version == "." || version == ".." || strings.ContainsAny(version, `/\\`) {
-		return ""
-	}
-	dir := filepath.Join(root, "releases", version, "node_modules", filepath.FromSlash(piPackageName))
-	if isPiPackage(dir) {
-		return dir
-	}
-	return ""
-}
-
-func isPiPackage(dir string) bool {
-	data, err := os.ReadFile(filepath.Join(dir, "package.json"))
-	if err != nil {
-		return false
-	}
-	var pkg struct{ Name string }
-	return json.Unmarshal(bytes.TrimPrefix(data, []byte{0xef, 0xbb, 0xbf}), &pkg) == nil && pkg.Name == piPackageName
-}
+func managedPiPackage(root string) string { return piinstall.Managed(root) }
