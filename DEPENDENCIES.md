@@ -11,12 +11,14 @@ checksums are recorded in `go.mod` and `go.sum`.
 | [`modernc.org/sqlite`](https://pkg.go.dev/modernc.org/sqlite) | BSD-3-Clause | Pure-Go SQLite driver; SQLite itself is public domain |
 | [`github.com/santhosh-tekuri/jsonschema/v6`](https://github.com/santhosh-tekuri/jsonschema) | Apache-2.0 | Local JSON Schema validation for tool arguments |
 | [`github.com/dlclark/regexp2`](https://github.com/dlclark/regexp2) | MIT | ECMAScript regular expressions for schema patterns, as pi-schema compiles them |
-| [`golang.org/x/text`](https://pkg.go.dev/golang.org/x/text) | BSD-3-Clause | Unicode normalization and segmentation for `tool_search` and edit matching; wording of schema failures pi-schema has no message for |
+| [`golang.org/x/text`](https://pkg.go.dev/golang.org/x/text) | BSD-3-Clause | Unicode normalization and segmentation for `tool_search` and edit matching; wording of schema failures pi-schema has no message for; the root collation that orders code mode namespaces as `localeCompare` does |
 | [`golang.org/x/image`](https://pkg.go.dev/golang.org/x/image) | BSD-3-Clause | WebP and BMP decoding and image scaling for `tools.StdImages` |
 
 ## Optional Pi SDK runtime
 
 `model.Pi` runs a separately installed Node.js and `@earendil-works/pi-coding-agent` (MIT; tested baseline 1.5.2), using that SDK's own pi-ai/auth/provider dependencies. These are not Go dependencies, vendored code, or bundled binaries. The bridge is original integration code using the public SDK. Install only trusted packages and preserve their licenses/notices if redistributing them. The default Go runtime and `model.OpenAI` do not require Node/npm.
+
+`codemode.NodeSandbox` likewise runs the installed Pi's `@earendil-works/pi-codemode` (MIT) and its `quickjs-wasi` (MIT; QuickJS-NG compiled to WebAssembly) with a separately installed Node.js. They are not Go dependencies or bundled; the bridge, `codemode/bridge.mjs`, is original integration code using pi-codemode's public API.
 
 ## Runtime transitive dependencies
 

@@ -3,6 +3,7 @@ package durable
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"regexp"
 	"strconv"
@@ -81,7 +82,8 @@ type NestedToolSummary struct {
 // ExecuteTool runs a nested call: another tool, callable by tools, as its
 // own task owned by this call, and waits for its result. Nested calls run as
 // soon as they are made; the caller decides what runs at once by what it
-// awaits. Cancelling ctx stops only the wait. When this call settles, nested
+// awaits. Arguments that are not an object fail the nested call's
+// validation. Cancelling ctx stops only the wait. When this call settles, nested
 // calls it left running are aborted first. It fails once Execute returned or
 // the call ended. A rerun of a replay-safe caller finds calls it already made
 // by key; reusing a key for another tool or other arguments fails.
@@ -98,9 +100,10 @@ func (r *ToolRuntime) ExecuteTool(ctx context.Context, name string, args json.Ra
 		keyJSON, _ := json.Marshal(key)
 		return NestedToolResult{}, fmt.Errorf("%w: Nested call key %s must be non-empty, without \"/\", not \"__proto__\", and not a positive integer", ErrInvalid, keyJSON)
 	}
-	var object map[string]json.RawMessage
-	if json.Unmarshal(args, &object) != nil || object == nil {
-		return NestedToolResult{}, fmt.Errorf("%w: nested call arguments must be a JSON object", ErrInvalid)
+	// Arguments that are not an object are the nested call's to report: its
+	// validation fails it, as upstream's does.
+	if !json.Valid(args) {
+		return NestedToolResult{}, fmt.Errorf("%w: nested call arguments must be JSON", ErrInvalid)
 	}
 	call := ToolCall{ID: r.Call.ID + "/" + key, Name: name, Arguments: append(json.RawMessage(nil), args...)}
 	var id TaskID
@@ -193,6 +196,45 @@ func (r *ToolRuntime) ExecuteTool(ctx context.Context, name string, args json.Ra
 		result.Diagnostics = []ToolDiagnostic{{Severity: "error", Code: settled.Outcome.Status, Message: message}}
 	}
 	return result, nil
+}
+
+// NestedCallRecord is a nested call a call admitted under a key: its task,
+// the call as it was made, and its result once it ended.
+type NestedCallRecord struct {
+	TaskID TaskID
+	Call   ToolCall
+	Result *NestedToolResult
+}
+
+// NestedCall is the nested call this call admitted under key, in this
+// attempt or an earlier one; false when there is none. A rerun checks with it
+// that a key it is about to use names the same call (upstream reads
+// NestedCallDoc and the task's input).
+func (r *ToolRuntime) NestedCall(ctx context.Context, key string) (NestedCallRecord, bool, error) {
+	if err := r.check(); err != nil {
+		return NestedCallRecord{}, false, err
+	}
+	state, err := r.h.read(ctx)
+	if err != nil {
+		return NestedCallRecord{}, false, err
+	}
+	existing, err := readNestedCall(state, r.ID, key)
+	if err != nil || existing.TaskID == 0 {
+		return NestedCallRecord{}, false, err
+	}
+	record := NestedCallRecord{TaskID: existing.TaskID, Result: existing.Result}
+	task, err := r.h.Task(ctx, existing.TaskID)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return record, true, nil
+		}
+		return NestedCallRecord{}, false, err
+	}
+	var input toolTaskInput
+	if json.Unmarshal(task.Input, &input) == nil && input.Kind == "nested" {
+		record.Call = input.Call
+	}
+	return record, true, nil
 }
 
 // defaultNestedKey matches the keys default nested calls take.

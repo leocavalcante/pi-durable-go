@@ -35,7 +35,7 @@
 
 ## 3. Not planned
 
-- **Code mode.** It runs model-written scripts in pi-codemode's QuickJS sandbox with deterministic replay; Go would need an embedded engine and a port of pi-codemode.
+- **Code mode.** It runs model-written scripts in pi-codemode's QuickJS sandbox with deterministic replay. Ported by plan 0009 (`codemode`), with the VM from the installed Pi.
 - **Upstream storage formats and Chord.** Go keeps its own backends; no file-format compatibility is claimed.
 - **Provider payload hooks (`beforeProviderRequest`).** Go's `Model` boundary builds provider payloads in adapters, not in the Harness.
 - **IndexedDB and Cloudflare adapters.** Platform-specific to JavaScript hosts.

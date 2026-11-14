@@ -27,6 +27,26 @@ type ToolRuntime struct {
 	diagnostics   []ToolDiagnostic
 }
 
+// CommitChange commits change as the call's task, which keeps running
+// unchanged (upstream ToolExecutionApi.commit): documents and other records
+// the call writes. It fails once the call ended.
+func (r *ToolRuntime) CommitChange(ctx context.Context, change func(*Tx) error) error {
+	if change == nil {
+		return ErrInvalid
+	}
+	return r.Commit(ctx, func(tx *Tx) (TaskTransition, error) {
+		current, err := tx.Task(r.ID)
+		if err != nil {
+			return TaskTransition{}, err
+		}
+		checkpoint := append(json.RawMessage(nil), current.Checkpoint...)
+		if err := change(tx); err != nil {
+			return TaskTransition{}, err
+		}
+		return TaskTransition{Status: "running", Checkpoint: checkpoint}, nil
+	})
+}
+
 // maxToolOutputBytes bounds a running tool's committed output, keeping the tail.
 const maxToolOutputBytes = 50 * 1024
 

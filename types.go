@@ -899,6 +899,13 @@ type ExecResult struct {
 	ExitCode int
 	Output   string
 }
+
+// TempDirEnv is an ExecutionEnv that creates temporary directories
+// (upstream ExecutionEnv.createTempDir): a new directory whose name starts
+// with prefix.
+type TempDirEnv interface {
+	CreateTempDir(ctx context.Context, prefix string) (string, error)
+}
 type View struct {
 	Sequence     uint64                     `json:"sequence"`
 	Conversation ConversationRecord         `json:"conversation"`

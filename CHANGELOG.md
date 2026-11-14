@@ -36,6 +36,10 @@ says how the port is compared with upstream's own code.
     openai-completions adapter: request fields, thinking formats, the full
     `model.compat` (`OpenAICompat`), headers, message transforms, OpenRouter
     reasoning details, and grammar-constrained tools.
+- **Code mode.** The `codemode` package ports upstream's `codemode` tool and
+  prompt section: model-written JavaScript calls the conversation's tools as
+  nested calls and survives a restart by deterministic replay from a journal.
+  `codemode.NodeSandbox` runs pi-codemode's QuickJS sandbox from the installed Pi.
 - **Coding tools.** `read`, `write`, `edit`, `bash`, `powershell`, and `tool_search`,
   with upstream's schemas, outputs, and notes. Paths resolve as upstream resolves
   them, and `LocalEnv` writes files in place as upstream's Node environment does.

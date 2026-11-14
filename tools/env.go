@@ -78,6 +78,15 @@ func (e *LocalEnv) Exists(ctx context.Context, path string) (bool, error) {
 }
 
 // ReadFile reads the named file; relative paths are based at CWD.
+// CreateTempDir creates a directory in the system's temporary directory
+// whose name starts with prefix, as Node's mkdtemp does.
+func (e *LocalEnv) CreateTempDir(ctx context.Context, prefix string) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	return os.MkdirTemp("", prefix+"*")
+}
+
 func (e *LocalEnv) ReadFile(ctx context.Context, path string) ([]byte, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err

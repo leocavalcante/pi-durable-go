@@ -84,7 +84,8 @@ func TestNestedToolCallContracts(t *testing.T) {
 		}
 		_, err := r.ExecuteTool(ctx, "typed", json.RawMessage(`{"ok":false,"other":1}`), NestedCallOptions{Key: "typed"})
 		errs = append(errs, err)
-		_, err = r.ExecuteTool(ctx, "typed", json.RawMessage(`[]`), NestedCallOptions{})
+		// Arguments that are not an object fail the call's validation.
+		results["array"], err = r.ExecuteTool(ctx, "typed", json.RawMessage(`[]`), NestedCallOptions{})
 		errs = append(errs, err)
 		return ToolResult{Content: "ok"}, nil
 	},
@@ -110,8 +111,11 @@ func TestNestedToolCallContracts(t *testing.T) {
 	if r := results["broken"]; !r.IsError || r.StructuredOutput != nil || r.Diagnostics[len(r.Diagnostics)-1].Code != "invalid_structured_output" {
 		t.Fatalf("broken=%+v", r)
 	}
-	if len(errs) != 2 || !errors.Is(errs[0], ErrInvalid) || !errors.Is(errs[1], ErrInvalid) {
+	if len(errs) != 2 || !errors.Is(errs[0], ErrInvalid) || errs[1] != nil {
 		t.Fatalf("errors=%v", errs)
+	}
+	if r := results["array"]; !r.IsError || len(r.Diagnostics) != 1 || r.Diagnostics[0].Code != "invalid_arguments" {
+		t.Fatalf("array=%+v", r)
 	}
 }
 
@@ -267,5 +271,36 @@ func TestToolUsageIsRecordedOnlyWhenReported(t *testing.T) {
 	}
 	if len(ledger.Tools) != 1 || ledger.Tools["spender"] != (Usage{InputTokens: 3, OutputTokens: 4}) {
 		t.Fatalf("tools=%+v", ledger.Tools)
+	}
+}
+
+// Arguments that are not an object are the nested call's to report, as
+// upstream passes a script's arguments as given: its validation fails it.
+// NestedCall finds the call an attempt admitted under a key.
+func TestNestedCallsValidateArgumentsThatAreNotObjects(t *testing.T) {
+	var got NestedToolResult
+	var callErr error
+	var record NestedCallRecord
+	var found bool
+	var lookupErr error
+	ran := false
+	h, root, _ := nestedHarness(t, func(ctx context.Context, _ json.RawMessage, r *ToolRuntime) (ToolResult, error) {
+		got, callErr = r.ExecuteTool(ctx, "inner", json.RawMessage(`"not an object"`), NestedCallOptions{Key: "k"})
+		record, found, lookupErr = r.NestedCall(ctx, "k")
+		if _, missing, err := r.NestedCall(ctx, "other"); missing || err != nil {
+			t.Errorf("a key never used: %v %v", missing, err)
+		}
+		return ToolResult{Content: "outer"}, nil
+	}, ToolDefinition{ToolSpec: ToolSpec{Name: "inner", Parameters: json.RawMessage(`{"type":"object"}`)}, Callers: []string{"tools"},
+		Execute: func(context.Context, json.RawMessage, *ToolRuntime) (ToolResult, error) {
+			ran = true
+			return ToolResult{Content: "inner"}, nil
+		}})
+	settled := waitSettled(t, h, submit(t, root, SubmissionRequest{Content: "go"}))
+	if settled.Status != "done" || callErr != nil || ran || !got.IsError || len(got.Diagnostics) != 1 || got.Diagnostics[0].Code != "invalid_arguments" {
+		t.Fatalf("settled %+v, nested %+v, err %v, ran %v", settled, got, callErr, ran)
+	}
+	if lookupErr != nil || !found || record.TaskID != got.TaskID || record.Call.Name != "inner" || string(record.Call.Arguments) != `"not an object"` || record.Result == nil {
+		t.Fatalf("record %+v found %v err %v", record, found, lookupErr)
 	}
 }
