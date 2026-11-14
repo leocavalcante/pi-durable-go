@@ -274,6 +274,11 @@ const ops: Record<string, (input: any) => Promise<unknown>> = {
 							: [],
 					),
 					usage: { input: message.usage.input, output: message.usage.output, cacheRead: message.usage.cacheRead, cacheWrite: message.usage.cacheWrite },
+					// OpenRouter's reasoning details, which pi-ai keeps in the thinking signature.
+					reasoningDetails: message.content.flatMap((block: any) => {
+						if (block.type !== "thinking" || !block.thinkingSignature?.startsWith("[")) return [];
+						return JSON.parse(block.thinkingSignature);
+					}),
 				});
 			}
 		} finally {

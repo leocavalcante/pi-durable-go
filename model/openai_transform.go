@@ -144,3 +144,82 @@ func shortHash(s string) string {
 	h2 = (h2^(h2>>16))*2246822507 ^ (h1^(h1>>13))*3266489909
 	return strconv.FormatUint(uint64(h2), 36) + strconv.FormatUint(uint64(h1), 36)
 }
+
+// validReasoningDetail is pi-ai's isOpenAIReasoningDetail: a summary, an
+// encrypted blob, or a text, with well-typed common fields.
+func validReasoningDetail(d map[string]any) bool {
+	if id, ok := d["id"]; ok && id != nil {
+		if _, isString := id.(string); !isString {
+			return false
+		}
+	}
+	if format, ok := d["format"]; ok {
+		if _, isString := format.(string); !isString {
+			return false
+		}
+	}
+	if index, ok := d["index"]; ok {
+		if _, isNumber := index.(float64); !isNumber {
+			return false
+		}
+	}
+	switch d["type"] {
+	case "reasoning.summary":
+		_, ok := d["summary"].(string)
+		return ok
+	case "reasoning.encrypted":
+		_, ok := d["data"].(string)
+		return ok
+	case "reasoning.text":
+		if _, ok := d["text"].(string); !ok {
+			return false
+		}
+		signature, has := d["signature"]
+		_, isString := signature.(string)
+		return !has || signature == nil || isString
+	}
+	return false
+}
+
+// appendReasoningDetail is pi-ai's appendOpenAIReasoningDetail: consecutive
+// text or summary deltas merge into one detail, which takes the common
+// fields it lacks from the later ones.
+func appendReasoningDetail(details []map[string]any, d map[string]any) []map[string]any {
+	if n := len(details); n > 0 {
+		last := details[n-1]
+		merge := func(field string) bool {
+			if d["type"] != last["type"] {
+				return false
+			}
+			last[field] = last[field].(string) + d[field].(string)
+			if last["id"] == nil && d["id"] != nil {
+				last["id"] = d["id"]
+			}
+			if format, _ := last["format"].(string); format == "" && d["format"] != nil {
+				last["format"] = d["format"]
+			}
+			if last["index"] == nil && d["index"] != nil {
+				last["index"] = d["index"]
+			}
+			return true
+		}
+		switch d["type"] {
+		case "reasoning.text":
+			if merge("text") {
+				if signature, _ := last["signature"].(string); signature == "" && d["signature"] != nil {
+					last["signature"] = d["signature"]
+				}
+				return details
+			}
+		case "reasoning.summary":
+			if merge("summary") {
+				return details
+			}
+		}
+	}
+	copied := make(map[string]any, len(d))
+	for key, value := range d {
+		copied[key] = value
+	}
+	return append(details, copied)
+}

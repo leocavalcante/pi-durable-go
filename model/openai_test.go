@@ -557,3 +557,32 @@ func TestOpenAIMidConversationSystemMessagesArePiAis(t *testing.T) {
 		t.Fatalf("tools=%v", body["tools"])
 	}
 }
+
+// OpenRouter's reasoning details are kept with the answer and go back to
+// the same model in place of the reasoning field, as pi-ai keeps them
+// (expectations from TestCrosscheckOpenAIResponses and
+// TestCrosscheckOpenAIReasoningDetailsReplay).
+func TestOpenAIReplaysReasoningDetails(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		for _, line := range []string{
+			`data: {"choices":[{"delta":{"reasoning":"visible","reasoning_details":[{"type":"reasoning.text","text":"Think","index":0}]}}]}`,
+			`data: {"choices":[{"delta":{"reasoning_details":[{"type":"reasoning.text","text":"ing","signature":"sig"},{"type":"bogus"},{"type":"reasoning.encrypted","data":"QUJD","id":"r1"}],"content":"answer"},"finish_reason":"stop"}]}`,
+		} {
+			_, _ = w.Write([]byte(line + "\n\n"))
+		}
+	}))
+	defer server.Close()
+	ref := durable.ModelRef{Provider: "openrouter", ID: "m1"}
+	answer, err := OpenAI{BaseURL: server.URL}.Generate(context.Background(), durable.ModelRequest{Model: ref, Messages: []durable.Message{{Role: "user", Content: "hi"}}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []any{map[string]any{"type": "reasoning.text", "text": "Thinking", "signature": "sig", "index": float64(0)}, map[string]any{"type": "reasoning.encrypted", "data": "QUJD", "id": "r1"}}
+	body := sentPayload(t, OpenAI{BaseURL: "https://openrouter.ai/api/v1", Reasoning: true}, durable.ModelRequest{Model: ref,
+		Messages: []durable.Message{{Role: "user", Content: "hi"}, {Role: "assistant", Thinking: answer.Thinking, Content: answer.Content, ProviderData: answer.ProviderData}, {Role: "user", Content: "more"}}})
+	replayed := body["messages"].([]any)[1].(map[string]any)
+	if !reflect.DeepEqual(replayed["reasoning_details"], want) || replayed["reasoning"] != nil {
+		t.Fatalf("replayed=%v", replayed)
+	}
+}

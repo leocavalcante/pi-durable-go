@@ -410,9 +410,10 @@ type openAIMessage struct {
 	ToolCalls  []openAIToolCall `json:"tool_calls,omitempty"`
 	// An assistant message's thinking, replayed in the field it came in
 	// (pi-ai keeps it for the same model only).
-	ReasoningContent *string `json:"reasoning_content,omitempty"`
-	Reasoning        *string `json:"reasoning,omitempty"`
-	ReasoningText    *string `json:"reasoning_text,omitempty"`
+	ReasoningContent *string          `json:"reasoning_content,omitempty"`
+	Reasoning        *string          `json:"reasoning,omitempty"`
+	ReasoningText    *string          `json:"reasoning_text,omitempty"`
+	ReasoningDetails []map[string]any `json:"reasoning_details,omitempty"`
 }
 type openAIContentPart struct {
 	Type         string          `json:"type"`
@@ -464,6 +465,8 @@ type streamChunk struct {
 			ReasoningContent string `json:"reasoning_content"`
 			Reasoning        string `json:"reasoning"`
 			ReasoningText    string `json:"reasoning_text"`
+			// OpenRouter's structured reasoning, replay data only.
+			ReasoningDetails []json.RawMessage `json:"reasoning_details"`
 		} `json:"delta"`
 		FinishReason *string `json:"finish_reason"`
 	} `json:"choices"`
@@ -517,8 +520,10 @@ type streamTool struct {
 func parseSSE(ctx context.Context, r io.Reader, onEvent func(durable.StreamEvent) error, model durable.ModelRef, supportsFinishReason bool) (durable.ModelResponse, error) {
 	provider := model.Provider
 	response := durable.ModelResponse{}
-	// The field the thinking came in, for replaying it to the same model.
+	// The field the thinking came in, and OpenRouter's reasoning details,
+	// for replaying them to the same model.
 	reasoningField := ""
+	var reasoningDetails []map[string]any
 	tools := map[int]*streamTool{}
 	emit := func(event durable.StreamEvent) error {
 		if onEvent == nil {
@@ -607,6 +612,17 @@ func parseSSE(ctx context.Context, r io.Reader, onEvent func(durable.StreamEvent
 				if err := emit(durable.StreamEvent{Type: "thinking_delta", Index: thinkingIndex, Delta: reasoning}); err != nil {
 					return err
 				}
+			}
+			for _, raw := range choice.Delta.ReasoningDetails {
+				var detail map[string]any
+				if json.Unmarshal(raw, &detail) != nil || !validReasoningDetail(detail) {
+					continue
+				}
+				// A thinking block holds them, even without thinking text.
+				if thinkingIndex < 0 {
+					thinkingIndex, blocks = blocks, blocks+1
+				}
+				reasoningDetails = appendReasoningDetail(reasoningDetails, detail)
 			}
 			if choice.Delta.Content != "" {
 				if textIndex < 0 {
@@ -712,8 +728,9 @@ func parseSSE(ctx context.Context, r io.Reader, onEvent func(durable.StreamEvent
 	}
 	// Which model answered, for replaying its thinking and keeping its tool
 	// call IDs (pi-ai compares an answer's provider and model).
-	if response.Thinking != "" || len(response.ToolCalls) > 0 {
-		response.ProviderData, _ = json.Marshal(openAIReplay{Format: openAIReplayFormat, Provider: model.Provider, Model: model.ID, ReasoningField: reasoningField})
+	if response.Thinking != "" || len(response.ToolCalls) > 0 || len(reasoningDetails) > 0 {
+		response.ProviderData, _ = json.Marshal(openAIReplay{Format: openAIReplayFormat, Provider: model.Provider, Model: model.ID,
+			ReasoningField: reasoningField, ReasoningDetails: reasoningDetails})
 	}
 	if !hasFinishReason && !supportsFinishReason {
 		response.StopReason = "stop"
@@ -867,6 +884,9 @@ type openAIReplay struct {
 	Provider       string `json:"provider"`
 	Model          string `json:"model"`
 	ReasoningField string `json:"reasoningField,omitempty"`
+	// ReasoningDetails are OpenRouter's reasoning_details, replayed as they
+	// came (pi-ai keeps them in the thinking signature).
+	ReasoningDetails []map[string]any `json:"reasoningDetails,omitempty"`
 }
 
 const openAIReplayFormat = "openai-completions-v1"
@@ -886,6 +906,10 @@ func (o OpenAI) assistantMessage(msg *openAIMessage, m durable.Message, model du
 		text = m.Content
 	}
 	replay, sameModel := sameOpenAIModel(m, model)
+	details := sameModel && len(replay.ReasoningDetails) > 0
+	if details {
+		msg.ReasoningDetails = replay.ReasoningDetails
+	}
 	if strings.TrimSpace(m.Thinking) != "" && sameModel {
 		if c.requiresThinkingAsText {
 			parts := []openAIContentPart{{Type: "text", Text: m.Thinking}}
@@ -898,7 +922,11 @@ func (o OpenAI) assistantMessage(msg *openAIMessage, m durable.Message, model du
 				msg.Content = text
 			}
 			thinking := m.Thinking
-			switch replay.ReasoningField {
+			field := replay.ReasoningField
+			if details {
+				field = "" // the details are the replay data
+			}
+			switch field {
 			case "reasoning_content":
 				msg.ReasoningContent = &thinking
 			case "reasoning":

@@ -123,11 +123,18 @@ func TestCrosscheckOpenAIResponses(t *testing.T) {
 		{`data: {"choices":[{"delta":{"content":"no reason"}}]}`, `data: [DONE]`},
 		{`data: {"choices":[{"delta":{"content":"inferred"}}]}`},
 		{`data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_i","type":"function","function":{"name":"lookup","arguments":"{}"}}]}}]}`},
+		// OpenRouter's reasoning details: text deltas merge, an encrypted one
+		// stays apart, invalid ones are dropped, and no thinking text is needed.
+		{`data: {"choices":[{"delta":{"reasoning_details":[{"type":"reasoning.text","text":"Think","index":0,"format":"anthropic-claude-v1"}]}}]}`,
+			`data: {"choices":[{"delta":{"reasoning_details":[{"type":"reasoning.text","text":"ing","signature":"sig","index":0},{"type":"bogus"}]}}]}`,
+			`data: {"choices":[{"delta":{"reasoning_details":[{"type":"reasoning.encrypted","data":"QUJD","id":"r1"}],"content":"answer"},"finish_reason":"stop"}]}`, `data: [DONE]`},
+		{`data: {"choices":[{"delta":{"reasoning":"visible ","reasoning_details":[{"type":"reasoning.summary","summary":"sum"}]}}]}`,
+			`data: {"choices":[{"delta":{"reasoning":"thought","reasoning_details":[{"type":"reasoning.summary","summary":"mary","id":"s1"}]},"finish_reason":"stop"}]}`},
 	}
 	// Per stream, the compat of its model (nil: none).
 	noFinishReason := map[string]any{"supportsFinishReason": false}
 	compats := make([]map[string]any, len(streams))
-	compats[len(streams)-2], compats[len(streams)-1] = noFinishReason, noFinishReason
+	compats[len(streams)-4], compats[len(streams)-3] = noFinishReason, noFinishReason
 	var want []struct {
 		StopReason   string  `json:"stopReason"`
 		ErrorMessage *string `json:"errorMessage"`
@@ -142,6 +149,7 @@ func TestCrosscheckOpenAIResponses(t *testing.T) {
 		Usage struct {
 			Input, Output, CacheRead, CacheWrite int64
 		} `json:"usage"`
+		ReasoningDetails []map[string]any `json:"reasoningDetails"`
 	}
 	crosscheck.Run(t, "openaiStream", map[string]any{"streams": streams, "compats": compats}, &want)
 	current := 0
@@ -181,6 +189,11 @@ func TestCrosscheckOpenAIResponses(t *testing.T) {
 			if i < len(w.ToolCalls) && (response.ToolCalls[i].ID != w.ToolCalls[i].ID || response.ToolCalls[i].Name != w.ToolCalls[i].Name || !crosscheck.Same(response.ToolCalls[i].Arguments, w.ToolCalls[i].Arguments) || response.ToolCalls[i].ArgumentsError != w.ToolCalls[i].ArgumentsError) {
 				t.Errorf("stream %d call %d: %+v, upstream %+v", current, i, response.ToolCalls[i], w.ToolCalls[i])
 			}
+		}
+		var replay openAIReplay
+		_ = json.Unmarshal(response.ProviderData, &replay)
+		if len(replay.ReasoningDetails) != len(w.ReasoningDetails) || len(w.ReasoningDetails) > 0 && !reflect.DeepEqual(replay.ReasoningDetails, w.ReasoningDetails) {
+			t.Errorf("stream %d: reasoning details %v, upstream %v", current, replay.ReasoningDetails, w.ReasoningDetails)
 		}
 		u := response.Usage
 		if u.InputTokens != w.Usage.Input || u.OutputTokens != w.Usage.Output || u.CacheReadTokens != w.Usage.CacheRead || u.CacheWriteTokens != w.Usage.CacheWrite {
@@ -731,6 +744,48 @@ func TestCrosscheckOpenAIMidConversationSystemMessages(t *testing.T) {
 		req := durable.ModelRequest{Model: durable.ModelRef{Provider: "custom", ID: "m1"}, Messages: messages, Tools: durable.CurrentTools(messages)}
 		if got := payloadOf(t, OpenAI{BaseURL: "https://example.test/v1", MaxTokens: 1000, Window: 128000, Compat: compat}, req); !crosscheck.Same(got, want[i]) {
 			t.Errorf("variant %d:\n got %s\nwant %s", i, got, want[i])
+		}
+	}
+}
+
+// OpenRouter's reasoning details go back to the model that gave them, in
+// place of the reasoning field.
+func TestCrosscheckOpenAIReasoningDetailsReplay(t *testing.T) {
+	usage := map[string]any{"input": 1, "output": 1, "cacheRead": 0, "cacheWrite": 0, "totalTokens": 2, "cost": map[string]int{"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "total": 0}}
+	details := []map[string]any{{"type": "reasoning.text", "text": "Thinking", "signature": "sig", "index": float64(0), "format": "anthropic-claude-v1"}, {"type": "reasoning.encrypted", "data": "QUJD", "id": "r1"}}
+	detailsJSON, _ := json.Marshal(details)
+	variants := []struct {
+		same     bool
+		thinking string
+	}{{true, ""}, {true, "Thinking"}, {false, "Thinking"}}
+	var input []map[string]any
+	for _, v := range variants {
+		model := "other"
+		if v.same {
+			model = "m1"
+		}
+		messages := []any{
+			map[string]any{"role": "user", "content": "hi", "timestamp": 1},
+			map[string]any{"role": "assistant", "content": []any{map[string]any{"type": "thinking", "thinking": v.thinking, "thinkingSignature": string(detailsJSON)}, map[string]any{"type": "text", "text": "answer"}},
+				"api": "openai-completions", "provider": "openrouter", "model": model, "stopReason": "stop", "timestamp": 2, "usage": usage},
+			map[string]any{"role": "user", "content": "more", "timestamp": 3},
+		}
+		pi := map[string]any{"id": "m1", "name": "m1", "api": "openai-completions", "provider": "openrouter", "baseUrl": "https://openrouter.ai/api/v1",
+			"reasoning": true, "input": []string{"text"}, "cost": map[string]int{"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0}, "contextWindow": 128000, "maxTokens": 1000}
+		input = append(input, map[string]any{"model": pi, "messages": messages})
+	}
+	var want []json.RawMessage
+	crosscheck.Run(t, "openaiPayload", input, &want)
+	for i, v := range variants {
+		model := "other"
+		if v.same {
+			model = "m1"
+		}
+		replay, _ := json.Marshal(openAIReplay{Format: openAIReplayFormat, Provider: "openrouter", Model: model, ReasoningField: "reasoning", ReasoningDetails: details})
+		req := durable.ModelRequest{Model: durable.ModelRef{Provider: "openrouter", ID: "m1"}, Messages: []durable.Message{{Role: "user", Content: "hi"},
+			{Role: "assistant", Thinking: v.thinking, Content: "answer", ProviderData: replay}, {Role: "user", Content: "more"}}}
+		if got := payloadOf(t, OpenAI{BaseURL: "https://openrouter.ai/api/v1", MaxTokens: 1000, Window: 128000, Reasoning: true}, req); !crosscheck.Same(got, want[i]) {
+			t.Errorf("variant %d %+v:\n got %s\nwant %s", i, v, got, want[i])
 		}
 	}
 }
