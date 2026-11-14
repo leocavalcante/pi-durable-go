@@ -38,7 +38,7 @@ says how the port is compared with upstream's own code.
   with upstream's schemas, outputs, and notes.
 - **Cross-checks.** `make crosscheck` runs upstream's TypeScript sources on the same
   inputs as the Go code:
-  - 89 conversation scenarios replayed through upstream's Harness;
+  - 90 conversation scenarios replayed through upstream's Harness;
   - checks of argument coercion and validation, JSON parsing, partial arguments, the
     read and edit tools, compaction, and OpenAI requests and responses.
 

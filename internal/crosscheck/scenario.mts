@@ -387,6 +387,7 @@ export async function runScenario(
 	const forks: any[] = [];
 	let current = root;
 	const lives: unknown[] = [];
+	const builtins: unknown[] = [];
 	for (const step of scenario.steps ?? []) {
 		if (step.reopen) {
 			if (forks.length > 0) throw new Error("reopening with forks is not supported");
@@ -400,6 +401,20 @@ export async function runScenario(
 			const index = step.fork.at < 0 ? items.length + step.fork.at : step.fork.at;
 			current = await current.fork(items[index].id, { ownership: { kind: "ownerless" } }, context);
 			forks.push(current);
+		} else if (step.builtins) {
+			// The built-in documents of the current conversation; the provider
+			// identity is random, so only its shape.
+			const provider = await harness.snapshot(pd.ProviderDoc, current.id, context);
+			// Usage as token totals: the two runtimes' Usage types differ.
+			const ledger = await harness.snapshot(pd.UsageDoc, current.id, context);
+			const totals = (bucket: Record<string, any>) =>
+				Object.fromEntries(Object.entries(bucket).map(([key, u]) => [key, u.input + u.output + u.cacheRead + u.cacheWrite]));
+			builtins.push({
+				"pi.live": (await harness.snapshot(pd.LiveDoc, current.id, context)) ?? null,
+				"pi.inbox": (await harness.snapshot(pd.InboxDoc, current.id, context)) ?? null,
+				"pi.usage": ledger === undefined ? null : { models: totals(ledger.models), tools: totals(ledger.tools) },
+				"pi.provider": typeof provider?.sessionId === "string" && provider.sessionId.length === 36,
+			});
 		} else if (step.live) {
 			lives.push(normalizeLive(await harness.snapshot(pd.LiveDoc, current.id, context)));
 		} else if (step.doc !== undefined) {
@@ -506,6 +521,7 @@ export async function runScenario(
 		...(forks.length > 0 ? { forks: forked } : {}),
 		...(docs.size > 0 ? { documents } : {}),
 		...(lives.length > 0 ? { live: lives } : {}),
+		...(builtins.length > 0 ? { builtins } : {}),
 		...(scenario.afterRun ? { afterRun } : {}),
 		submissions: settled,
 	};

@@ -87,5 +87,6 @@
  "after-run-task",
  "after-run-holds-the-queue",
  "after-run-terminate",
- "malformed-arguments"
+ "malformed-arguments",
+ "builtin-documents"
 ]

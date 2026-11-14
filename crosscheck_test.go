@@ -601,6 +601,7 @@ type scenarioSpec struct {
 		} `json:"doc,omitempty"`
 		RetireDoc string          `json:"retireDoc,omitempty"`
 		Live      bool            `json:"live,omitempty"`
+		Builtins  bool            `json:"builtins,omitempty"`
 		Wait      string          `json:"wait,omitempty"`
 		WaitHeld  string          `json:"waitHeld,omitempty"`
 		Release   string          `json:"release,omitempty"`
@@ -1046,6 +1047,7 @@ func runScenario(t *testing.T, sc scenarioSpec) json.RawMessage {
 	var forks []*Conversation
 	current := root
 	var lives []any
+	var builtins []any
 	// Conversation documents, version 1, starting empty.
 	docs := map[string]DocumentDefinition{}
 	var kinds []string
@@ -1081,6 +1083,35 @@ func runScenario(t *testing.T, sc scenarioSpec) json.RawMessage {
 			}
 			forks = append(forks, fork)
 			current = fork
+		case step.Builtins:
+			// The built-in documents; the provider identity only by shape.
+			values := map[string]any{}
+			if ledger, err := ReadDocument[UsageState](ctx, h, usageDocument, uint64(current.ID())); err == nil {
+				totals := func(bucket map[string]Usage) map[string]int64 {
+					out := map[string]int64{}
+					for key, u := range bucket {
+						out[key] = u.InputTokens + u.OutputTokens + u.CacheReadTokens + u.CacheWriteTokens
+					}
+					return out
+				}
+				values["pi.usage"] = map[string]any{"models": totals(ledger.Models), "tools": totals(ledger.Tools)}
+			} else {
+				values["pi.usage"] = nil
+			}
+			for _, def := range []DocumentDefinition{liveDocument, inboxDocument} {
+				value, err := ReadDocument[json.RawMessage](ctx, h, def, uint64(current.ID()))
+				switch {
+				case errors.Is(err, ErrNotFound):
+					values[def.Kind] = nil
+				case err != nil:
+					t.Fatal(err)
+				default:
+					values[def.Kind] = value
+				}
+			}
+			provider, err := ReadDocument[ProviderState](ctx, h, providerDocument, uint64(current.ID()))
+			values["pi.provider"] = err == nil && len(provider.SessionID) == 36
+			builtins = append(builtins, values)
 		case step.Live:
 			live, err := ReadDocument[LiveState](ctx, h, liveDocument, uint64(current.ID()))
 			if err != nil && !errors.Is(err, ErrNotFound) {
@@ -1325,6 +1356,9 @@ func runScenario(t *testing.T, sc scenarioSpec) json.RawMessage {
 	}
 	if len(lives) > 0 {
 		report["live"] = lives
+	}
+	if len(builtins) > 0 {
+		report["builtins"] = builtins
 	}
 	if sc.AfterRun != nil {
 		report["afterRun"] = afterRun

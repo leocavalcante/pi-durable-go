@@ -1,0 +1,48 @@
+{
+ "name": "builtin-documents",
+ "model": [
+  {
+   "text": "one"
+  },
+  {
+   "text": "forked"
+  }
+ ],
+ "steps": [
+  {
+   "builtins": true
+  },
+  {
+   "submit": {
+    "type": "input",
+    "content": "hi"
+   }
+  },
+  {
+   "wait": "settled"
+  },
+  {
+   "builtins": true
+  },
+  {
+   "fork": {
+    "at": -1
+   }
+  },
+  {
+   "builtins": true
+  },
+  {
+   "submit": {
+    "type": "input",
+    "content": "in fork"
+   }
+  },
+  {
+   "wait": "settled"
+  },
+  {
+   "builtins": true
+  }
+ ]
+}
