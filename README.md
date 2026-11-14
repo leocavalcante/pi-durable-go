@@ -180,6 +180,8 @@ Application documents have explicit versions, scopes, and fork policies. Use `Up
 - Never make network/model calls, wait for approval, or nest a commit inside a commit callback.
 - History and files can contain sensitive information. Do not publish runtime databases or sessions.
 
+Changes are listed in [CHANGELOG.md](CHANGELOG.md).
+
 ## Development
 
 ```sh
