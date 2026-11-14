@@ -256,11 +256,195 @@ func TestCrosscheckOpenAIThinkingFormats(t *testing.T) {
 			}
 			answer.ProviderData = json.RawMessage(fmt.Sprintf(`{"format":"openai-completions-v1","provider":"custom","model":%q,"reasoningField":%q}`, model, v.replay))
 		}
-		adapter := OpenAI{BaseURL: v.base, MaxTokens: 4096, Window: 128000, Reasoning: true, ThinkingLevelMap: v.levels, ThinkingFormat: v.format, NoImages: true}
+		adapter := OpenAI{BaseURL: v.base, MaxTokens: 4096, Window: 128000, Reasoning: true, ThinkingLevelMap: v.levels, Compat: OpenAICompat{ThinkingFormat: v.format}, NoImages: true}
 		got := payloadOf(t, adapter, durable.ModelRequest{Model: durable.ModelRef{Provider: "custom", ID: "m1"}, ThinkingLevel: v.level,
 			Messages: []durable.Message{{Role: "user", Content: "hi"}, answer, {Role: "user", Content: "more"}}})
 		if !crosscheck.Same(got, want[i]) {
 			t.Errorf("variant %d %+v:\n got %s\nwant %s", i, v, got, want[i])
+		}
+	}
+}
+
+// openAICompatOf is the OpenAICompat of pi-ai's compat JSON.
+func openAICompatOf(t *testing.T, compat map[string]any) OpenAICompat {
+	t.Helper()
+	var c OpenAICompat
+	flag := func(key string) *bool {
+		if v, ok := compat[key].(bool); ok {
+			return &v
+		}
+		return nil
+	}
+	text := func(key string) string { s, _ := compat[key].(string); return s }
+	raw := func(key string) map[string]json.RawMessage {
+		object, ok := compat[key].(map[string]any)
+		if !ok {
+			return nil
+		}
+		out := map[string]json.RawMessage{}
+		for k, v := range object {
+			data, _ := json.Marshal(v)
+			out[k] = data
+		}
+		return out
+	}
+	c.SupportsStore, c.SupportsDeveloperRole, c.SupportsReasoningEffort = flag("supportsStore"), flag("supportsDeveloperRole"), flag("supportsReasoningEffort")
+	c.SupportsUsageInStreaming, c.RequiresToolResultName = flag("supportsUsageInStreaming"), flag("requiresToolResultName")
+	c.RequiresAssistantAfterToolResult, c.RequiresNonNullAssistantContent = flag("requiresAssistantAfterToolResult"), flag("requiresNonNullAssistantContent")
+	c.RequiresToolsWithToolHistory, c.RequiresThinkingAsText = flag("requiresToolsWithToolHistory"), flag("requiresThinkingAsText")
+	c.RequiresReasoningContentOnAssistantMessages, c.ZaiToolStream = flag("requiresReasoningContentOnAssistantMessages"), flag("zaiToolStream")
+	c.SupportsThinkingTokenBudget, c.SupportsLongCacheRetention = flag("supportsThinkingTokenBudget"), flag("supportsLongCacheRetention")
+	c.MaxTokensField, c.ThinkingFormat, c.ThinkingTokenBudgetField = text("maxTokensField"), text("thinkingFormat"), text("thinkingTokenBudgetField")
+	c.CacheControlFormat, c.PromptCacheKeyMode = text("cacheControlFormat"), text("promptCacheKeyMode")
+	c.ChatTemplateKwargs, c.ChatTemplateArgs = raw("chatTemplateKwargs"), raw("chatTemplateArgs")
+	if routing, ok := compat["openRouterRouting"]; ok {
+		c.OpenRouterRouting, _ = json.Marshal(routing)
+	}
+	if routing, ok := compat["vercelGatewayRouting"].(map[string]any); ok {
+		data, _ := json.Marshal(routing)
+		c.VercelGatewayRouting = &GatewayRouting{}
+		_ = json.Unmarshal(data, c.VercelGatewayRouting)
+	}
+	if priority, ok := compat["vllmPriority"].(float64); ok {
+		c.VLLMPriority = &priority
+	}
+	return c
+}
+
+// pi-ai's compat settings, one variant each, and provider detection.
+func TestCrosscheckOpenAICompat(t *testing.T) {
+	lookup := durable.ToolSpec{Name: "lookup", Description: "Look something up", Parameters: json.RawMessage(`{"type":"object","properties":{"q":{"type":"string"}}}`)}
+	piTool := map[string]any{"name": "lookup", "description": "Look something up", "parameters": json.RawMessage(lookup.Parameters)}
+	usage := map[string]any{"input": 1, "output": 1, "cacheRead": 0, "cacheWrite": 0, "totalTokens": 2, "cost": map[string]int{"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "total": 0}}
+	type variant struct {
+		name, provider, id, base string
+		compat                   map[string]any
+		reasoning                bool
+		level, retention         string
+		budgets                  map[string]int
+		noTools                  bool
+		sampling                 map[string]any
+		byLevel                  map[string]map[string]any
+	}
+	enabled := map[string]any{"$var": "thinking.enabled"}
+	variants := []variant{
+		{name: "store off", compat: map[string]any{"supportsStore": false}},
+		{name: "developer role off", compat: map[string]any{"supportsDeveloperRole": false}, reasoning: true, level: "low"},
+		{name: "no effort", compat: map[string]any{"supportsReasoningEffort": false}, reasoning: true, level: "low"},
+		{name: "no usage in streaming", compat: map[string]any{"supportsUsageInStreaming": false}},
+		{name: "max tokens", compat: map[string]any{"maxTokensField": "max_tokens"}},
+		{name: "tool result name", compat: map[string]any{"requiresToolResultName": true}},
+		{name: "assistant after tool result", compat: map[string]any{"requiresAssistantAfterToolResult": true}},
+		{name: "non-null assistant content", compat: map[string]any{"requiresNonNullAssistantContent": true}},
+		{name: "tools with tool history", compat: map[string]any{"requiresToolsWithToolHistory": true}, noTools: true},
+		{name: "no tools without the flag", noTools: true},
+		{name: "thinking as text", compat: map[string]any{"requiresThinkingAsText": true}, reasoning: true, level: "low"},
+		{name: "reasoning content", compat: map[string]any{"requiresReasoningContentOnAssistantMessages": true}, reasoning: true},
+		{name: "chat template", compat: map[string]any{"thinkingFormat": "chat-template", "chatTemplateKwargs": map[string]any{"enable_thinking": enabled, "effort": map[string]any{"$var": "thinking.effort"}, "budget": map[string]any{"$var": "thinking.budget"}, "fixed": "x", "only_on": map[string]any{"$var": "thinking.effort", "omitWhenOff": true}}}, reasoning: true, level: "medium"},
+		{name: "chat template off", compat: map[string]any{"thinkingFormat": "chat-template", "chatTemplateKwargs": map[string]any{"enable_thinking": enabled, "only_on": map[string]any{"$var": "thinking.effort", "omitWhenOff": true}}}, reasoning: true},
+		{name: "baseten", compat: map[string]any{"thinkingFormat": "baseten", "chatTemplateArgs": map[string]any{"enable_thinking": enabled}}, reasoning: true, level: "high"},
+		{name: "baseten off", compat: map[string]any{"thinkingFormat": "baseten", "chatTemplateArgs": map[string]any{"enable_thinking": enabled}}, reasoning: true},
+		{name: "openrouter routing", compat: map[string]any{"openRouterRouting": map[string]any{"order": []string{"a", "b"}, "allow_fallbacks": false}}},
+		{name: "gateway routing", compat: map[string]any{"vercelGatewayRouting": map[string]any{"only": []string{"bedrock"}}}},
+		{name: "zai tool stream", compat: map[string]any{"zaiToolStream": true}},
+		{name: "budget field", compat: map[string]any{"thinkingTokenBudgetField": "thinking_budget"}, reasoning: true, level: "low", budgets: map[string]int{"low": 3000}},
+		{name: "budget alias", compat: map[string]any{"supportsThinkingTokenBudget": true}, reasoning: true, level: "xhigh"},
+		{name: "budget clamped", compat: map[string]any{"thinkingTokenBudgetField": "thinking_budget_tokens"}, reasoning: true, level: "high", budgets: map[string]int{"high": 100000}},
+		{name: "long retention", retention: "long"},
+		{name: "long retention unsupported", compat: map[string]any{"supportsLongCacheRetention": false}, retention: "long"},
+		{name: "cache control", compat: map[string]any{"cacheControlFormat": "anthropic"}},
+		{name: "cache control long", compat: map[string]any{"cacheControlFormat": "anthropic"}, retention: "long"},
+		{name: "cache control none", compat: map[string]any{"cacheControlFormat": "anthropic"}, retention: "none"},
+		{name: "cache key enabled", compat: map[string]any{"promptCacheKeyMode": "enabled"}},
+		{name: "cache key disabled", base: "https://api.openai.com/v1", compat: map[string]any{"promptCacheKeyMode": "disabled"}},
+		{name: "vllm priority", compat: map[string]any{"vllmPriority": -2.5}},
+		{name: "sampling", sampling: map[string]any{"temperature": 0.3, "top_p": 0.9}, byLevel: map[string]map[string]any{"low": {"temperature": 0.7}}, reasoning: true, level: "low"},
+		{name: "deepseek by provider", provider: "deepseek", reasoning: true, level: "low"},
+		{name: "zai by provider", provider: "zai", reasoning: true, level: "low"},
+		{name: "openrouter anthropic by provider", provider: "openrouter", id: "anthropic/claude-x", reasoning: true, level: "low"},
+		{name: "openrouter openai by provider", provider: "openrouter", id: "openai/gpt-x", reasoning: true},
+		{name: "xai by provider", provider: "xai", reasoning: true, level: "low"},
+		{name: "together by provider", provider: "together", reasoning: true, level: "low", retention: "long"},
+	}
+	var input []map[string]any
+	for _, v := range variants {
+		provider, id, base := v.provider, v.id, v.base
+		if provider == "" {
+			provider = "custom"
+		}
+		if id == "" {
+			id = "m1"
+		}
+		if base == "" {
+			base = "https://example.test/v1"
+		}
+		piModel := map[string]any{"id": id, "name": id, "api": "openai-completions", "provider": provider, "baseUrl": base,
+			"reasoning": v.reasoning, "input": []string{"text", "image"}, "cost": map[string]int{"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0},
+			"contextWindow": 128000, "maxTokens": 8192}
+		if v.compat != nil {
+			piModel["compat"] = v.compat
+		}
+		if v.sampling != nil {
+			piModel["samplingParams"] = v.sampling
+		}
+		if v.byLevel != nil {
+			piModel["samplingParamsByThinkingLevel"] = v.byLevel
+		}
+		system := map[string]any{"role": "system", "content": "Be brief.", "timestamp": 1}
+		if !v.noTools {
+			system["toolsAdded"] = []any{piTool}
+		}
+		messages := []any{
+			system,
+			map[string]any{"role": "user", "content": "hi", "timestamp": 2},
+			map[string]any{"role": "assistant", "content": []any{map[string]any{"type": "thinking", "thinking": "plan", "thinkingSignature": "reasoning_content"},
+				map[string]any{"type": "toolCall", "id": "c1", "name": "lookup", "arguments": map[string]string{"q": "x"}}},
+				"api": "openai-completions", "provider": provider, "model": id, "stopReason": "toolUse", "timestamp": 3, "usage": usage},
+			map[string]any{"role": "toolResult", "toolCallId": "c1", "toolName": "lookup", "content": []any{map[string]any{"type": "text", "text": "found"}}, "isError": false, "timestamp": 4},
+			map[string]any{"role": "user", "content": "next", "timestamp": 5},
+		}
+		options := map[string]any{"sessionId": "sess-1"}
+		if v.level != "" {
+			options["reasoning"] = v.level
+		}
+		if v.retention != "" {
+			options["cacheRetention"] = v.retention
+		}
+		if v.budgets != nil {
+			options["thinkingBudgets"] = v.budgets
+		}
+		input = append(input, map[string]any{"model": piModel, "messages": messages, "options": options})
+	}
+	var want []json.RawMessage
+	crosscheck.Run(t, "openaiPayload", input, &want)
+	for i, v := range variants {
+		provider, id, base := v.provider, v.id, v.base
+		if provider == "" {
+			provider = "custom"
+		}
+		if id == "" {
+			id = "m1"
+		}
+		if base == "" {
+			base = "https://example.test/v1"
+		}
+		adapter := OpenAI{BaseURL: base, MaxTokens: 8192, Window: 128000, Reasoning: v.reasoning, Compat: openAICompatOf(t, v.compat),
+			SamplingParams: v.sampling, SamplingParamsByThinkingLevel: v.byLevel}
+		system := durable.Message{Role: "system", Content: "Be brief."}
+		var tools []durable.ToolSpec
+		if !v.noTools {
+			system.ToolsAdded = []durable.ToolSpec{lookup}
+			tools = []durable.ToolSpec{lookup}
+		}
+		answer := durable.Message{Role: "assistant", Thinking: "plan", ToolCalls: []durable.ToolCall{{ID: "c1", Name: "lookup", Arguments: json.RawMessage(`{"q":"x"}`)}},
+			ProviderData: json.RawMessage(fmt.Sprintf(`{"format":"openai-completions-v1","provider":%q,"model":%q,"reasoningField":"reasoning_content"}`, provider, id))}
+		req := durable.ModelRequest{Model: durable.ModelRef{Provider: provider, ID: id}, SessionID: "sess-1", ThinkingLevel: v.level, Tools: tools,
+			Messages: []durable.Message{system, {Role: "user", Content: "hi"}, answer, {Role: "tool", ToolCallID: "c1", ToolName: "lookup", Content: "found"}, {Role: "user", Content: "next"}}}
+		if v.retention != "" || v.budgets != nil {
+			req.Stream = &durable.StreamOptions{CacheRetention: v.retention, ThinkingBudgets: v.budgets}
+		}
+		if got := payloadOf(t, adapter, req); !crosscheck.Same(got, want[i]) {
+			t.Errorf("%s:\n got %s\nwant %s", v.name, got, want[i])
 		}
 	}
 }
