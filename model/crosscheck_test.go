@@ -545,3 +545,85 @@ func TestCrosscheckOpenAIHeaders(t *testing.T) {
 		}
 	}
 }
+
+// pi-ai's transformMessages: tool call IDs of other models' answers, failed
+// and aborted answers, and tool calls left without results.
+func TestCrosscheckOpenAITransform(t *testing.T) {
+	usage := map[string]any{"input": 1, "output": 1, "cacheRead": 0, "cacheWrite": 0, "totalTokens": 2, "cost": map[string]int{"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "total": 0}}
+	longPipe := "call_abc|fc_" + strings.Repeat("9", 60)
+	type answer struct {
+		calls      []string
+		same       bool
+		stopReason string
+		text       string
+	}
+	type turn struct {
+		answer  *answer
+		results []string
+		user    string
+	}
+	variants := []struct {
+		provider string
+		turns    []turn
+	}{
+		{"custom", []turn{{answer: &answer{calls: []string{longPipe}}, results: []string{longPipe}}, {user: "next"}}},
+		{"custom", []turn{{answer: &answer{calls: []string{"call_1|item_2"}}, results: []string{"call_1|item_2"}}, {user: "next"}}},
+		{"openai", []turn{{answer: &answer{calls: []string{strings.Repeat("x", 45)}}, results: []string{strings.Repeat("x", 45)}}, {user: "next"}}},
+		{"openai", []turn{{answer: &answer{calls: []string{longPipe}, same: true}, results: []string{longPipe}}, {user: "next"}}},
+		{"custom", []turn{{answer: &answer{text: "cut off", stopReason: "aborted"}}, {user: "again"}}},
+		{"custom", []turn{{answer: &answer{text: "failed", stopReason: "error"}}, {user: "again"}}},
+		{"custom", []turn{{answer: &answer{calls: []string{"a", "b"}}, results: []string{"a"}}, {user: "next"}}},
+		{"custom", []turn{{answer: &answer{calls: []string{"a"}}}}},
+	}
+	var input []map[string]any
+	var requests []durable.ModelRequest
+	for _, v := range variants {
+		piMessages := []any{map[string]any{"role": "user", "content": "hi", "timestamp": 1}}
+		messages := []durable.Message{{Role: "user", Content: "hi"}}
+		for _, turn := range v.turns {
+			if a := turn.answer; a != nil {
+				model := "other"
+				if a.same {
+					model = "m1"
+				}
+				stop := a.stopReason
+				if stop == "" {
+					stop = "toolUse"
+				}
+				var content []any
+				m := durable.Message{Role: "assistant", Content: a.text, StopReason: stop}
+				if a.text != "" {
+					content = append(content, map[string]any{"type": "text", "text": a.text})
+				}
+				for _, id := range a.calls {
+					content = append(content, map[string]any{"type": "toolCall", "id": id, "name": "lookup", "arguments": map[string]any{}})
+					m.ToolCalls = append(m.ToolCalls, durable.ToolCall{ID: id, Name: "lookup", Arguments: json.RawMessage(`{}`)})
+				}
+				if a.same {
+					m.ProviderData = json.RawMessage(fmt.Sprintf(`{"format":"openai-completions-v1","provider":%q,"model":"m1"}`, v.provider))
+				}
+				piMessages = append(piMessages, map[string]any{"role": "assistant", "content": content, "api": "openai-completions", "provider": v.provider, "model": model, "stopReason": stop, "timestamp": 2, "usage": usage})
+				messages = append(messages, m)
+			}
+			for _, id := range turn.results {
+				piMessages = append(piMessages, map[string]any{"role": "toolResult", "toolCallId": id, "toolName": "lookup", "content": []any{map[string]any{"type": "text", "text": "found"}}, "isError": false, "timestamp": 3})
+				messages = append(messages, durable.Message{Role: "tool", ToolCallID: id, ToolName: "lookup", Content: "found"})
+			}
+			if turn.user != "" {
+				piMessages = append(piMessages, map[string]any{"role": "user", "content": turn.user, "timestamp": 4})
+				messages = append(messages, durable.Message{Role: "user", Content: turn.user})
+			}
+		}
+		model := map[string]any{"id": "m1", "name": "m1", "api": "openai-completions", "provider": v.provider, "baseUrl": "https://example.test/v1",
+			"reasoning": false, "input": []string{"text"}, "cost": map[string]int{"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0}, "contextWindow": 128000, "maxTokens": 1000}
+		input = append(input, map[string]any{"model": model, "messages": piMessages})
+		requests = append(requests, durable.ModelRequest{Model: durable.ModelRef{Provider: v.provider, ID: "m1"}, Messages: messages})
+	}
+	var want []json.RawMessage
+	crosscheck.Run(t, "openaiPayload", input, &want)
+	for i, req := range requests {
+		if got := payloadOf(t, OpenAI{BaseURL: "https://example.test/v1", MaxTokens: 1000, Window: 128000}, req); !crosscheck.Same(got, want[i]) {
+			t.Errorf("variant %d:\n got %s\nwant %s", i, got, want[i])
+		}
+	}
+}

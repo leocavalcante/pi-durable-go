@@ -134,7 +134,7 @@ func (o OpenAI) GenerateEvents(ctx context.Context, req durable.ModelRequest, on
 	// Chat Completions takes no system messages mid-conversation: fold them
 	// into one leading message with the replayed prompt and tools, as pi-ai
 	// does for such providers.
-	messages := durable.CollapseSystemMessages(req.Messages)
+	messages := transformMessages(durable.CollapseSystemMessages(req.Messages), req.Model)
 	tools := req.Tools
 	if durable.HasToolChanges(req.Messages) {
 		tools = durable.CurrentTools(req.Messages)
@@ -714,7 +714,9 @@ func parseSSE(ctx context.Context, r io.Reader, onEvent func(durable.StreamEvent
 		args, argumentsError := durable.ParseToolCallArguments(t.arguments.String())
 		response.ToolCalls = append(response.ToolCalls, durable.ToolCall{ID: t.id, Name: t.name, Arguments: args, ArgumentsError: argumentsError})
 	}
-	if response.Thinking != "" {
+	// Which model answered, for replaying its thinking and keeping its tool
+	// call IDs (pi-ai compares an answer's provider and model).
+	if response.Thinking != "" || len(response.ToolCalls) > 0 {
 		response.ProviderData, _ = json.Marshal(openAIReplay{Format: openAIReplayFormat, Provider: model.Provider, Model: model.ID, ReasoningField: reasoningField})
 	}
 	if !hasFinishReason && !supportsFinishReason {
@@ -887,9 +889,7 @@ func (o OpenAI) assistantMessage(msg *openAIMessage, m durable.Message, model du
 	if strings.TrimSpace(m.Content) != "" {
 		text = m.Content
 	}
-	var replay openAIReplay
-	sameModel := json.Unmarshal(m.ProviderData, &replay) == nil && replay.Format == openAIReplayFormat &&
-		replay.Provider == model.Provider && replay.Model == model.ID
+	replay, sameModel := sameOpenAIModel(m, model)
 	if strings.TrimSpace(m.Thinking) != "" && sameModel {
 		if c.requiresThinkingAsText {
 			parts := []openAIContentPart{{Type: "text", Text: m.Thinking}}

@@ -494,3 +494,35 @@ func TestOpenAIHeadersArePiAis(t *testing.T) {
 		t.Fatalf("affinity headers=%v", got)
 	}
 }
+
+// pi-ai's transformMessages (expectations from TestCrosscheckOpenAITransform).
+func TestOpenAITransformsMessagesAsPiAi(t *testing.T) {
+	long := "call_abc|fc_" + strings.Repeat("9", 60)
+	for _, c := range []struct{ id, provider, want string }{
+		{long, "custom", "call_abc_rzqgi7f8"},
+		{"call_1|item_2", "custom", "call_1_item_2"},
+		{strings.Repeat("x", 45), "openai", strings.Repeat("x", 40)},
+		{strings.Repeat("x", 45), "custom", strings.Repeat("x", 45)},
+	} {
+		if got := normalizeToolCallID(c.id, c.provider); got != c.want {
+			t.Errorf("normalizeToolCallID(%q, %q)=%q, want %q", c.id, c.provider, got, c.want)
+		}
+	}
+	ref := durable.ModelRef{Provider: "custom", ID: "m1"}
+	got := transformMessages([]durable.Message{
+		{Role: "user", Content: "hi"},
+		{Role: "assistant", ToolCalls: []durable.ToolCall{{ID: long, Name: "lookup"}, {ID: "b", Name: "lookup"}}, StopReason: "toolUse"},
+		{Role: "tool", ToolCallID: long, ToolName: "lookup", Content: "found"},
+		{Role: "user", Content: "next"},
+		{Role: "assistant", Content: "cut off", StopReason: "aborted"},
+		{Role: "user", Content: "again"},
+	}, ref)
+	var ids []string
+	for _, m := range got {
+		ids = append(ids, m.Role+":"+m.ToolCallID+m.Content)
+	}
+	want := []string{"user:hi", "assistant:", "tool:call_abc_rzqgi7f8found", "tool:bNo result provided", "user:next", "user:again"}
+	if strings.Join(ids, ",") != strings.Join(want, ",") || got[1].ToolCalls[0].ID != "call_abc_rzqgi7f8" || !got[3].IsError {
+		t.Fatalf("messages=%q", ids)
+	}
+}
