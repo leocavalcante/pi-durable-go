@@ -16,7 +16,9 @@ says how the port is compared with upstream's own code.
 - **Durable sessions.** Conversations, entries, tasks, submissions, and documents
   (rewindable or latest, forked as of an entry or current) are committed through one
   owning Session. Group commits, deferred progress commits, and bounded memory over
-  record storage are supported. Any storage error fails the Session.
+  record storage are supported. Any storage error fails the Session. Every
+  conversation and fork starts with upstream's built-in documents: `pi.live`,
+  `pi.inbox`, `pi.usage`, `pi.provider`, and `pi.agent`.
 - **Agent harness.** Ported from upstream:
   - generation runs with retries, steering, follow-ups, turn limits, and failed-run
     policies;
@@ -35,7 +37,8 @@ says how the port is compared with upstream's own code.
     `model.compat` (`OpenAICompat`), headers, message transforms, OpenRouter
     reasoning details, and grammar-constrained tools.
 - **Coding tools.** `read`, `write`, `edit`, `bash`, `powershell`, and `tool_search`,
-  with upstream's schemas, outputs, and notes.
+  with upstream's schemas, outputs, and notes. Paths resolve as upstream resolves
+  them, and `LocalEnv` writes files in place as upstream's Node environment does.
 - **Cross-checks.** `make crosscheck` runs upstream's TypeScript sources on the same
   inputs as the Go code:
   - 90 conversation scenarios replayed through upstream's Harness;
