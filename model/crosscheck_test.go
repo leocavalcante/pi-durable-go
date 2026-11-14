@@ -627,3 +627,110 @@ func TestCrosscheckOpenAITransform(t *testing.T) {
 		}
 	}
 }
+
+// Mid-conversation system messages: updates in place, tool additions
+// declared in place, removals folded into the request tools, and a system
+// message held after the results of the tool calls it interrupts.
+func TestCrosscheckOpenAIMidConversationSystemMessages(t *testing.T) {
+	usage := map[string]any{"input": 1, "output": 1, "cacheRead": 0, "cacheWrite": 0, "totalTokens": 2, "cost": map[string]int{"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "total": 0}}
+	lookup := durable.ToolSpec{Name: "lookup", Description: "Look", Parameters: json.RawMessage(`{"type":"object"}`)}
+	extra := durable.ToolSpec{Name: "extra", Description: "More", Parameters: json.RawMessage(`{"type":"object"}`)}
+	piTool := func(s durable.ToolSpec) map[string]any {
+		return map[string]any{"name": s.Name, "description": s.Description, "parameters": json.RawMessage(s.Parameters)}
+	}
+	r1, r2 := "rule one", "rule two"
+	type step struct {
+		go_ durable.Message
+		pi  map[string]any
+	}
+	system := func(content string, sections []durable.SystemSection, piSections string, added []durable.ToolSpec, removed []string) step {
+		m := durable.Message{Role: "system", Content: content, Sections: sections, ToolsAdded: added, ToolsRemoved: removed}
+		pi := map[string]any{"role": "system", "content": content, "timestamp": 1}
+		if piSections != "" {
+			pi["sections"] = json.RawMessage(piSections)
+		}
+		var piAdded []any
+		for _, a := range added {
+			piAdded = append(piAdded, piTool(a))
+		}
+		if len(piAdded) > 0 {
+			pi["toolsAdded"] = piAdded
+		}
+		var piRemoved []any
+		for _, name := range removed {
+			piRemoved = append(piRemoved, map[string]any{"name": name})
+		}
+		if len(piRemoved) > 0 {
+			pi["toolsRemoved"] = piRemoved
+		}
+		return step{m, pi}
+	}
+	user := func(text string) step {
+		return step{durable.Message{Role: "user", Content: text}, map[string]any{"role": "user", "content": text, "timestamp": 2}}
+	}
+	answer := func(text string, calls ...string) step {
+		m := durable.Message{Role: "assistant", Content: text, StopReason: "stop"}
+		content := []any{}
+		if text != "" {
+			content = append(content, map[string]any{"type": "text", "text": text})
+		}
+		for _, id := range calls {
+			m.ToolCalls = append(m.ToolCalls, durable.ToolCall{ID: id, Name: "lookup", Arguments: json.RawMessage(`{}`)})
+			content = append(content, map[string]any{"type": "toolCall", "id": id, "name": "lookup", "arguments": map[string]any{}})
+			m.StopReason = "toolUse"
+		}
+		return step{m, map[string]any{"role": "assistant", "content": content, "api": "openai-completions", "provider": "custom", "model": "other", "stopReason": m.StopReason, "timestamp": 3, "usage": usage}}
+	}
+	result := func(id string) step {
+		return step{durable.Message{Role: "tool", ToolCallID: id, ToolName: "lookup", Content: "found"},
+			map[string]any{"role": "toolResult", "toolCallId": id, "toolName": "lookup", "content": []any{map[string]any{"type": "text", "text": "found"}}, "isError": false, "timestamp": 4}}
+	}
+	base := system("Base prompt.", []durable.SystemSection{{Name: "rules", Text: &r1}}, `{"rules":"rule one"}`, []durable.ToolSpec{lookup}, nil)
+	update := system("", []durable.SystemSection{{Name: "rules", Text: &r2}, {Name: "gone", Text: nil}}, `{"rules":"rule two","gone":null}`, []durable.ToolSpec{extra}, nil)
+	removal := system("Note.", nil, "", []durable.ToolSpec{extra}, []string{"lookup"})
+	variants := []struct {
+		compat map[string]any
+		steps  []step
+	}{
+		{map[string]any{"supportsMidConvoSystemMessages": true}, []step{base, user("hi"), answer("ok"), update, user("more")}},
+		{map[string]any{"supportsMidConvoSystemMessages": true, "supportsMidConvoToolAdditions": true}, []step{base, user("hi"), answer("ok"), update, user("more")}},
+		{map[string]any{"supportsMidConvoSystemMessages": true, "supportsMidConvoToolAdditions": true}, []step{base, user("hi"), answer("ok"), removal, user("more")}},
+		{map[string]any{"supportsMidConvoSystemMessages": true}, []step{base, user("hi"), answer("", "c1"), update, result("c1"), user("more")}},
+		{map[string]any{"supportsMidConvoSystemMessages": true, "supportsMidConvoToolAdditions": true}, []step{base, user("hi"), answer("", "c1"), update, result("c1"), user("more")}},
+		{map[string]any{"supportsMidConvoSystemMessages": true}, []step{user("hi"), base, answer("ok"), user("more")}},
+		{nil, []step{base, user("hi"), answer("ok"), update, user("more")}},
+	}
+	var input []map[string]any
+	for _, v := range variants {
+		model := map[string]any{"id": "m1", "name": "m1", "api": "openai-completions", "provider": "custom", "baseUrl": "https://example.test/v1",
+			"reasoning": false, "input": []string{"text"}, "cost": map[string]int{"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0}, "contextWindow": 128000, "maxTokens": 1000}
+		if v.compat != nil {
+			model["compat"] = v.compat
+		}
+		var messages []any
+		for _, s := range v.steps {
+			messages = append(messages, s.pi)
+		}
+		input = append(input, map[string]any{"model": model, "messages": messages})
+	}
+	var want []json.RawMessage
+	crosscheck.Run(t, "openaiPayload", input, &want)
+	for i, v := range variants {
+		var messages []durable.Message
+		for _, s := range v.steps {
+			messages = append(messages, s.go_)
+		}
+		var compat OpenAICompat
+		if v.compat != nil {
+			yes := true
+			compat.SupportsMidConvoSystemMessages = &yes
+			if v.compat["supportsMidConvoToolAdditions"] == true {
+				compat.SupportsMidConvoToolAdditions = &yes
+			}
+		}
+		req := durable.ModelRequest{Model: durable.ModelRef{Provider: "custom", ID: "m1"}, Messages: messages, Tools: durable.CurrentTools(messages)}
+		if got := payloadOf(t, OpenAI{BaseURL: "https://example.test/v1", MaxTokens: 1000, Window: 128000, Compat: compat}, req); !crosscheck.Same(got, want[i]) {
+			t.Errorf("variant %d:\n got %s\nwant %s", i, got, want[i])
+		}
+	}
+}

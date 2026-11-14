@@ -526,3 +526,34 @@ func TestOpenAITransformsMessagesAsPiAi(t *testing.T) {
 		t.Fatalf("messages=%q", ids)
 	}
 }
+
+// Mid-conversation system messages as pi-ai sends them (expectations from
+// TestCrosscheckOpenAIMidConversationSystemMessages).
+func TestOpenAIMidConversationSystemMessagesArePiAis(t *testing.T) {
+	yes := true
+	r1, r2 := "r1", "r2"
+	lookup := durable.ToolSpec{Name: "lookup", Description: "lookup", Parameters: json.RawMessage(`{"type":"object"}`)}
+	extra := durable.ToolSpec{Name: "extra", Description: "extra", Parameters: json.RawMessage(`{"type":"object"}`)}
+	messages := []durable.Message{
+		{Role: "system", Content: "Base.", Sections: []durable.SystemSection{{Name: "rules", Text: &r1}}, ToolsAdded: []durable.ToolSpec{lookup}},
+		{Role: "user", Content: "hi"},
+		{Role: "assistant", ToolCalls: []durable.ToolCall{{ID: "c1", Name: "lookup", Arguments: json.RawMessage(`{}`)}}, StopReason: "toolUse"},
+		{Role: "system", Sections: []durable.SystemSection{{Name: "rules", Text: &r2}}, ToolsAdded: []durable.ToolSpec{extra}},
+		{Role: "tool", ToolCallID: "c1", ToolName: "lookup", Content: "found"},
+		{Role: "user", Content: "more"},
+	}
+	m := OpenAI{BaseURL: "https://example.test/v1", Compat: OpenAICompat{SupportsMidConvoSystemMessages: &yes, SupportsMidConvoToolAdditions: &yes}}
+	body := sentPayload(t, m, durable.ModelRequest{Model: durable.ModelRef{Provider: "custom", ID: "m1"}, Messages: messages, Tools: durable.CurrentTools(messages)})
+	got, _ := json.Marshal(body["messages"])
+	want := `[{"content":"Base.\n\nr1","role":"system"},{"content":"hi","role":"user"},` +
+		`{"content":null,"role":"assistant","tool_calls":[{"function":{"arguments":"{}","name":"lookup"},"id":"c1","type":"function"}]},` +
+		`{"content":"found","role":"tool","tool_call_id":"c1"},` +
+		`{"role":"system","tools":[{"function":{"description":"extra","name":"extra","parameters":{"type":"object"}},"type":"function"}]},` +
+		`{"content":"Updated system prompt section \"rules\":\n\nr2","role":"system"},{"content":"more","role":"user"}]`
+	if string(got) != want {
+		t.Fatalf("messages=%s", got)
+	}
+	if tools := body["tools"].([]any); len(tools) != 1 || tools[0].(map[string]any)["function"].(map[string]any)["name"] != "lookup" {
+		t.Fatalf("tools=%v", body["tools"])
+	}
+}

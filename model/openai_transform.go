@@ -22,19 +22,24 @@ func sameOpenAIModel(m durable.Message, model durable.ModelRef) (openAIReplay, b
 // answer from another model gets its tool call IDs normalized (and its tool
 // results follow), a failed or aborted answer is not replayed, and a tool
 // call left without a result gets pi-ai's synthetic error result before the
-// next answer or user message.
+// next answer or user message, followed by the system messages that came
+// between the calls and their results.
 func transformMessages(messages []durable.Message, model durable.ModelRef) []durable.Message {
 	renamed := map[string]string{}
 	var out []durable.Message
 	var pending []durable.ToolCall
 	answered := map[string]bool{}
+	// A system message between tool calls and their results waits until
+	// after them: system messages are transparent to tool-call accounting.
+	var held []durable.Message
 	close := func() {
 		for _, call := range pending {
 			if !answered[call.ID] {
 				out = append(out, durable.Message{Role: "tool", ToolCallID: call.ID, ToolName: call.Name, Content: "No result provided", IsError: true})
 			}
 		}
-		pending, answered = nil, map[string]bool{}
+		out = append(out, held...)
+		pending, answered, held = nil, map[string]bool{}, nil
 	}
 	for _, m := range messages {
 		switch m.Role {
@@ -67,6 +72,12 @@ func transformMessages(messages []durable.Message, model durable.ModelRef) []dur
 		case "user":
 			close()
 			out = append(out, m)
+		case "system":
+			if len(pending) > 0 {
+				held = append(held, m)
+			} else {
+				out = append(out, m)
+			}
 		default:
 			out = append(out, m)
 		}

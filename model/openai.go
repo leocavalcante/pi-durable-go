@@ -131,24 +131,46 @@ func (o OpenAI) GenerateEvents(ctx context.Context, req durable.ModelRequest, on
 			lastRole = "user"
 		}
 	}
-	// Chat Completions takes no system messages mid-conversation: fold them
-	// into one leading message with the replayed prompt and tools, as pi-ai
-	// does for such providers.
-	messages := transformMessages(durable.CollapseSystemMessages(req.Messages), req.Model)
-	tools := req.Tools
+	// Without mid-conversation system messages, fold them into one leading
+	// message with the replayed prompt and tools, as pi-ai does.
+	source := req.Messages
+	if !c.supportsMidConvoSystemMessages {
+		source = durable.CollapseSystemMessages(req.Messages)
+	}
+	messages := transformMessages(source, req.Model)
+	tools, folded := req.Tools, -1
 	if durable.HasToolChanges(req.Messages) {
 		tools = durable.CurrentTools(req.Messages)
 	}
+	if c.supportsMidConvoSystemMessages && c.supportsMidConvoToolAdditions {
+		tools, folded = transcriptToolAdditions(req.Messages)
+	}
+	systemIndex := 0
 	// pi-ai sends a reasoning model's instructions as a developer message
 	// where the endpoint takes that role.
 	instructionRole := "system"
 	if o.Reasoning && c.supportsDeveloperRole {
 		instructionRole = "developer"
 	}
-	for _, m := range messages {
+	for i, m := range messages {
 		if m.Role == "system" {
-			m.Content = durable.SystemText(m)
+			// Tools added after the folded ones are declared in place.
+			if folded >= 0 && systemIndex >= folded && len(m.ToolsAdded) > 0 {
+				added, err := o.convertTools(m.ToolsAdded)
+				if err != nil {
+					return durable.ModelResponse{}, err
+				}
+				flushToolImages()
+				payload.Messages = append(payload.Messages, openAIMessage{Role: "system", toolsOnly: true, tools: added})
+			}
+			systemIndex++
+			if i == 0 {
+				m.Content = durable.SystemText(m)
+			} else {
+				m.Content = renderSystemMessageUpdate(m)
+			}
 			if m.Content == "" {
+				lastRole = "system"
 				continue
 			}
 			m.Role = instructionRole
@@ -236,39 +258,9 @@ func (o OpenAI) GenerateEvents(ctx context.Context, req durable.ModelRequest, on
 		}
 	}
 	flushToolImages()
-	var offered []openAITool
-	if len(tools) > 0 {
-		offered = make([]openAITool, 0, len(tools))
-		for _, tool := range tools {
-			var parameters any
-			if len(tool.Parameters) == 0 || !json.Valid(tool.Parameters) {
-				return durable.ModelResponse{}, sanitizedError(fmt.Sprintf("invalid parameters schema for tool %q", tool.Name), false)
-			}
-			if err := json.Unmarshal(tool.Parameters, &parameters); err != nil {
-				return durable.ModelResponse{}, sanitizedError(fmt.Sprintf("invalid parameters schema for tool %q", tool.Name), false)
-			}
-			definition := openAIFunctionDefinition{Name: tool.Name, Description: tool.Description, Parameters: json.RawMessage(compactParameters(tool.Parameters))}
-			// pi-ai sends constrained JSON-schema tools in strict mode, with
-			// their schema in the strict subset, and strict false otherwise.
-			if o.StrictMode {
-				strict, err := strictSampling(tool, true)
-				if err != nil {
-					return durable.ModelResponse{}, sanitizedError(err.Error(), false)
-				}
-				on := strict != nil && *strict
-				if on {
-					converted, err := makeStrictSchema(tool.Parameters)
-					if err != nil {
-						return durable.ModelResponse{}, sanitizedError(err.Error(), false)
-					}
-					definition.Parameters = converted
-				}
-				definition.Strict = &on
-			} else if _, err := strictSampling(tool, false); err != nil {
-				return durable.ModelResponse{}, sanitizedError(err.Error(), false)
-			}
-			offered = append(offered, openAITool{Type: "function", Function: definition})
-		}
+	offered, err := o.convertTools(tools)
+	if err != nil {
+		return durable.ModelResponse{}, err
 	}
 	if len(offered) > 0 {
 		payload.Tools = offered
@@ -406,7 +398,11 @@ type streamOptions struct {
 	IncludeUsage bool `json:"include_usage"`
 }
 type openAIMessage struct {
-	Role string `json:"role"`
+	// toolsOnly marks a tool declaration in place (pi-ai's Kimi-style
+	// system message): role and tools, without content.
+	toolsOnly bool
+	tools     []openAITool
+	Role      string `json:"role"`
 	// Content is text, content parts, or null for an answer without text.
 	Content    any              `json:"content"`
 	Name       string           `json:"name,omitempty"`
@@ -1116,4 +1112,104 @@ func (o OpenAI) clampThinkingLevel(level string) string {
 		}
 	}
 	return first
+}
+
+// convertTools is pi-ai's convertTools: function tools, sent in strict mode
+// with their schema in the strict subset where the endpoint takes strict
+// tools and the tool asks for constrained sampling.
+func (o OpenAI) convertTools(tools []durable.ToolSpec) ([]openAITool, error) {
+	if len(tools) == 0 {
+		return nil, nil
+	}
+	offered := make([]openAITool, 0, len(tools))
+	for _, tool := range tools {
+		var parameters any
+		if len(tool.Parameters) == 0 || !json.Valid(tool.Parameters) {
+			return nil, sanitizedError(fmt.Sprintf("invalid parameters schema for tool %q", tool.Name), false)
+		}
+		if err := json.Unmarshal(tool.Parameters, &parameters); err != nil {
+			return nil, sanitizedError(fmt.Sprintf("invalid parameters schema for tool %q", tool.Name), false)
+		}
+		definition := openAIFunctionDefinition{Name: tool.Name, Description: tool.Description, Parameters: json.RawMessage(compactParameters(tool.Parameters))}
+		if o.StrictMode {
+			strict, err := strictSampling(tool, true)
+			if err != nil {
+				return nil, sanitizedError(err.Error(), false)
+			}
+			on := strict != nil && *strict
+			if on {
+				converted, err := makeStrictSchema(tool.Parameters)
+				if err != nil {
+					return nil, sanitizedError(err.Error(), false)
+				}
+				definition.Parameters = converted
+			}
+			definition.Strict = &on
+		} else if _, err := strictSampling(tool, false); err != nil {
+			return nil, sanitizedError(err.Error(), false)
+		}
+		offered = append(offered, openAITool{Type: "function", Function: definition})
+	}
+	return offered, nil
+}
+
+// MarshalJSON writes a tool declaration in place without content.
+func (m openAIMessage) MarshalJSON() ([]byte, error) {
+	if m.toolsOnly {
+		return marshalNoEscape(struct {
+			Role  string       `json:"role"`
+			Tools []openAITool `json:"tools"`
+		}{m.Role, m.tools})
+	}
+	type plain openAIMessage
+	return marshalNoEscape(plain(m))
+}
+
+// renderSystemMessageUpdate is pi-ai's: a later system message's text, then
+// each section's change.
+func renderSystemMessageUpdate(m durable.Message) string {
+	var parts []string
+	if m.Content != "" {
+		parts = append(parts, m.Content)
+	}
+	for _, section := range m.Sections {
+		if section.Text == nil {
+			parts = append(parts, `Removed system prompt section "`+section.Name+`".`)
+		} else {
+			parts = append(parts, `Updated system prompt section "`+section.Name+`":`+"\n\n"+*section.Text)
+		}
+	}
+	return strings.Join(parts, "\n\n")
+}
+
+// transcriptToolAdditions is pi-ai's resolveTranscriptTools with additions:
+// the request offers the tools as of the last removal or redeclaration (and
+// at least the leading system message's), and later system messages declare
+// their added tools in place. folded counts the system messages the request
+// tools hold.
+func transcriptToolAdditions(messages []durable.Message) ([]durable.ToolSpec, int) {
+	var system []durable.Message
+	for _, m := range messages {
+		if m.Role == "system" {
+			system = append(system, m)
+		}
+	}
+	last := -1
+	declared := map[string]bool{}
+	for i, m := range system {
+		if len(m.ToolsRemoved) > 0 {
+			last = i
+		}
+		for _, tool := range m.ToolsAdded {
+			if declared[tool.Name] {
+				last = i
+			}
+			declared[tool.Name] = true
+		}
+	}
+	folded := last + 1
+	if len(messages) > 0 && messages[0].Role == "system" {
+		folded = max(folded, 1)
+	}
+	return durable.CurrentTools(system[:folded]), folded
 }

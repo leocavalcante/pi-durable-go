@@ -30,6 +30,12 @@ type OpenAICompat struct {
 	SupportsFinishReason *bool
 	// MaxTokensField is max_completion_tokens or max_tokens.
 	MaxTokensField string
+	// SupportsMidConvoSystemMessages keeps later system messages in place,
+	// as updates of the prompt, instead of folding them into the first.
+	// SupportsMidConvoToolAdditions also declares tools added later in
+	// place, offering only the tools up to the last removal or redefinition.
+	SupportsMidConvoSystemMessages *bool
+	SupportsMidConvoToolAdditions  *bool
 	// RequiresToolResultName sends a tool result's tool name.
 	RequiresToolResultName *bool
 	// RequiresAssistantAfterToolResult puts an assistant message between
@@ -95,6 +101,7 @@ type GatewayRouting struct {
 type completionsCompat struct {
 	supportsStore, supportsDeveloperRole, supportsReasoningEffort, supportsUsageInStreaming   bool
 	supportsFinishReason                                                                      bool
+	supportsMidConvoSystemMessages, supportsMidConvoToolAdditions                             bool
 	maxTokensField                                                                            string
 	requiresToolResultName, requiresAssistantAfterToolResult, requiresNonNullAssistantContent bool
 	requiresToolsWithToolHistory, requiresThinkingAsText, requiresReasoningContent            bool
@@ -179,6 +186,7 @@ func (o OpenAI) compat(ref durable.ModelRef) completionsCompat {
 		{&c.supportsStore, x.SupportsStore}, {&c.supportsDeveloperRole, x.SupportsDeveloperRole},
 		{&c.supportsReasoningEffort, x.SupportsReasoningEffort}, {&c.supportsUsageInStreaming, x.SupportsUsageInStreaming},
 		{&c.supportsFinishReason, x.SupportsFinishReason},
+		{&c.supportsMidConvoSystemMessages, x.SupportsMidConvoSystemMessages}, {&c.supportsMidConvoToolAdditions, x.SupportsMidConvoToolAdditions},
 		{&c.requiresToolResultName, x.RequiresToolResultName}, {&c.requiresAssistantAfterToolResult, x.RequiresAssistantAfterToolResult},
 		{&c.requiresNonNullAssistantContent, x.RequiresNonNullAssistantContent}, {&c.requiresToolsWithToolHistory, x.RequiresToolsWithToolHistory},
 		{&c.requiresThinkingAsText, x.RequiresThinkingAsText}, {&c.requiresReasoningContent, x.RequiresReasoningContentOnAssistantMessages},
