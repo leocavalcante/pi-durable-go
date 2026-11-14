@@ -218,3 +218,28 @@ func TestModelErrorClassification(t *testing.T) {
 		t.Error("nil error classified")
 	}
 }
+
+// pi-ai's patterns are JavaScript regular expressions with the i flag and
+// without u: only ASCII letters fold, a dot stops at line terminators, and a
+// lone dot matches one UTF-16 unit. Expectations are upstream's answers
+// (TestCrosscheckErrorClassification).
+func TestRetryPatternsMatchAsJavaScriptDoes(t *testing.T) {
+	for text, want := range map[string]bool{
+		"\u212a429 error":               true, // the Kelvin sign is not [a-z] to JavaScript
+		"a429b":                         false,
+		"rate\rlimit":                   false,
+		"rate\u2028limit":               false,
+		"rate\U0001F600limit":           false,
+		"rate limit":                    true,
+		"\u017fervice unavailable":      false, // nor is the long s an s
+		"SERVICE UNAVAILABLE":           true,
+		"\u212aotal: too many requests": true,
+	} {
+		if got := IsRetryableModelError(errors.New(text)); got != want {
+			t.Errorf("%q: retryable %v, want %v", text, got, want)
+		}
+	}
+	if !IsContextOverflowError(errors.New("input token count\U0001F600 exceeds the maximum"), "openai") {
+		t.Error("a dot repeated matches an astral character")
+	}
+}

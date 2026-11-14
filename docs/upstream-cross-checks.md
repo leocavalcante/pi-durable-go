@@ -32,7 +32,7 @@ For another upstream release, set `PI_DURABLE_UPSTREAM_TAG` with Pi of that vers
 | Context ordering | `orderToolResults` | Equal (6 sequences) |
 | Compaction | `serializeConversation`, `estimateMessageTokens`, `selectCut`, `estimateContext` | Ported to equal |
 | Prompt planning | `planSections`, `planTools` | Equal |
-| Retry and overflow classification | pi-ai `isRetryableAssistantError`, `isContextOverflow` | Equal (27 messages) |
+| Retry and overflow classification | pi-ai `isRetryableAssistantError`, `isContextOverflow` | Ported to equal (47 messages). RE2's Unicode case folding, its dot, and astral characters made five of them differ: the patterns now fold ASCII letters only and keep JavaScript's dot |
 | Partial tool arguments | pi-ai `ToolCallArgumentsStream`, which its providers stream arguments through | Ported to equal (about 130 texts). The check used to read the older `parseStreamingJson`; the port now follows the streaming parser, including unterminated numbers, JavaScript number values, key order, and lone surrogates |
 | Finished tool arguments | pi-ai `parseToolCallArguments` with its repair, and V8's `JSON.parse` messages it reports | Ported to equal (about 130 texts). Malformed arguments used to fail the response here; upstream reports them to the model as `invalid_arguments` |
 | Size formatting | `formatSize`, `toFixed` | Ported to equal |

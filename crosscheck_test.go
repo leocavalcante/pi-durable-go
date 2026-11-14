@@ -403,7 +403,12 @@ func TestCrosscheckErrorClassification(t *testing.T) {
 		"Your input exceeds the context window of this model", "500 Internal Server Error", "Internal error", "terminated", "socket hang up",
 		"The usage limit has been reached", "You exceeded your current quota", "model is overloaded", "Bad gateway", "502",
 		"input is too long for requested model", "prompt too long", "too many tokens", "maximum context length",
-		"Provider finish_reason: content_filter", "Provider finish_reason: network_error"}
+		"Provider finish_reason: content_filter", "Provider finish_reason: network_error",
+		// JavaScript's /i folds ASCII only, its dot stops at line
+		// terminators, and a lone dot matches one UTF-16 unit.
+		"\u212a429 error", "a429b", "x429", "rate\rlimit", "rate\u2028limit", "rate\U0001F600limit", "rate limit", "\u017fervice unavailable",
+		"SERVICE UNAVAILABLE", "fetch failed\nlater", "input token count\U0001F600 exceeds the maximum", "\"code\": \"1308\"", "\"code\":13080",
+		"\u212aotal: too many requests", "too many requests", "ENOTFOUND", "enotfound", "time\u017f out", "timed out"}
 	var want []struct {
 		Retry    bool `json:"retry"`
 		Overflow bool `json:"overflow"`

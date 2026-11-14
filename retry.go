@@ -150,15 +150,73 @@ const (
 	jsNonSpace = `[^\t\n\v\f\r \x{a0}\x{1680}\x{2000}-\x{200a}\x{2028}\x{2029}\x{202f}\x{205f}\x{3000}\x{feff}]`
 )
 
-// jsPattern adapts a pi-ai pattern to RE2: JavaScript's \s and \S become
-// explicit classes. Lookarounds are rewritten by hand where they occur.
-func jsPattern(pattern string) string {
-	pattern = strings.ReplaceAll(pattern, `\s`, jsSpace)
-	return strings.ReplaceAll(pattern, `\S`, jsNonSpace)
+// jsCaseless translates a pi-ai pattern, an ASCII JavaScript regular
+// expression with the i flag and without u, to RE2 matching the same
+// strings. RE2's (?i) folds Unicode (k matches the Kelvin sign), so ASCII
+// letters become classes of both cases instead and nothing else folds. A dot
+// stops at JavaScript's line terminators, and alone (.?) it matches one
+// UTF-16 unit, which no astral character is. \s and \S are JavaScript's.
+// Lookarounds are rewritten by hand where they occur.
+func jsCaseless(pattern string) string {
+	isLetter := func(c byte) bool { return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' }
+	both := func(c byte) string { return strings.ToLower(string(c)) + strings.ToUpper(string(c)) }
+	const unit, units = `[^\n\r\x{2028}\x{2029}\x{10000}-\x{10ffff}]`, `[^\n\r\x{2028}\x{2029}]`
+	var out strings.Builder
+	inClass := false
+	for i := 0; i < len(pattern); i++ {
+		c := pattern[i]
+		switch {
+		case c == '\\' && i+1 < len(pattern):
+			i++
+			switch next := pattern[i]; {
+			case next == 's' && !inClass:
+				out.WriteString(jsSpace)
+			case next == 'S' && !inClass:
+				out.WriteString(jsNonSpace)
+			case (next == 's' || next == 'S') && inClass:
+				panic("jsCaseless: \\s in a class")
+			default:
+				out.WriteByte('\\')
+				out.WriteByte(next)
+			}
+		case inClass:
+			switch {
+			case c == ']':
+				inClass = false
+				out.WriteByte(c)
+			case isLetter(c) && i+2 < len(pattern) && pattern[i+1] == '-' && isLetter(pattern[i+2]):
+				lo, hi := pattern[i], pattern[i+2]
+				out.WriteString(strings.ToLower(string(lo)) + "-" + strings.ToLower(string(hi)) + strings.ToUpper(string(lo)) + "-" + strings.ToUpper(string(hi)))
+				i += 2
+			case isLetter(c):
+				out.WriteString(both(c))
+			default:
+				out.WriteByte(c)
+			}
+		case c == '[':
+			inClass = true
+			out.WriteByte(c)
+			if i+1 < len(pattern) && pattern[i+1] == '^' {
+				out.WriteByte('^')
+				i++
+			}
+		case c == '.':
+			if i+1 < len(pattern) && pattern[i+1] == '?' {
+				out.WriteString(unit)
+			} else {
+				out.WriteString(units)
+			}
+		case isLetter(c):
+			out.WriteString("[" + both(c) + "]")
+		default:
+			out.WriteByte(c)
+		}
+	}
+	return out.String()
 }
 
 func providerErrorPattern(patterns ...string) *regexp.Regexp {
-	return regexp.MustCompile("(?i)" + jsPattern(strings.Join(patterns, "|")))
+	return regexp.MustCompile(jsCaseless(strings.Join(patterns, "|")))
 }
 
 // Verbatim from pi-ai v1.5.2 src/utils/retry.ts, in order. The two lookaround
@@ -234,7 +292,7 @@ var retryableProviderErrorPattern = providerErrorPattern(
 )
 
 func caseless(pattern string) *regexp.Regexp {
-	return regexp.MustCompile("(?i)" + jsPattern(pattern))
+	return regexp.MustCompile(jsCaseless(pattern))
 }
 
 // Verbatim from pi-ai v1.5.2 src/utils/overflow.ts, in order.
