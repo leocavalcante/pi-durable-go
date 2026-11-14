@@ -2521,5 +2521,53 @@
   "args": {
    "s": "a.b"
   }
+ },
+ {
+  "schema": {
+   "type": "object",
+   "patternProperties": {
+    "b$": {
+     "type": "number"
+    },
+    "^a": {
+     "type": "string"
+    }
+   }
+  },
+  "args": {
+   "ab": "12"
+  }
+ },
+ {
+  "schema": {
+   "type": "object",
+   "patternProperties": {
+    "^a": {
+     "type": "string"
+    },
+    "b$": {
+     "type": "number"
+    }
+   }
+  },
+  "args": {
+   "ab": "12"
+  }
+ },
+ {
+  "schema": {
+   "type": "object",
+   "patternProperties": {
+    "2": {
+     "type": "string"
+    },
+    "1": {
+     "type": "number"
+    }
+   }
+  },
+  "args": {
+   "12": "5"
+  }
  }
 ]

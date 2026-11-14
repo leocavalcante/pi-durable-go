@@ -9,6 +9,8 @@ import (
 	"net/url"
 	"reflect"
 	"regexp"
+	"slices"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -44,6 +46,62 @@ type toolValidator struct {
 	mu       sync.Mutex
 	compiler *jsonschema.Compiler
 	checks   map[string]*jsonschema.Schema
+	// keys are the schema's objects' keys in JavaScript's order (integer keys
+	// first, then as written), by JSON pointer: pi-schema walks pattern
+	// properties and finds a union's tag in that order.
+	keys map[string][]string
+}
+
+// keyOrders records each object of a schema's text by JSON pointer, with
+// its keys in JavaScript's order.
+func keyOrders(raw json.RawMessage) map[string][]string {
+	value, err := parseJS(raw)
+	if err != nil {
+		return nil
+	}
+	orders := map[string][]string{}
+	var walk func(value any, pointer string)
+	walk = func(value any, pointer string) {
+		switch node := value.(type) {
+		case *jsObject:
+			orders[pointer] = node.Keys
+			for _, key := range node.Keys {
+				walk(node.Values[key], pointerTo(pointer, key))
+			}
+		case []any:
+			for i, item := range node {
+				walk(item, pointerTo(pointer, strconv.Itoa(i)))
+			}
+		}
+	}
+	walk(value, "")
+	return orders
+}
+
+// orderedKeys are m's keys in the order the schema's text has them at
+// pointer, then keys it does not have (a lenient reading added them),
+// sorted.
+func (v *toolValidator) orderedKeys(m map[string]any, pointer string) []string {
+	order, ok := v.keys[pointer]
+	if !ok {
+		return sortedKeys(m)
+	}
+	keys := make([]string, 0, len(m))
+	known := make(map[string]bool, len(order))
+	for _, key := range order {
+		if _, present := m[key]; present && !known[key] {
+			keys = append(keys, key)
+		}
+		known[key] = true
+	}
+	var extra []string
+	for key := range m {
+		if !known[key] {
+			extra = append(extra, key)
+		}
+	}
+	sort.Strings(extra)
+	return append(keys, extra...)
 }
 
 const toolSchemaLocation = "urn:pi-durable-go:tool"
@@ -94,7 +152,7 @@ func toolValidatorFor(schema json.RawMessage) (*toolValidator, error) {
 	if err != nil {
 		return nil, fmt.Errorf("invalid tool schema: %w", err)
 	}
-	v := &toolValidator{root: document, schema: compiled, compiler: compiler, checks: map[string]*jsonschema.Schema{"": compiled}}
+	v := &toolValidator{root: document, schema: compiled, compiler: compiler, checks: map[string]*jsonschema.Schema{"": compiled}, keys: keyOrders(schema)}
 	toolValidators.Lock()
 	defer toolValidators.Unlock()
 	if existing := toolValidators.byKey[string(schema)]; existing != nil {
@@ -257,13 +315,9 @@ func validateToolArguments(spec ToolSpec, args json.RawMessage) (json.RawMessage
 func (v *toolValidator) validationFailure(name string, err error, checked any, received json.RawMessage) error {
 	var lines []string
 	if failure, ok := err.(*jsonschema.ValidationError); ok {
-		seen := map[string]bool{}
-		for _, issue := range v.explain(failure, checked) {
-			line := fmt.Sprintf("  - %s: %s", validationPath(issue.pointer), issue.message)
-			if !seen[line] {
-				seen[line] = true
-				lines = append(lines, line)
-			}
+		// Every issue, a repeated one too, as pi-ai lists them.
+		for _, issue := range v.explain(failure, checked, keyOrders(received)) {
+			lines = append(lines, fmt.Sprintf("  - %s: %s", validationPath(issue.pointer), issue.message))
 		}
 	}
 	if len(lines) == 0 {
@@ -296,18 +350,21 @@ func (v *toolValidator) schemaAt(schemaURL string) (any, bool) {
 // explain words a validation error as pi-schema's explain does: missing and
 // unknown properties at their own paths, a union by the branch it was most
 // likely meant for, and the rest by keyword.
-func (v *toolValidator) explain(e *jsonschema.ValidationError, instance any) []issue {
+//
+// Issues come in pi-schema's order (orderIssues); argumentKeys are the
+// arguments' objects' keys as received, by JSON pointer.
+func (v *toolValidator) explain(e *jsonschema.ValidationError, instance any, argumentKeys map[string][]string) []issue {
 	var out []issue
 	location := e.InstanceLocation
 	at := func(message string) { out = append(out, issue{pointerOf(location), message}) }
 	switch k := e.ErrorKind.(type) {
 	case *kind.AnyOf:
-		return v.explainUnion(e, instance, false)
+		return v.explainUnion(e, instance, false, argumentKeys)
 	case *kind.OneOf:
 		if len(k.Subschemas) > 1 {
 			return []issue{{pointerOf(location), "matches more than one alternative"}}
 		}
-		return v.explainUnion(e, instance, true)
+		return v.explainUnion(e, instance, true, argumentKeys)
 	case *kind.Required:
 		for _, missing := range k.Missing {
 			out = append(out, issue{pointerTo(pointerOf(location), missing), "missing"})
@@ -377,17 +434,110 @@ func (v *toolValidator) explain(e *jsonschema.ValidationError, instance any) []i
 			at(e.ErrorKind.LocalizedString(schemaPrinter))
 		}
 	}
+	return append(out, v.orderIssues(e, instance, argumentKeys)...)
+}
+
+// orderIssues explains an error's causes in the order pi-schema walks an
+// object: missing properties, then the declared properties in the schema's
+// order, then each other key in the arguments' order (its pattern failures
+// in the schema's order, or unknown), then the object's other constraints.
+// The checker reports failures flat, so each issue is ranked by its whole
+// path through the schema; ties keep the checker's order.
+func (v *toolValidator) orderIssues(e *jsonschema.ValidationError, instance any, argumentKeys map[string][]string) []issue {
+	type ranked struct {
+		issue issue
+		rank  []int
+	}
+	var issues []ranked
 	for _, cause := range e.Causes {
-		out = append(out, v.explain(cause, instance)...)
+		for _, found := range v.explain(cause, instance, argumentKeys) {
+			issues = append(issues, ranked{found, v.issueRank(cause, found, argumentKeys)})
+		}
+	}
+	sort.SliceStable(issues, func(i, j int) bool { return slices.Compare(issues[i].rank, issues[j].rank) < 0 })
+	out := make([]issue, len(issues))
+	for i, r := range issues {
+		out[i] = r.issue
 	}
 	return out
+}
+
+// issueRank is an issue's place in pi-schema's walk: at each object on the
+// way, (0) for its missing properties, (1, index) for a declared property
+// in the schema's order, (2, key index, pattern index) for another key in
+// the arguments' order, and (3) for the object's other constraints.
+func (v *toolValidator) issueRank(cause *jsonschema.ValidationError, found issue, argumentKeys map[string][]string) []int {
+	indexOf := func(order []string, key string) int {
+		for i, candidate := range order {
+			if candidate == key {
+				return i
+			}
+		}
+		return len(order)
+	}
+	_, fragment, _ := strings.Cut(cause.SchemaURL, "#")
+	var tokens []string
+	for _, token := range strings.Split(fragment, "/")[1:] {
+		if unescaped, err := url.PathUnescape(token); err == nil {
+			token = unescaped
+		}
+		tokens = append(tokens, strings.ReplaceAll(strings.ReplaceAll(token, "~1", "/"), "~0", "~"))
+	}
+	location := cause.InstanceLocation
+	var rank []int
+	schema, depth := "", 0
+	instanceAt := func() string { return pointerTo("", location[:min(depth, len(location))]...) }
+	keyAt := func() string {
+		if depth < len(location) {
+			return location[depth]
+		}
+		return ""
+	}
+	for i := 0; i < len(tokens); i++ {
+		switch token := tokens[i]; {
+		case token == "properties" && i+1 < len(tokens):
+			rank = append(rank, 1, indexOf(v.keys[pointerTo(schema, "properties")], tokens[i+1]), 0)
+			schema, depth, i = pointerTo(schema, "properties", tokens[i+1]), depth+1, i+1
+		case token == "patternProperties" && i+1 < len(tokens):
+			rank = append(rank, 2, indexOf(argumentKeys[instanceAt()], keyAt()), indexOf(v.keys[pointerTo(schema, "patternProperties")], tokens[i+1]))
+			schema, depth, i = pointerTo(schema, "patternProperties", tokens[i+1]), depth+1, i+1
+		case token == "additionalProperties":
+			rank = append(rank, 2, indexOf(argumentKeys[instanceAt()], keyAt()), -1)
+			schema, depth = pointerTo(schema, "additionalProperties"), depth+1
+		case (token == "items" || token == "prefixItems" || token == "additionalItems") && depth < len(location):
+			index, _ := strconv.Atoi(location[depth])
+			rank = append(rank, 1, index, 0)
+			schema, depth = pointerTo(schema, token), depth+1
+			if i+1 < len(tokens) && token != "additionalItems" {
+				if _, err := strconv.Atoi(tokens[i+1]); err == nil {
+					schema, i = pointerTo(schema, tokens[i+1]), i+1
+				}
+			}
+		default:
+			schema = pointerTo(schema, token)
+		}
+	}
+	switch cause.ErrorKind.(type) {
+	case *kind.Required:
+		rank = append(rank, 0, 0, 0)
+	case *kind.AdditionalProperties:
+		key := ""
+		if rest, ok := strings.CutPrefix(found.pointer, pointerOf(location)+"/"); ok {
+			key, _, _ = strings.Cut(rest, "/")
+			key = strings.ReplaceAll(strings.ReplaceAll(key, "~1", "/"), "~0", "~")
+		}
+		rank = append(rank, 2, indexOf(argumentKeys[pointerOf(location)], key), -1)
+	case *kind.MinProperties, *kind.MaxProperties, *kind.PropertyNames, *kind.DependentRequired, *kind.Dependency:
+		rank = append(rank, 3, 0, 0)
+	}
+	return rank
 }
 
 // explainUnion is pi-schema's walkUnion for a union nothing matched: a
 // tagged union reports the branch its tag selects; otherwise an object is
 // blamed on the branch that declares most of its properties, then on the
 // branch whose first error is deepest.
-func (v *toolValidator) explainUnion(e *jsonschema.ValidationError, instance any, exactlyOne bool) []issue {
+func (v *toolValidator) explainUnion(e *jsonschema.ValidationError, instance any, exactlyOne bool, argumentKeys map[string][]string) []issue {
 	path := pointerOf(e.InstanceLocation)
 	none := []issue{{path, "matches no alternative"}}
 	node, _ := v.schemaAt(e.SchemaURL)
@@ -402,19 +552,24 @@ func (v *toolValidator) explainUnion(e *jsonschema.ValidationError, instance any
 	}
 	value := valueAt(instance, e.InstanceLocation)
 	resolved := make([]map[string]any, len(branches))
+	_, unionPointer, _ := strings.Cut(e.SchemaURL, "#")
+	firstPointer := pointerTo(unionPointer, keyword, "0")
 	for i, branch := range branches {
 		resolved[i], _ = branch.(map[string]any)
 		if ref, isRef := resolved[i]["$ref"].(string); isRef {
 			target, _ := resolvePointer(v.root, ref)
 			resolved[i], _ = target.(map[string]any)
+			if i == 0 {
+				firstPointer = strings.TrimPrefix(ref, "#")
+			}
 		}
 	}
 	object, isObject := value.(map[string]any)
-	if key, values, tagged := tagOf(resolved); tagged && isObject {
+	if key, values, tagged := v.tagOf(resolved, firstPointer); tagged && isObject {
 		if got, present := object[key]; present {
 			for i, tag := range values {
 				if jsonEqualValues(tag, got) {
-					return v.explain(e.Causes[i], instance)
+					return v.explain(e.Causes[i], instance, argumentKeys)
 				}
 			}
 		}
@@ -423,7 +578,7 @@ func (v *toolValidator) explainUnion(e *jsonschema.ValidationError, instance any
 	var best []issue
 	bestDeclared := -1
 	for i, cause := range e.Causes {
-		issues := v.explain(cause, instance)
+		issues := v.explain(cause, instance, argumentKeys)
 		if len(issues) == 0 {
 			continue
 		}
@@ -446,9 +601,10 @@ func (v *toolValidator) explainUnion(e *jsonschema.ValidationError, instance any
 	return best
 }
 
-// tagOf is a union's discriminator: a property every branch declares with a
+// tagOf is a union's discriminator: the first property, in the first
+// branch's order (it is at firstPointer), that every branch declares with a
 // distinct primitive const.
-func tagOf(branches []map[string]any) (string, []any, bool) {
+func (v *toolValidator) tagOf(branches []map[string]any, firstPointer string) (string, []any, bool) {
 	if len(branches) == 0 {
 		return "", nil, false
 	}
@@ -456,7 +612,7 @@ func tagOf(branches []map[string]any) (string, []any, bool) {
 	if !ok {
 		return "", nil, false
 	}
-	for _, key := range sortedKeys(first) {
+	for _, key := range v.orderedKeys(first, pointerTo(firstPointer, "properties")) {
 		values := make([]any, len(branches))
 		distinct := true
 		for i, branch := range branches {
@@ -651,13 +807,14 @@ type pattern struct {
 	schema any
 }
 
-func patternsOf(node map[string]any) []pattern {
+// patternsOf are the node's pattern properties in the schema's order.
+func (v *toolValidator) patternsOf(node map[string]any, pointer string) []pattern {
 	properties, ok := node["patternProperties"].(map[string]any)
 	if !ok {
 		return nil
 	}
 	var out []pattern
-	for _, source := range sortedKeys(properties) {
+	for _, source := range v.orderedKeys(properties, pointerTo(pointer, "patternProperties")) {
 		if re, err := compileJSRegexp(source); err == nil {
 			out = append(out, pattern{source: source, re: re, schema: properties[source]})
 		}
@@ -735,7 +892,7 @@ func (c *coercion) dropOptionalNulls(value any, schema any, pointer string) any 
 		return value
 	}
 	properties, hasProperties := node["properties"].(map[string]any)
-	patterns := patternsOf(node)
+	patterns := c.v.patternsOf(node, pointer)
 	additional, hasAdditional := node["additionalProperties"].(map[string]any)
 	if len(patterns) == 0 && !hasAdditional && !hasProperties {
 		return value
@@ -1026,7 +1183,7 @@ func (c *coercion) convertObject(node map[string]any, pointer string, value any)
 		return value
 	}
 	properties, _ := node["properties"].(map[string]any)
-	patterns := patternsOf(node)
+	patterns := c.v.patternsOf(node, pointer)
 	additional, hasAdditional := node["additionalProperties"].(map[string]any)
 	var out map[string]any
 	for key, member := range object {
@@ -1132,7 +1289,7 @@ func (c *coercion) coerceUnion(value any, pointer, keyword string, branches []an
 
 func (c *coercion) coerceProperties(object map[string]any, node map[string]any, pointer string) any {
 	properties, _ := node["properties"].(map[string]any)
-	patterns := patternsOf(node)
+	patterns := c.v.patternsOf(node, pointer)
 	additional, hasAdditional := node["additionalProperties"].(map[string]any)
 	var out map[string]any
 	current := func() map[string]any {
@@ -1560,7 +1717,7 @@ func firstSchemaFailure(schema, raw json.RawMessage) (path, message string, ok b
 		return "", "", true
 	}
 	if validation, isValidation := failure.(*jsonschema.ValidationError); isValidation {
-		if issues := v.explain(validation, value); len(issues) > 0 {
+		if issues := v.explain(validation, value, keyOrders(raw)); len(issues) > 0 {
 			return validationPath(issues[0].pointer), issues[0].message, false
 		}
 	}

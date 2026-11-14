@@ -408,5 +408,312 @@
     }
    ]
   }
+ },
+ {
+  "name": "t",
+  "schema": {
+   "type": "object",
+   "properties": {
+    "u": {
+     "anyOf": [
+      {
+       "type": "object",
+       "properties": {
+        "z": {
+         "const": "a"
+        },
+        "k": {
+         "const": "x"
+        },
+        "v": {
+         "type": "number"
+        }
+       },
+       "required": [
+        "z",
+        "k",
+        "v"
+       ]
+      },
+      {
+       "type": "object",
+       "properties": {
+        "z": {
+         "const": "b"
+        },
+        "k": {
+         "const": "y"
+        },
+        "v": {
+         "type": "string"
+        }
+       },
+       "required": [
+        "z",
+        "k",
+        "v"
+       ]
+      }
+     ]
+    }
+   }
+  },
+  "args": {
+   "u": {
+    "z": "a",
+    "k": "y",
+    "v": true
+   }
+  }
+ },
+ {
+  "name": "t",
+  "schema": {
+   "type": "object",
+   "properties": {
+    "u": {
+     "oneOf": [
+      {
+       "type": "object",
+       "properties": {
+        "z": {
+         "const": "a"
+        },
+        "k": {
+         "const": "x"
+        },
+        "v": {
+         "type": "number"
+        }
+       },
+       "required": [
+        "z",
+        "k",
+        "v"
+       ]
+      },
+      {
+       "type": "object",
+       "properties": {
+        "z": {
+         "const": "b"
+        },
+        "k": {
+         "const": "y"
+        },
+        "v": {
+         "type": "string"
+        }
+       },
+       "required": [
+        "z",
+        "k",
+        "v"
+       ]
+      }
+     ]
+    }
+   }
+  },
+  "args": {
+   "u": {
+    "z": "b",
+    "k": "x",
+    "v": true
+   }
+  }
+ },
+ {
+  "name": "t",
+  "schema": {
+   "type": "object",
+   "properties": {
+    "a": {
+     "type": "string"
+    }
+   },
+   "additionalProperties": false
+  },
+  "args": {
+   "q": 1,
+   "b": 2,
+   "z": 3,
+   "m": 4,
+   "2": 5,
+   "1": 6
+  }
+ },
+ {
+  "name": "t",
+  "schema": {
+   "type": "object",
+   "properties": {
+    "z": {
+     "type": "string"
+    },
+    "b": {
+     "type": "number"
+    },
+    "m": {
+     "type": "boolean"
+    },
+    "a": {
+     "type": "string"
+    }
+   }
+  },
+  "args": {
+   "a": 1,
+   "b": "x",
+   "m": "y",
+   "z": 2
+  }
+ },
+ {
+  "name": "t",
+  "schema": {
+   "type": "object",
+   "properties": {
+    "z": {
+     "type": "string"
+    },
+    "b": {
+     "type": "number"
+    }
+   },
+   "required": [
+    "z",
+    "b",
+    "a"
+   ]
+  },
+  "args": {}
+ },
+ {
+  "name": "t",
+  "schema": {
+   "type": "object",
+   "properties": {
+    "n": {
+     "type": "object",
+     "properties": {
+      "y": {
+       "type": "string"
+      },
+      "x": {
+       "type": "number"
+      }
+     },
+     "additionalProperties": false
+    }
+   },
+   "required": [
+    "n"
+   ]
+  },
+  "args": {
+   "n": {
+    "x": "s",
+    "y": 1,
+    "w": 0,
+    "c": 0
+   }
+  }
+ },
+ {
+  "name": "t",
+  "schema": {
+   "type": "object",
+   "additionalProperties": false,
+   "required": [
+    "r"
+   ],
+   "properties": {
+    "b": {
+     "type": "number"
+    },
+    "a": {
+     "type": "string",
+     "minLength": 3
+    }
+   },
+   "minProperties": 9
+  },
+  "args": {
+   "zz": 1,
+   "b": "x",
+   "a": "q"
+  }
+ },
+ {
+  "name": "t",
+  "schema": {
+   "required": [
+    "r"
+   ],
+   "properties": {
+    "b": {
+     "type": "number"
+    }
+   },
+   "type": "object",
+   "additionalProperties": false
+  },
+  "args": {
+   "zz": 1,
+   "b": "x"
+  }
+ },
+ {
+  "name": "t",
+  "schema": {
+   "type": "object",
+   "properties": {
+    "p": {
+     "type": "object",
+     "patternProperties": {
+      "^x": {
+       "type": "number"
+      }
+     },
+     "properties": {
+      "xa": {
+       "type": "number"
+      },
+      "b": {
+       "type": "string"
+      }
+     },
+     "additionalProperties": false
+    }
+   }
+  },
+  "args": {
+   "p": {
+    "q": 1,
+    "xb": "s",
+    "xa": "s",
+    "b": 2
+   }
+  }
+ },
+ {
+  "name": "t",
+  "schema": {
+   "type": "object",
+   "patternProperties": {
+    "b$": {
+     "type": "number"
+    },
+    "^a": {
+     "type": "boolean"
+    }
+   }
+  },
+  "args": {
+   "zb": "x",
+   "ab": "y",
+   "aa": "z"
+  }
  }
 ]
