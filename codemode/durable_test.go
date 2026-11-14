@@ -244,3 +244,55 @@ func (noModels) Classify(context.Context, json.RawMessage, json.RawMessage) (Mod
 func (noModels) GenerateImages(context.Context, json.RawMessage, json.RawMessage) (ModelResult, error) {
 	return ModelResult{}, nil
 }
+
+// discover answers from the start data, with upstream's argument checks:
+// options?.limit ?? 8 takes null as the default, and any positive integer.
+func TestCodemodeDiscoveryArguments(t *testing.T) {
+	c := newCall(Options{}, nil, context.Background())
+	c.start = startData{Tools: []declaredTool{{Name: "echo", JSName: "echo", Description: "echo things"}, {Name: "pi.codemode.models.classify", JSName: "pi_codemode_models_classify", Description: "classify", Hidden: true}},
+		Namespaces: []startNamespace{}}
+	cases := []struct{ name, args, value, err string }{
+		{"searchTools", `["echo"]`, `[{"name":"echo","description":"echo things"}]`, ""},
+		{"searchTools", `["echo", {"limit": null}]`, `[{"name":"echo","description":"echo things"}]`, ""},
+		{"searchTools", `["echo", {"limit": 1e300}]`, `[{"name":"echo","description":"echo things"}]`, ""},
+		{"searchTools", `["echo", "not options"]`, `[{"name":"echo","description":"echo things"}]`, ""},
+		{"searchTools", `["echo", {"limit": 0}]`, "", "searchTools() limit must be a positive integer"},
+		{"searchTools", `["echo", {"limit": 1.5}]`, "", "searchTools() limit must be a positive integer"},
+		{"searchTools", `["echo", {"namespace": 1}]`, "", "searchTools() namespace must be a string"},
+		{"searchTools", `[1]`, "", "searchTools() expects a query string"},
+		{"searchTools", `["classify"]`, `[]`, ""},
+		{"describeTool", `["echo"]`, `"echo things"`, ""},
+		{"describeTool", `["pi.codemode.models.classify"]`, "", ""},
+		{"describeTool", `[]`, "", "describeTool() expects a tool name"},
+		{"describeNamespace", `["none"]`, "", ""},
+		{"describeNamespace", `[null]`, "", "describeNamespace() expects a namespace name"},
+	}
+	for _, c2 := range cases {
+		value, err := c.discover(HostCall{Target: "global", Name: c2.name, Args: json.RawMessage(c2.args)})
+		if string(value) != c2.value || errorMessage(err) != c2.err {
+			t.Errorf("%s(%s) = %s, %v; want %s, %q", c2.name, c2.args, value, err, c2.value, c2.err)
+		}
+	}
+}
+
+// The catalog functions check their arguments as upstream's catalogCall.
+func TestCodemodeCatalogArguments(t *testing.T) {
+	models := newTestModels()
+	cases := []struct{ name, args, value, err string }{
+		{"models.getModelsOfType", `["classifier"]`, `[{"id":"judge","name":"Judge","api":"test-classifier","provider":"test","baseUrl":"https://example.invalid","type":"classifier"}]`, ""},
+		{"models.getModelsOfType", `["image", "other"]`, `[]`, ""},
+		{"models.getModelsOfType", `["text"]`, "", `Unknown model type "text". Use "chat", "image", or "classifier".`},
+		{"models.getModelsOfType", `[]`, "", `Unknown model type undefined. Use "chat", "image", or "classifier".`},
+		{"models.getAvailableOfType", `["image", 7]`, "", "provider must be a string"},
+		{"models.getModelOfType", `["classifier", "test", "judge"]`, `{"id":"judge","name":"Judge","api":"test-classifier","provider":"test","baseUrl":"https://example.invalid","type":"classifier"}`, ""},
+		{"models.getModelOfType", `["classifier", "test", "nope"]`, "", ""},
+		{"models.getModelOfType", `["classifier", "test/judge"]`, "", `models.getModelOfType(type, provider, id) expects three strings, got (a string, a string). The provider and the id are separate arguments, for example models.getModelOfType("classifier", "typesafe", "jev-latest").`},
+		{"models.getModelOfType", `["classifier", null, {"id": 1}]`, "", `models.getModelOfType(type, provider, id) expects three strings, got (a string, null, { id }). The provider and the id are separate arguments, for example models.getModelOfType("classifier", "typesafe", "jev-latest").`},
+	}
+	for _, c := range cases {
+		value, err := catalogCall(context.Background(), c.name, json.RawMessage(c.args), models)
+		if string(value) != c.value || errorMessage(err) != c.err {
+			t.Errorf("%s(%s) = %s, %v; want %s, %q", c.name, c.args, value, err, c.value, c.err)
+		}
+	}
+}

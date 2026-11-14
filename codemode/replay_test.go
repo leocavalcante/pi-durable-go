@@ -157,6 +157,10 @@ type setup struct {
 	globals []Global
 	hooks   durable.Hooks
 	path    string
+	// namespaces and env configure the next open; env nil is testEnv.
+	namespaces []Namespace
+	env        durable.ExecutionEnv
+	extra      []durable.Extension
 }
 
 func newSetup(t *testing.T, globals ...Global) *setup {
@@ -199,9 +203,9 @@ func newSetupWith(t *testing.T, sandbox Sandbox, globals ...Global) *setup {
 
 func (s *setup) open(store durable.Storage) testChat {
 	s.t.Helper()
-	return openChat(s.t, s.ctx, store, s.model,
-		durable.Extension{Name: "test", Tools: s.tools, Hooks: s.hooks},
-		Extension(Options{Sandbox: s.sandbox, Globals: s.globals}))
+	extensions := append([]durable.Extension{{Name: "test", Tools: s.tools, Hooks: s.hooks}}, s.extra...)
+	extensions = append(extensions, Extension(Options{Sandbox: s.sandbox, Globals: s.globals, Namespaces: s.namespaces}))
+	return openChatWith(s.t, s.ctx, store, s.model, s.env, extensions...)
 }
 
 func (s *setup) openSQLite() testChat {

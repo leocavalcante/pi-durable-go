@@ -1,0 +1,735 @@
+{
+ "cases": {
+  "catalog": [
+   {
+    "modelType": "classifier",
+    "model": {
+     "id": "judge",
+     "name": "Judge",
+     "api": "test-classifier",
+     "provider": "test",
+     "baseUrl": "https://example.invalid",
+     "headers": {
+      "authorization": "secret"
+     },
+     "type": "classifier"
+    }
+   },
+   {
+    "modelType": "image",
+    "model": {
+     "id": "painter",
+     "name": "Painter",
+     "api": "test-images",
+     "provider": "test",
+     "baseUrl": "https://example.invalid",
+     "type": "image"
+    }
+   }
+  ],
+  "calls": [
+   {
+    "name": "models.getModelsOfType",
+    "args": [
+     "classifier"
+    ]
+   },
+   {
+    "name": "models.getModelsOfType",
+    "args": [
+     "classifier",
+     "test"
+    ]
+   },
+   {
+    "name": "models.getModelsOfType",
+    "args": [
+     "image",
+     "other"
+    ]
+   },
+   {
+    "name": "models.getModelsOfType",
+    "args": [
+     "nope"
+    ]
+   },
+   {
+    "name": "models.getModelsOfType",
+    "args": []
+   },
+   {
+    "name": "models.getModelsOfType",
+    "args": [
+     null
+    ]
+   },
+   {
+    "name": "models.getModelsOfType",
+    "args": [
+     "chat",
+     5
+    ]
+   },
+   {
+    "name": "models.getModelsOfType",
+    "args": [
+     "chat",
+     null
+    ]
+   },
+   {
+    "name": "models.getAvailableOfType",
+    "args": [
+     "image"
+    ]
+   },
+   {
+    "name": "models.getModelOfType",
+    "args": [
+     "classifier",
+     "test",
+     "judge"
+    ]
+   },
+   {
+    "name": "models.getModelOfType",
+    "args": [
+     "image",
+     "test",
+     "judge"
+    ]
+   },
+   {
+    "name": "models.getModelOfType",
+    "args": [
+     "classifier",
+     "test"
+    ]
+   },
+   {
+    "name": "models.getModelOfType",
+    "args": [
+     "classifier",
+     null,
+     "x"
+    ]
+   },
+   {
+    "name": "models.getModelOfType",
+    "args": [
+     1,
+     "test",
+     "judge"
+    ]
+   },
+   {
+    "name": "models.getModelOfType",
+    "args": []
+   },
+   {
+    "name": "models.getModelOfType",
+    "args": [
+     "classifier",
+     {
+      "a": 1,
+      "b": 1,
+      "c": 1,
+      "d": 1,
+      "e": 1,
+      "f": 1,
+      "g": 1,
+      "h": 1
+     },
+     "x"
+    ]
+   },
+   {
+    "name": "models.getModelOfType",
+    "args": [
+     "classifier",
+     [],
+     ""
+    ]
+   },
+   {
+    "name": "models.getModelOfType",
+    "args": [
+     "classifier",
+     [
+      1
+     ],
+     true
+    ]
+   },
+   {
+    "name": "models.getModelOfType",
+    "args": [
+     "classifier",
+     {},
+     "x"
+    ]
+   },
+   {
+    "name": "models.getModelOfType",
+    "args": "not a list"
+   }
+  ],
+  "resolve": [
+   {
+    "name": "models.classify",
+    "type": "classifier",
+    "model": {
+     "provider": "test",
+     "id": "judge"
+    }
+   },
+   {
+    "name": "models.classify",
+    "type": "classifier"
+   },
+   {
+    "name": "models.classify",
+    "type": "classifier",
+    "model": null
+   },
+   {
+    "name": "models.classify",
+    "type": "classifier",
+    "model": "judge"
+   },
+   {
+    "name": "models.classify",
+    "type": "classifier",
+    "model": {
+     "provider": "test",
+     "id": "painter"
+    }
+   },
+   {
+    "name": "models.classify",
+    "type": "classifier",
+    "model": {
+     "provider": "test",
+     "id": "nope"
+    }
+   },
+   {
+    "name": "models.generateImages",
+    "type": "image",
+    "model": {
+     "provider": "test",
+     "id": "judge"
+    }
+   },
+   {
+    "name": "models.generateImages",
+    "type": "image",
+    "model": {
+     "provider": 1,
+     "id": "judge"
+    }
+   },
+   {
+    "name": "models.generateImages",
+    "type": "image",
+    "model": []
+   }
+  ],
+  "classifierContexts": [
+   {
+    "state": {},
+    "questions": {
+     "good": {
+      "type": "bool",
+      "instructions": "?",
+      "criteria": {
+       "true": "y",
+       "false": "n"
+      }
+     }
+    }
+   },
+   {
+    "state": {
+     "a": 1
+    },
+    "images": [
+     {
+      "type": "image",
+      "data": "x",
+      "mimeType": "image/png"
+     }
+    ],
+    "questions": {
+     "c": {
+      "type": "choice",
+      "instructions": "?",
+      "criteria": {
+       "a": "A",
+       "b": "B"
+      }
+     },
+     "s": {
+      "type": "score",
+      "instructions": "?",
+      "criteria": [
+       "low",
+       "high"
+      ]
+     },
+     "b": {
+      "type": "bool",
+      "instructions": "?",
+      "criteria": {
+       "true": "y",
+       "false": "n"
+      }
+     }
+    }
+   },
+   null,
+   "x",
+   [],
+   {},
+   {
+    "state": 1
+   },
+   {
+    "state": {},
+    "images": "x"
+   },
+   {
+    "state": {},
+    "images": [
+     {
+      "type": "image",
+      "data": 1
+     }
+    ]
+   },
+   {
+    "state": {}
+   },
+   {
+    "state": {},
+    "questions": {}
+   },
+   {
+    "state": {},
+    "questions": {
+     "q": 1
+    }
+   },
+   {
+    "state": {},
+    "questions": {
+     "q": {
+      "type": "choice"
+     }
+    }
+   },
+   {
+    "state": {},
+    "questions": {
+     "q": {
+      "type": "choice",
+      "instructions": "?",
+      "criteria": {
+       "a": 1
+      }
+     }
+    }
+   },
+   {
+    "state": {},
+    "questions": {
+     "q": {
+      "type": "choice",
+      "instructions": "?",
+      "criteria": {}
+     }
+    }
+   },
+   {
+    "state": {},
+    "questions": {
+     "q": {
+      "type": "score",
+      "instructions": "?",
+      "criteria": [
+       "a",
+       2
+      ]
+     }
+    }
+   },
+   {
+    "state": {},
+    "questions": {
+     "q": {
+      "type": "bool",
+      "instructions": "?",
+      "criteria": {
+       "true": "y"
+      }
+     }
+    }
+   },
+   {
+    "state": {},
+    "questions": {
+     "q": {
+      "type": "other",
+      "instructions": "?"
+     }
+    }
+   },
+   {
+    "state": {},
+    "questions": {
+     "q": {
+      "instructions": "?"
+     }
+    }
+   },
+   {
+    "state": {},
+    "questions": {
+     "10": {
+      "type": "bool",
+      "instructions": "?",
+      "criteria": {
+       "true": "y",
+       "false": "n"
+      }
+     },
+     "2": {
+      "type": "x",
+      "instructions": "?"
+     }
+    }
+   }
+  ],
+  "imagesContexts": [
+   {
+    "input": [
+     {
+      "type": "text",
+      "text": "a cat"
+     }
+    ]
+   },
+   {
+    "input": [
+     {
+      "type": "text",
+      "text": "a cat"
+     },
+     {
+      "type": "image",
+      "data": "x",
+      "mimeType": "image/png"
+     }
+    ]
+   },
+   null,
+   {},
+   {
+    "input": []
+   },
+   {
+    "input": "x"
+   },
+   {
+    "input": [
+     {
+      "type": "text"
+     }
+    ]
+   },
+   {
+    "input": [
+     {
+      "type": "image",
+      "data": "x"
+     }
+    ]
+   },
+   {
+    "prompt": "a cat"
+   }
+  ]
+ },
+ "upstream": {
+  "calls": [
+   {
+    "ok": true,
+    "value": [
+     {
+      "api": "test-classifier",
+      "baseUrl": "https://example.invalid",
+      "id": "judge",
+      "name": "Judge",
+      "provider": "test",
+      "type": "classifier"
+     }
+    ]
+   },
+   {
+    "ok": true,
+    "value": [
+     {
+      "api": "test-classifier",
+      "baseUrl": "https://example.invalid",
+      "id": "judge",
+      "name": "Judge",
+      "provider": "test",
+      "type": "classifier"
+     }
+    ]
+   },
+   {
+    "ok": true,
+    "value": []
+   },
+   {
+    "error": "Unknown model type \"nope\". Use \"chat\", \"image\", or \"classifier\".",
+    "ok": false
+   },
+   {
+    "error": "Unknown model type undefined. Use \"chat\", \"image\", or \"classifier\".",
+    "ok": false
+   },
+   {
+    "error": "Unknown model type null. Use \"chat\", \"image\", or \"classifier\".",
+    "ok": false
+   },
+   {
+    "error": "provider must be a string",
+    "ok": false
+   },
+   {
+    "ok": true,
+    "value": []
+   },
+   {
+    "ok": true,
+    "value": [
+     {
+      "api": "test-images",
+      "baseUrl": "https://example.invalid",
+      "id": "painter",
+      "name": "Painter",
+      "provider": "test",
+      "type": "image"
+     }
+    ]
+   },
+   {
+    "ok": true,
+    "value": {
+     "api": "test-classifier",
+     "baseUrl": "https://example.invalid",
+     "id": "judge",
+     "name": "Judge",
+     "provider": "test",
+     "type": "classifier"
+    }
+   },
+   {
+    "ok": true
+   },
+   {
+    "error": "models.getModelOfType(type, provider, id) expects three strings, got (a string, a string). The provider and the id are separate arguments, for example models.getModelOfType(\"classifier\", \"typesafe\", \"jev-latest\").",
+    "ok": false
+   },
+   {
+    "error": "models.getModelOfType(type, provider, id) expects three strings, got (a string, null, a string). The provider and the id are separate arguments, for example models.getModelOfType(\"classifier\", \"typesafe\", \"jev-latest\").",
+    "ok": false
+   },
+   {
+    "error": "Unknown model type 1. Use \"chat\", \"image\", or \"classifier\".",
+    "ok": false
+   },
+   {
+    "error": "models.getModelOfType(type, provider, id) expects three strings, got (). The provider and the id are separate arguments, for example models.getModelOfType(\"classifier\", \"typesafe\", \"jev-latest\").",
+    "ok": false
+   },
+   {
+    "error": "models.getModelOfType(type, provider, id) expects three strings, got (a string, { a, b, c, d, e, f, ... }, a string). The provider and the id are separate arguments, for example models.getModelOfType(\"classifier\", \"typesafe\", \"jev-latest\").",
+    "ok": false
+   },
+   {
+    "error": "models.getModelOfType(type, provider, id) expects three strings, got (a string, an empty array, a string). The provider and the id are separate arguments, for example models.getModelOfType(\"classifier\", \"typesafe\", \"jev-latest\").",
+    "ok": false
+   },
+   {
+    "error": "models.getModelOfType(type, provider, id) expects three strings, got (a string, an array, a boolean). The provider and the id are separate arguments, for example models.getModelOfType(\"classifier\", \"typesafe\", \"jev-latest\").",
+    "ok": false
+   },
+   {
+    "error": "models.getModelOfType(type, provider, id) expects three strings, got (a string, {}, a string). The provider and the id are separate arguments, for example models.getModelOfType(\"classifier\", \"typesafe\", \"jev-latest\").",
+    "ok": false
+   },
+   {
+    "error": "models.getModelOfType(type, provider, id) expects three strings, got (). The provider and the id are separate arguments, for example models.getModelOfType(\"classifier\", \"typesafe\", \"jev-latest\").",
+    "ok": false
+   }
+  ],
+  "classifierContexts": [
+   {
+    "ok": true
+   },
+   {
+    "ok": true
+   },
+   {
+    "error": "models.classify() expects a context object as its second argument, got null. Expected context: { state: { ... }, images?: [{ type: \"image\", data: \u003cbase64\u003e, mimeType }], questions: { \u003cid\u003e: { type: \"choice\", instructions, criteria: { \u003clabel\u003e: \u003cmeaning\u003e } } | { type: \"score\", instructions, criteria: [\u003clowest level\u003e, ..., \u003chighest level\u003e] } | { type: \"bool\", instructions, criteria: { true: \u003cmeaning\u003e, false: \u003cmeaning\u003e } } } }.",
+    "ok": false
+   },
+   {
+    "error": "models.classify() expects a context object as its second argument, got a string. Expected context: { state: { ... }, images?: [{ type: \"image\", data: \u003cbase64\u003e, mimeType }], questions: { \u003cid\u003e: { type: \"choice\", instructions, criteria: { \u003clabel\u003e: \u003cmeaning\u003e } } | { type: \"score\", instructions, criteria: [\u003clowest level\u003e, ..., \u003chighest level\u003e] } | { type: \"bool\", instructions, criteria: { true: \u003cmeaning\u003e, false: \u003cmeaning\u003e } } } }.",
+    "ok": false
+   },
+   {
+    "error": "models.classify() expects a context object as its second argument, got an empty array. Expected context: { state: { ... }, images?: [{ type: \"image\", data: \u003cbase64\u003e, mimeType }], questions: { \u003cid\u003e: { type: \"choice\", instructions, criteria: { \u003clabel\u003e: \u003cmeaning\u003e } } | { type: \"score\", instructions, criteria: [\u003clowest level\u003e, ..., \u003chighest level\u003e] } | { type: \"bool\", instructions, criteria: { true: \u003cmeaning\u003e, false: \u003cmeaning\u003e } } } }.",
+    "ok": false
+   },
+   {
+    "error": "models.classify() context.state must be an object, got undefined. Expected context: { state: { ... }, images?: [{ type: \"image\", data: \u003cbase64\u003e, mimeType }], questions: { \u003cid\u003e: { type: \"choice\", instructions, criteria: { \u003clabel\u003e: \u003cmeaning\u003e } } | { type: \"score\", instructions, criteria: [\u003clowest level\u003e, ..., \u003chighest level\u003e] } | { type: \"bool\", instructions, criteria: { true: \u003cmeaning\u003e, false: \u003cmeaning\u003e } } } }.",
+    "ok": false
+   },
+   {
+    "error": "models.classify() context.state must be an object, got a number. Expected context: { state: { ... }, images?: [{ type: \"image\", data: \u003cbase64\u003e, mimeType }], questions: { \u003cid\u003e: { type: \"choice\", instructions, criteria: { \u003clabel\u003e: \u003cmeaning\u003e } } | { type: \"score\", instructions, criteria: [\u003clowest level\u003e, ..., \u003chighest level\u003e] } | { type: \"bool\", instructions, criteria: { true: \u003cmeaning\u003e, false: \u003cmeaning\u003e } } } }.",
+    "ok": false
+   },
+   {
+    "error": "models.classify() context.images must be an array, got a string. Expected context: { state: { ... }, images?: [{ type: \"image\", data: \u003cbase64\u003e, mimeType }], questions: { \u003cid\u003e: { type: \"choice\", instructions, criteria: { \u003clabel\u003e: \u003cmeaning\u003e } } | { type: \"score\", instructions, criteria: [\u003clowest level\u003e, ..., \u003chighest level\u003e] } | { type: \"bool\", instructions, criteria: { true: \u003cmeaning\u003e, false: \u003cmeaning\u003e } } } }.",
+    "ok": false
+   },
+   {
+    "error": "models.classify() context.images[0] must be an image block, got { type, data }. Expected context: { state: { ... }, images?: [{ type: \"image\", data: \u003cbase64\u003e, mimeType }], questions: { \u003cid\u003e: { type: \"choice\", instructions, criteria: { \u003clabel\u003e: \u003cmeaning\u003e } } | { type: \"score\", instructions, criteria: [\u003clowest level\u003e, ..., \u003chighest level\u003e] } | { type: \"bool\", instructions, criteria: { true: \u003cmeaning\u003e, false: \u003cmeaning\u003e } } } }.",
+    "ok": false
+   },
+   {
+    "error": "models.classify() context.questions must map question IDs to questions, got undefined. Expected context: { state: { ... }, images?: [{ type: \"image\", data: \u003cbase64\u003e, mimeType }], questions: { \u003cid\u003e: { type: \"choice\", instructions, criteria: { \u003clabel\u003e: \u003cmeaning\u003e } } | { type: \"score\", instructions, criteria: [\u003clowest level\u003e, ..., \u003chighest level\u003e] } | { type: \"bool\", instructions, criteria: { true: \u003cmeaning\u003e, false: \u003cmeaning\u003e } } } }.",
+    "ok": false
+   },
+   {
+    "error": "models.classify() context.questions must map question IDs to questions, got {}. Expected context: { state: { ... }, images?: [{ type: \"image\", data: \u003cbase64\u003e, mimeType }], questions: { \u003cid\u003e: { type: \"choice\", instructions, criteria: { \u003clabel\u003e: \u003cmeaning\u003e } } | { type: \"score\", instructions, criteria: [\u003clowest level\u003e, ..., \u003chighest level\u003e] } | { type: \"bool\", instructions, criteria: { true: \u003cmeaning\u003e, false: \u003cmeaning\u003e } } } }.",
+    "ok": false
+   },
+   {
+    "error": "models.classify() context.questions.q must be a question object, got a number. Expected context: { state: { ... }, images?: [{ type: \"image\", data: \u003cbase64\u003e, mimeType }], questions: { \u003cid\u003e: { type: \"choice\", instructions, criteria: { \u003clabel\u003e: \u003cmeaning\u003e } } | { type: \"score\", instructions, criteria: [\u003clowest level\u003e, ..., \u003chighest level\u003e] } | { type: \"bool\", instructions, criteria: { true: \u003cmeaning\u003e, false: \u003cmeaning\u003e } } } }.",
+    "ok": false
+   },
+   {
+    "error": "models.classify() context.questions.q.instructions must be a string. Expected context: { state: { ... }, images?: [{ type: \"image\", data: \u003cbase64\u003e, mimeType }], questions: { \u003cid\u003e: { type: \"choice\", instructions, criteria: { \u003clabel\u003e: \u003cmeaning\u003e } } | { type: \"score\", instructions, criteria: [\u003clowest level\u003e, ..., \u003chighest level\u003e] } | { type: \"bool\", instructions, criteria: { true: \u003cmeaning\u003e, false: \u003cmeaning\u003e } } } }.",
+    "ok": false
+   },
+   {
+    "error": "models.classify() context.questions.q is a \"choice\" question, so criteria must map each label to its meaning. Expected context: { state: { ... }, images?: [{ type: \"image\", data: \u003cbase64\u003e, mimeType }], questions: { \u003cid\u003e: { type: \"choice\", instructions, criteria: { \u003clabel\u003e: \u003cmeaning\u003e } } | { type: \"score\", instructions, criteria: [\u003clowest level\u003e, ..., \u003chighest level\u003e] } | { type: \"bool\", instructions, criteria: { true: \u003cmeaning\u003e, false: \u003cmeaning\u003e } } } }.",
+    "ok": false
+   },
+   {
+    "error": "models.classify() context.questions.q is a \"choice\" question, so criteria must map each label to its meaning. Expected context: { state: { ... }, images?: [{ type: \"image\", data: \u003cbase64\u003e, mimeType }], questions: { \u003cid\u003e: { type: \"choice\", instructions, criteria: { \u003clabel\u003e: \u003cmeaning\u003e } } | { type: \"score\", instructions, criteria: [\u003clowest level\u003e, ..., \u003chighest level\u003e] } | { type: \"bool\", instructions, criteria: { true: \u003cmeaning\u003e, false: \u003cmeaning\u003e } } } }.",
+    "ok": false
+   },
+   {
+    "error": "models.classify() context.questions.q is a \"score\" question, so criteria must list the levels as strings, lowest first. Expected context: { state: { ... }, images?: [{ type: \"image\", data: \u003cbase64\u003e, mimeType }], questions: { \u003cid\u003e: { type: \"choice\", instructions, criteria: { \u003clabel\u003e: \u003cmeaning\u003e } } | { type: \"score\", instructions, criteria: [\u003clowest level\u003e, ..., \u003chighest level\u003e] } | { type: \"bool\", instructions, criteria: { true: \u003cmeaning\u003e, false: \u003cmeaning\u003e } } } }.",
+    "ok": false
+   },
+   {
+    "error": "models.classify() context.questions.q is a \"bool\" question, so criteria must be { true: string, false: string }. Expected context: { state: { ... }, images?: [{ type: \"image\", data: \u003cbase64\u003e, mimeType }], questions: { \u003cid\u003e: { type: \"choice\", instructions, criteria: { \u003clabel\u003e: \u003cmeaning\u003e } } | { type: \"score\", instructions, criteria: [\u003clowest level\u003e, ..., \u003chighest level\u003e] } | { type: \"bool\", instructions, criteria: { true: \u003cmeaning\u003e, false: \u003cmeaning\u003e } } } }.",
+    "ok": false
+   },
+   {
+    "error": "models.classify() context.questions.q.type must be \"choice\", \"score\", or \"bool\", got \"other\". Expected context: { state: { ... }, images?: [{ type: \"image\", data: \u003cbase64\u003e, mimeType }], questions: { \u003cid\u003e: { type: \"choice\", instructions, criteria: { \u003clabel\u003e: \u003cmeaning\u003e } } | { type: \"score\", instructions, criteria: [\u003clowest level\u003e, ..., \u003chighest level\u003e] } | { type: \"bool\", instructions, criteria: { true: \u003cmeaning\u003e, false: \u003cmeaning\u003e } } } }.",
+    "ok": false
+   },
+   {
+    "error": "models.classify() context.questions.q.type must be \"choice\", \"score\", or \"bool\", got undefined. Expected context: { state: { ... }, images?: [{ type: \"image\", data: \u003cbase64\u003e, mimeType }], questions: { \u003cid\u003e: { type: \"choice\", instructions, criteria: { \u003clabel\u003e: \u003cmeaning\u003e } } | { type: \"score\", instructions, criteria: [\u003clowest level\u003e, ..., \u003chighest level\u003e] } | { type: \"bool\", instructions, criteria: { true: \u003cmeaning\u003e, false: \u003cmeaning\u003e } } } }.",
+    "ok": false
+   },
+   {
+    "error": "models.classify() context.questions.2.type must be \"choice\", \"score\", or \"bool\", got \"x\". Expected context: { state: { ... }, images?: [{ type: \"image\", data: \u003cbase64\u003e, mimeType }], questions: { \u003cid\u003e: { type: \"choice\", instructions, criteria: { \u003clabel\u003e: \u003cmeaning\u003e } } | { type: \"score\", instructions, criteria: [\u003clowest level\u003e, ..., \u003chighest level\u003e] } | { type: \"bool\", instructions, criteria: { true: \u003cmeaning\u003e, false: \u003cmeaning\u003e } } } }.",
+    "ok": false
+   }
+  ],
+  "imagesContexts": [
+   {
+    "ok": true
+   },
+   {
+    "ok": true
+   },
+   {
+    "error": "models.generateImages() expects a context object as its second argument, got null. Expected context: { input: [{ type: \"text\", text: \u003cprompt\u003e }, ...optional { type: \"image\", data: \u003cbase64\u003e, mimeType } references] }.",
+    "ok": false
+   },
+   {
+    "error": "models.generateImages() context.input must be a non-empty array of blocks, got undefined. Expected context: { input: [{ type: \"text\", text: \u003cprompt\u003e }, ...optional { type: \"image\", data: \u003cbase64\u003e, mimeType } references] }.",
+    "ok": false
+   },
+   {
+    "error": "models.generateImages() context.input must be a non-empty array of blocks, got an empty array. Expected context: { input: [{ type: \"text\", text: \u003cprompt\u003e }, ...optional { type: \"image\", data: \u003cbase64\u003e, mimeType } references] }.",
+    "ok": false
+   },
+   {
+    "error": "models.generateImages() context.input must be a non-empty array of blocks, got a string. Expected context: { input: [{ type: \"text\", text: \u003cprompt\u003e }, ...optional { type: \"image\", data: \u003cbase64\u003e, mimeType } references] }.",
+    "ok": false
+   },
+   {
+    "error": "models.generateImages() context.input[0] must be a text or image block, got { type }. Expected context: { input: [{ type: \"text\", text: \u003cprompt\u003e }, ...optional { type: \"image\", data: \u003cbase64\u003e, mimeType } references] }.",
+    "ok": false
+   },
+   {
+    "error": "models.generateImages() context.input[0] must be a text or image block, got { type, data }. Expected context: { input: [{ type: \"text\", text: \u003cprompt\u003e }, ...optional { type: \"image\", data: \u003cbase64\u003e, mimeType } references] }.",
+    "ok": false
+   },
+   {
+    "error": "models.generateImages() context.input must be a non-empty array of blocks, got undefined. Expected context: { input: [{ type: \"text\", text: \u003cprompt\u003e }, ...optional { type: \"image\", data: \u003cbase64\u003e, mimeType } references] }.",
+    "ok": false
+   }
+  ],
+  "resolve": [
+   {
+    "ok": true,
+    "value": "test/judge"
+   },
+   {
+    "error": "models.classify() expects a classifier model as its first argument, got undefined. models.getModelOfType() returns undefined for an unknown provider or id. List the classifier models you can use with models.getAvailableOfType(\"classifier\").",
+    "ok": false
+   },
+   {
+    "error": "models.classify() expects a classifier model as its first argument, got null. models.getModelOfType() returns undefined for an unknown provider or id. List the classifier models you can use with models.getAvailableOfType(\"classifier\").",
+    "ok": false
+   },
+   {
+    "error": "models.classify() expects a classifier model as its first argument, got a string. List the classifier models you can use with models.getAvailableOfType(\"classifier\").",
+    "ok": false
+   },
+   {
+    "error": "\"test/painter\" is an image model, not a classifier model. List the classifier models you can use with models.getAvailableOfType(\"classifier\").",
+    "ok": false
+   },
+   {
+    "error": "Unknown classifier model \"test/nope\". List the classifier models you can use with models.getAvailableOfType(\"classifier\").",
+    "ok": false
+   },
+   {
+    "error": "\"test/judge\" is a classifier model, not an image model. List the image models you can use with models.getAvailableOfType(\"image\").",
+    "ok": false
+   },
+   {
+    "error": "models.generateImages() expects an image model as its first argument, got { provider, id }. List the image models you can use with models.getAvailableOfType(\"image\").",
+    "ok": false
+   },
+   {
+    "error": "models.generateImages() expects an image model as its first argument, got an empty array. List the image models you can use with models.getAvailableOfType(\"image\").",
+    "ok": false
+   }
+  ]
+ }
+}

@@ -374,6 +374,47 @@ const ops: Record<string, (input: any) => Promise<unknown>> = {
 		};
 	},
 
+	/**
+	 * Code mode's models.*: the catalog functions, model resolution, and the classifier and image context checks, over
+	 * a catalog of a classifier (with headers) and an image model.
+	 */
+	async codemodeModels(input: {
+		catalog: { modelType: string; model: any }[];
+		calls: { name: string; args: unknown }[];
+		resolve: { name: string; type: "classifier" | "image"; model: unknown }[];
+		classifierContexts: unknown[];
+		imagesContexts: unknown[];
+	}) {
+		const models = await durable("codemode/models.crosscheck.ts");
+		const stub = {
+			getModelsOfType: (type: string, provider?: string) =>
+				input.catalog.filter((entry) => entry.modelType === type && (provider === undefined || entry.model.provider === provider)).map((entry) => entry.model),
+			getAvailableOfType: async (type: string, provider?: string) =>
+				input.catalog.filter((entry) => entry.modelType === type && (provider === undefined || entry.model.provider === provider)).map((entry) => entry.model),
+			getModelOfType: (type: string, provider: string, id: string) =>
+				input.catalog.find((entry) => entry.modelType === type && entry.model.provider === provider && entry.model.id === id)?.model,
+		};
+		const attempt = async (run: () => unknown) => {
+			try {
+				const value = await run();
+				return value === undefined ? { ok: true } : { ok: true, value };
+			} catch (error: any) {
+				return { ok: false, error: String(error?.message ?? error) };
+			}
+		};
+		const out: Record<string, unknown[]> = { calls: [], resolve: [], classifierContexts: [], imagesContexts: [] };
+		for (const { name, args } of input.calls) out.calls!.push(await attempt(() => models.catalogCall(name, args, stub, {})));
+		for (const { name, type, model } of input.resolve) {
+			out.resolve!.push(await attempt(() => {
+				const resolved = models.resolveModel(name, type, model, stub);
+				return `${resolved.provider}/${resolved.id}`;
+			}));
+		}
+		for (const context of input.classifierContexts) out.classifierContexts!.push(await attempt(() => void models.checkClassifierContext(context)));
+		for (const context of input.imagesContexts) out.imagesContexts!.push(await attempt(() => void models.checkImagesContext(context)));
+		return out;
+	},
+
 	/** A scripted conversation run by upstream's Harness. */
 	async scenario(scenario: unknown) {
 		const { runScenario } = await import(new URL("./scenario.mts", import.meta.url).href);

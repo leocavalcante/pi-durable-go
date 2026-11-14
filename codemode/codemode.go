@@ -1444,12 +1444,9 @@ func (c *call) discover(call HostCall) (json.RawMessage, error) {
 		return namespace.Name == query || Identifier(namespace.Name) == Identifier(query)
 	}
 	stringArgument := func(i int) (string, bool) {
-		var text string
-		raw := argument(i)
-		if len(raw) == 0 || json.Unmarshal(raw, &text) != nil {
-			return "", false
-		}
-		return text, true
+		value, err := js.Parse(argument(i))
+		text, ok := value.(string)
+		return text, err == nil && ok
 	}
 	switch call.Name {
 	case "describeTool":
@@ -1491,18 +1488,20 @@ func (c *call) discover(call HostCall) (json.RawMessage, error) {
 		Namespace json.RawMessage `json:"namespace"`
 	}
 	_ = json.Unmarshal(argument(1), &options)
+	// options?.limit ?? 8: null is the default too.
 	limit := defaultSearchLimit
-	if len(options.Limit) > 0 {
+	if len(options.Limit) > 0 && string(options.Limit) != "null" {
 		var n float64
-		if json.Unmarshal(options.Limit, &n) != nil || n != math.Trunc(n) || n <= 0 || math.Abs(n) > 1<<53-1 {
+		if json.Unmarshal(options.Limit, &n) != nil || n != math.Trunc(n) || n <= 0 {
 			return nil, errors.New("searchTools() limit must be a positive integer")
 		}
 		limit = int(min(n, math.MaxInt32))
 	}
 	var namespace *string
 	if len(options.Namespace) > 0 && string(options.Namespace) != "null" {
-		var text string
-		if json.Unmarshal(options.Namespace, &text) != nil {
+		value, err := js.Parse(options.Namespace)
+		text, ok := value.(string)
+		if err != nil || !ok {
 			return nil, errors.New("searchTools() namespace must be a string")
 		}
 		namespace = &text

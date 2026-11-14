@@ -61,6 +61,15 @@ type testChat struct {
 
 func openChat(t *testing.T, ctx context.Context, storage durable.Storage, model durable.Model, extensions ...durable.Extension) testChat {
 	t.Helper()
+	return openChatWith(t, ctx, storage, model, nil, extensions...)
+}
+
+// openChatWith opens a chat whose conversations use env (nil: testEnv).
+func openChatWith(t *testing.T, ctx context.Context, storage durable.Storage, model durable.Model, env durable.ExecutionEnv, extensions ...durable.Extension) testChat {
+	t.Helper()
+	if env == nil {
+		env = testEnv{}
+	}
 	registry := durable.NewRegistry()
 	for _, extension := range extensions {
 		if err := registry.Install(extension); err != nil {
@@ -68,7 +77,7 @@ func openChat(t *testing.T, ctx context.Context, storage durable.Storage, model 
 		}
 	}
 	h, err := durable.Open(ctx, storage, durable.HarnessOptions{Registry: registry, Model: model,
-		Environment: func(durable.ConversationRecord) (durable.ExecutionEnv, error) { return testEnv{}, nil }})
+		Environment: func(durable.ConversationRecord) (durable.ExecutionEnv, error) { return env, nil }})
 	if err != nil {
 		t.Fatal(err)
 	}

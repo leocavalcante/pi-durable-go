@@ -203,8 +203,14 @@ func catalogCall(ctx context.Context, name string, args json.RawMessage, models 
 		}
 		return modelList(found)
 	}
-	var provider, id string
-	if json.Unmarshal(argument(1), &provider) != nil || json.Unmarshal(argument(2), &id) != nil {
+	stringOf := func(raw json.RawMessage) (string, bool) {
+		value, err := js.Parse(raw)
+		text, ok := value.(string)
+		return text, err == nil && ok
+	}
+	provider, providerOK := stringOf(argument(1))
+	id, idOK := stringOf(argument(2))
+	if !providerOK || !idOK {
 		described := make([]string, len(list))
 		for i, value := range list {
 			described[i] = describeValue(value)

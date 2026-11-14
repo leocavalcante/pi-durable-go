@@ -79,5 +79,9 @@ done
 sed -e 's/^function planTools(/export function planTools(/' \
 	-e 's/^function planSections(/export function planSections(/' \
 	"$upstream/packages/durable/src/harness/prompt.ts" >"$upstream/packages/durable/src/harness/prompt.crosscheck.ts"
+sed -e 's/^function checkClassifierContext(/export function checkClassifierContext(/' \
+	-e 's/^function checkImagesContext(/export function checkImagesContext(/' \
+	-e 's/^function resolveModel</export function resolveModel</' \
+	"$upstream/packages/durable/src/codemode/models.ts" >"$upstream/packages/durable/src/codemode/models.crosscheck.ts"
 
 echo "$upstream"

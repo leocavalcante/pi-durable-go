@@ -1,0 +1,462 @@
+{
+ "catalog": [
+  {
+   "modelType": "classifier",
+   "model": {
+    "id": "judge",
+    "name": "Judge",
+    "api": "test-classifier",
+    "provider": "test",
+    "baseUrl": "https://example.invalid",
+    "headers": {
+     "authorization": "secret"
+    },
+    "type": "classifier"
+   }
+  },
+  {
+   "modelType": "image",
+   "model": {
+    "id": "painter",
+    "name": "Painter",
+    "api": "test-images",
+    "provider": "test",
+    "baseUrl": "https://example.invalid",
+    "type": "image"
+   }
+  }
+ ],
+ "calls": [
+  {
+   "name": "models.getModelsOfType",
+   "args": [
+    "classifier"
+   ]
+  },
+  {
+   "name": "models.getModelsOfType",
+   "args": [
+    "classifier",
+    "test"
+   ]
+  },
+  {
+   "name": "models.getModelsOfType",
+   "args": [
+    "image",
+    "other"
+   ]
+  },
+  {
+   "name": "models.getModelsOfType",
+   "args": [
+    "nope"
+   ]
+  },
+  {
+   "name": "models.getModelsOfType",
+   "args": []
+  },
+  {
+   "name": "models.getModelsOfType",
+   "args": [
+    null
+   ]
+  },
+  {
+   "name": "models.getModelsOfType",
+   "args": [
+    "chat",
+    5
+   ]
+  },
+  {
+   "name": "models.getModelsOfType",
+   "args": [
+    "chat",
+    null
+   ]
+  },
+  {
+   "name": "models.getAvailableOfType",
+   "args": [
+    "image"
+   ]
+  },
+  {
+   "name": "models.getModelOfType",
+   "args": [
+    "classifier",
+    "test",
+    "judge"
+   ]
+  },
+  {
+   "name": "models.getModelOfType",
+   "args": [
+    "image",
+    "test",
+    "judge"
+   ]
+  },
+  {
+   "name": "models.getModelOfType",
+   "args": [
+    "classifier",
+    "test"
+   ]
+  },
+  {
+   "name": "models.getModelOfType",
+   "args": [
+    "classifier",
+    null,
+    "x"
+   ]
+  },
+  {
+   "name": "models.getModelOfType",
+   "args": [
+    1,
+    "test",
+    "judge"
+   ]
+  },
+  {
+   "name": "models.getModelOfType",
+   "args": []
+  },
+  {
+   "name": "models.getModelOfType",
+   "args": [
+    "classifier",
+    {
+     "a": 1,
+     "b": 1,
+     "c": 1,
+     "d": 1,
+     "e": 1,
+     "f": 1,
+     "g": 1,
+     "h": 1
+    },
+    "x"
+   ]
+  },
+  {
+   "name": "models.getModelOfType",
+   "args": [
+    "classifier",
+    [],
+    ""
+   ]
+  },
+  {
+   "name": "models.getModelOfType",
+   "args": [
+    "classifier",
+    [
+     1
+    ],
+    true
+   ]
+  },
+  {
+   "name": "models.getModelOfType",
+   "args": [
+    "classifier",
+    {},
+    "x"
+   ]
+  },
+  {
+   "name": "models.getModelOfType",
+   "args": "not a list"
+  }
+ ],
+ "resolve": [
+  {
+   "name": "models.classify",
+   "type": "classifier",
+   "model": {
+    "provider": "test",
+    "id": "judge"
+   }
+  },
+  {
+   "name": "models.classify",
+   "type": "classifier"
+  },
+  {
+   "name": "models.classify",
+   "type": "classifier",
+   "model": null
+  },
+  {
+   "name": "models.classify",
+   "type": "classifier",
+   "model": "judge"
+  },
+  {
+   "name": "models.classify",
+   "type": "classifier",
+   "model": {
+    "provider": "test",
+    "id": "painter"
+   }
+  },
+  {
+   "name": "models.classify",
+   "type": "classifier",
+   "model": {
+    "provider": "test",
+    "id": "nope"
+   }
+  },
+  {
+   "name": "models.generateImages",
+   "type": "image",
+   "model": {
+    "provider": "test",
+    "id": "judge"
+   }
+  },
+  {
+   "name": "models.generateImages",
+   "type": "image",
+   "model": {
+    "provider": 1,
+    "id": "judge"
+   }
+  },
+  {
+   "name": "models.generateImages",
+   "type": "image",
+   "model": []
+  }
+ ],
+ "classifierContexts": [
+  {
+   "state": {},
+   "questions": {
+    "good": {
+     "type": "bool",
+     "instructions": "?",
+     "criteria": {
+      "true": "y",
+      "false": "n"
+     }
+    }
+   }
+  },
+  {
+   "state": {
+    "a": 1
+   },
+   "images": [
+    {
+     "type": "image",
+     "data": "x",
+     "mimeType": "image/png"
+    }
+   ],
+   "questions": {
+    "c": {
+     "type": "choice",
+     "instructions": "?",
+     "criteria": {
+      "a": "A",
+      "b": "B"
+     }
+    },
+    "s": {
+     "type": "score",
+     "instructions": "?",
+     "criteria": [
+      "low",
+      "high"
+     ]
+    },
+    "b": {
+     "type": "bool",
+     "instructions": "?",
+     "criteria": {
+      "true": "y",
+      "false": "n"
+     }
+    }
+   }
+  },
+  null,
+  "x",
+  [],
+  {},
+  {
+   "state": 1
+  },
+  {
+   "state": {},
+   "images": "x"
+  },
+  {
+   "state": {},
+   "images": [
+    {
+     "type": "image",
+     "data": 1
+    }
+   ]
+  },
+  {
+   "state": {}
+  },
+  {
+   "state": {},
+   "questions": {}
+  },
+  {
+   "state": {},
+   "questions": {
+    "q": 1
+   }
+  },
+  {
+   "state": {},
+   "questions": {
+    "q": {
+     "type": "choice"
+    }
+   }
+  },
+  {
+   "state": {},
+   "questions": {
+    "q": {
+     "type": "choice",
+     "instructions": "?",
+     "criteria": {
+      "a": 1
+     }
+    }
+   }
+  },
+  {
+   "state": {},
+   "questions": {
+    "q": {
+     "type": "choice",
+     "instructions": "?",
+     "criteria": {}
+    }
+   }
+  },
+  {
+   "state": {},
+   "questions": {
+    "q": {
+     "type": "score",
+     "instructions": "?",
+     "criteria": [
+      "a",
+      2
+     ]
+    }
+   }
+  },
+  {
+   "state": {},
+   "questions": {
+    "q": {
+     "type": "bool",
+     "instructions": "?",
+     "criteria": {
+      "true": "y"
+     }
+    }
+   }
+  },
+  {
+   "state": {},
+   "questions": {
+    "q": {
+     "type": "other",
+     "instructions": "?"
+    }
+   }
+  },
+  {
+   "state": {},
+   "questions": {
+    "q": {
+     "instructions": "?"
+    }
+   }
+  },
+  {
+   "state": {},
+   "questions": {
+    "10": {
+     "type": "bool",
+     "instructions": "?",
+     "criteria": {
+      "true": "y",
+      "false": "n"
+     }
+    },
+    "2": {
+     "type": "x",
+     "instructions": "?"
+    }
+   }
+  }
+ ],
+ "imagesContexts": [
+  {
+   "input": [
+    {
+     "type": "text",
+     "text": "a cat"
+    }
+   ]
+  },
+  {
+   "input": [
+    {
+     "type": "text",
+     "text": "a cat"
+    },
+    {
+     "type": "image",
+     "data": "x",
+     "mimeType": "image/png"
+    }
+   ]
+  },
+  null,
+  {},
+  {
+   "input": []
+  },
+  {
+   "input": "x"
+  },
+  {
+   "input": [
+    {
+     "type": "text"
+    }
+   ]
+  },
+  {
+   "input": [
+    {
+     "type": "image",
+     "data": "x"
+    }
+   ]
+  },
+  {
+   "prompt": "a cat"
+  }
+ ]
+}
