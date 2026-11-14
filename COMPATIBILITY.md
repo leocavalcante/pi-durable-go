@@ -48,7 +48,7 @@ At a phase boundary, a task hands over to a changed definition if it can reserve
 
 ### Persistence and scheduler errors
 
-State v2 adds outcome and submission diagnostic fields. State v1 can be loaded and upgraded in memory; `Harness.Open` persists v2 in its reconciliation commit. Older binaries cannot safely reopen a v2 store, and future state versions are rejected. Direct `NewSession` users persist v2 on their next commit. This is a Go storage migration, not upstream file-format compatibility.
+State v2 added outcome and submission diagnostic fields; the current version is 4. Stores of earlier versions are loaded and upgraded in memory, and `Harness.Open` persists the current version in its reconciliation commit. Older binaries cannot safely reopen an upgraded store, and future state versions are rejected. Direct `NewSession` users persist the current version on their next commit. This is a Go storage migration, not upstream file-format compatibility.
 
 Storage failures are final, as upstream's are: the first error a storage commit returns, a certified `RejectedError` or a wrapped cancellation included, fails and seals the Session ([plan 0007](docs/plans/0007-upstream-commit-pipeline.md)). Cancellation is checked when a commit's job starts; once its callback ran, the commit is stored whatever happens to its caller's context. Scheduler bookkeeping callbacks that fail also fail the Session. `SessionEnd.Reason` is now `SessionEnd.Kind`.
 
