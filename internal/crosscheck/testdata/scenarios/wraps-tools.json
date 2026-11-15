@@ -1,0 +1,88 @@
+{
+ "name": "wraps-tools",
+ "tools": [
+  {
+   "name": "echo",
+   "results": [
+    {
+     "text": "original"
+    }
+   ]
+  },
+  {
+   "name": "other"
+  },
+  {
+   "name": "broken"
+  }
+ ],
+ "extensions": [
+  {
+   "name": "wrapper",
+   "wraps": [
+    {
+     "tool": "echo",
+     "prefix": "wrapped:",
+     "description": "A wrapped echo tool"
+    },
+    {
+     "tool": "other",
+     "rename": "renamed"
+    },
+    {
+     "tool": "broken",
+     "throw": "wrap failed"
+    },
+    {
+     "tool": "absent",
+     "prefix": "never"
+    }
+   ]
+  }
+ ],
+ "model": [
+  {
+   "calls": [
+    {
+     "id": "c1",
+     "name": "echo",
+     "args": {
+      "x": 1
+     }
+    }
+   ]
+  },
+  {
+   "calls": [
+    {
+     "id": "c2",
+     "name": "other",
+     "args": {}
+    }
+   ]
+  },
+  {
+   "calls": [
+    {
+     "id": "c3",
+     "name": "broken",
+     "args": {}
+    }
+   ]
+  },
+  {
+   "text": "done"
+  }
+ ],
+ "steps": [
+  {
+   "submit": {
+    "type": "input",
+    "content": "go"
+   }
+  },
+  {
+   "wait": "settled"
+  }
+ ]
+}

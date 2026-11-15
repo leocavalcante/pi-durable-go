@@ -1,0 +1,59 @@
+{
+ "name": "wraps-sections",
+ "extensions": [
+  {
+   "name": "notes",
+   "sections": [
+    {
+     "key": "notes",
+     "text": "Some notes."
+    },
+    {
+     "key": "rules",
+     "text": "Some rules."
+    },
+    {
+     "key": "extra",
+     "text": "Extra."
+    }
+   ]
+  },
+  {
+   "name": "wrapper",
+   "wraps": [
+    {
+     "section": "notes",
+     "prefix": "PREFIX "
+    },
+    {
+     "section": "rules",
+     "rename": "renamed"
+    },
+    {
+     "section": "extra",
+     "throw": "section wrap failed"
+    },
+    {
+     "section": "absent",
+     "prefix": "never"
+    }
+   ]
+  }
+ ],
+ "model": [
+  {
+   "text": "done"
+  }
+ ],
+ "steps": [
+  {
+   "submit": {
+    "type": "input",
+    "content": "go"
+   }
+  },
+  {
+   "wait": "settled"
+  }
+ ]
+}

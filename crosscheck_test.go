@@ -600,6 +600,16 @@ type scenarioSpec struct {
 			Text string `json:"text"`
 			Tag  *bool  `json:"tag,omitempty"`
 		} `json:"sections,omitempty"`
+		// Wraps wrap a tool (a description, a result prefix) or a section
+		// (a prefix); a rename or a throw drops the target.
+		Wraps []struct {
+			Tool        string  `json:"tool,omitempty"`
+			Section     string  `json:"section,omitempty"`
+			Description *string `json:"description,omitempty"`
+			Prefix      string  `json:"prefix,omitempty"`
+			Rename      string  `json:"rename,omitempty"`
+			Throw       string  `json:"throw,omitempty"`
+		} `json:"wraps,omitempty"`
 		BeforeTool []struct {
 			Tool  string          `json:"tool"`
 			Block *string         `json:"block,omitempty"`
@@ -992,6 +1002,60 @@ func runScenario(t *testing.T, sc scenarioSpec) json.RawMessage {
 			text := section.Text
 			extension.Sections = append(extension.Sections, Section{Name: section.Key, Untagged: section.Tag != nil && !*section.Tag,
 				Render: func(context.Context, PromptInput) (string, error) { return text, nil }})
+		}
+		for _, wrap := range spec.Wraps {
+			wrap := wrap
+			if wrap.Tool != "" {
+				if extension.WrapTools == nil {
+					extension.WrapTools = map[string]func(ToolDefinition) ToolDefinition{}
+				}
+				extension.WrapTools[wrap.Tool] = func(tool ToolDefinition) ToolDefinition {
+					if wrap.Throw != "" {
+						panic(wrap.Throw)
+					}
+					if wrap.Rename != "" {
+						tool.Name = wrap.Rename
+					}
+					if wrap.Description != nil {
+						tool.Description = *wrap.Description
+					}
+					if wrap.Prefix != "" {
+						execute := tool.Execute
+						tool.Execute = func(ctx context.Context, args json.RawMessage, rt *ToolRuntime) (ToolResult, error) {
+							result, err := execute(ctx, args, rt)
+							if err == nil {
+								// Upstream's text blocks, joined by newlines.
+								result.Content = wrap.Prefix + "\n" + result.Content
+							}
+							return result, err
+						}
+					}
+					return tool
+				}
+				continue
+			}
+			if extension.WrapSections == nil {
+				extension.WrapSections = map[string]func(Section) Section{}
+			}
+			extension.WrapSections[wrap.Section] = func(section Section) Section {
+				if wrap.Throw != "" {
+					panic(wrap.Throw)
+				}
+				if wrap.Rename != "" {
+					section.Name = wrap.Rename
+				}
+				if wrap.Prefix != "" {
+					render := section.Render
+					section.Render = func(ctx context.Context, input PromptInput) (string, error) {
+						text, err := render(ctx, input)
+						if err != nil {
+							return text, err
+						}
+						return wrap.Prefix + text, nil
+					}
+				}
+				return section
+			}
 		}
 		if len(spec.BeforeTool) > 0 {
 			extension.Hooks.BeforeTool = func(_ context.Context, call *ToolCall, _ *ToolRuntime) error {

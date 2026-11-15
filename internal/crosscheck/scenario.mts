@@ -352,7 +352,49 @@ export async function runScenario(
 				}),
 			);
 		}
-		registry.install(pd.defineExtension({ name: ext.name, sections, hooks }));
+		// Wraps: a tool's description or result prefix, a section's prefix; a
+		// rename or a throw drops the target.
+		const wraps = (ext.wraps ?? []).map((w: any) =>
+			w.tool !== undefined
+				? {
+						tool: w.tool,
+						wrap: (tool: any) => {
+							if (w.throw !== undefined) throw new Error(w.throw);
+							return {
+								...tool,
+								...(w.rename !== undefined ? { name: w.rename } : {}),
+								...(w.description !== undefined ? { description: w.description } : {}),
+								...(w.prefix !== undefined
+									? {
+											async execute(args: unknown, api: unknown, callContext: unknown) {
+												const result = await tool.execute(args, api, callContext);
+												return { ...result, output: [{ type: "text", text: w.prefix }, ...(result.output ?? [])] };
+											},
+										}
+									: {}),
+							};
+						},
+					}
+				: {
+						section: w.section,
+						wrap: (section: any) => {
+							if (w.throw !== undefined) throw new Error(w.throw);
+							return {
+								...section,
+								...(w.rename !== undefined ? { key: w.rename } : {}),
+								...(w.prefix !== undefined
+									? {
+											async render(input: unknown, renderContext: unknown) {
+												const text = await section.render(input, renderContext);
+												return text === undefined ? undefined : w.prefix + text;
+											},
+										}
+									: {}),
+							};
+						},
+					},
+		);
+		registry.install(pd.defineExtension({ name: ext.name, sections, hooks, wraps }));
 	}
 	// Code mode with pi-codemode's sandbox, without models.* (Go has no
 	// catalog by default).
