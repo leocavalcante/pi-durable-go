@@ -220,9 +220,21 @@ function toResponse(message) {
     if (message[key] !== undefined) replay[key] = message[key];
   }
   return { ...visible, stopReason: message.stopReason,
-    usage: { inputTokens: usage.input, outputTokens: usage.output, cacheReadTokens: usage.cacheRead,
-      cacheWriteTokens: usage.cacheWrite, cost: usage.cost?.total ?? 0 },
+    usage: goUsage(usage),
     providerData: { format: "pi-assistant-v1", message: replay } };
+}
+
+// pi-ai's Usage in the Go port's shape: every counter and cost part.
+function goUsage(usage) {
+  const cost = usage.cost ?? {};
+  const out = { inputTokens: usage.input ?? 0, outputTokens: usage.output ?? 0, cacheReadTokens: usage.cacheRead ?? 0,
+    cacheWriteTokens: usage.cacheWrite ?? 0, totalTokens: usage.totalTokens ?? 0, cost: cost.total ?? 0,
+    costInput: cost.input ?? 0, costOutput: cost.output ?? 0, costCacheRead: cost.cacheRead ?? 0,
+    costCacheWrite: cost.cacheWrite ?? 0 };
+  if (typeof usage.cacheWrite1h === "number") out.cacheWrite1hTokens = usage.cacheWrite1h;
+  if (typeof usage.reasoning === "number") out.reasoningTokens = usage.reasoning;
+  if (cost.totalFromProvider === true) out.costFromProvider = true;
+  return out;
 }
 
 // pi-ai's own classifiers, resolved through the coding agent's dependency tree

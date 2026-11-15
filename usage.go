@@ -7,8 +7,26 @@ import (
 
 var usageDocument = DocumentDefinition{Kind: "pi.usage", Version: 1, Scope: "conversation", History: "latest", Fork: "initial", Initial: func() any { return UsageState{Models: map[string]Usage{}, Tools: map[string]Usage{}} }}
 
+// sumUsage adds every counter of b to a (upstream addUsage): optional
+// counters once either side reports them; the total keeps a's provenance.
 func sumUsage(a, b Usage) Usage {
-	return Usage{InputTokens: a.InputTokens + b.InputTokens, OutputTokens: a.OutputTokens + b.OutputTokens, CacheReadTokens: a.CacheReadTokens + b.CacheReadTokens, CacheWriteTokens: a.CacheWriteTokens + b.CacheWriteTokens, Cost: a.Cost + b.Cost}
+	optional := func(x, y *int64) *int64 {
+		if y == nil {
+			return x
+		}
+		sum := *y
+		if x != nil {
+			sum += *x
+		}
+		return &sum
+	}
+	return Usage{InputTokens: a.InputTokens + b.InputTokens, OutputTokens: a.OutputTokens + b.OutputTokens,
+		CacheReadTokens: a.CacheReadTokens + b.CacheReadTokens, CacheWriteTokens: a.CacheWriteTokens + b.CacheWriteTokens,
+		CacheWrite1hTokens: optional(a.CacheWrite1hTokens, b.CacheWrite1hTokens), ReasoningTokens: optional(a.ReasoningTokens, b.ReasoningTokens),
+		TotalTokens: a.TotalTokens + b.TotalTokens,
+		Cost:        a.Cost + b.Cost, CostInput: a.CostInput + b.CostInput, CostOutput: a.CostOutput + b.CostOutput,
+		CostCacheRead: a.CostCacheRead + b.CostCacheRead, CostCacheWrite: a.CostCacheWrite + b.CostCacheWrite,
+		CostFromProvider: a.CostFromProvider || a == (Usage{}) && b.CostFromProvider}
 }
 func recordModelUsage(tx *Tx, cid ConversationID, model ModelRef, usage Usage) error {
 	return UpdateDocument(tx, usageDocument, uint64(cid), func(s *UsageState) error {

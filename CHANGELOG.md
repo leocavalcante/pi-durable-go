@@ -36,7 +36,9 @@ says how the port is compared with upstream's own code.
   - `model.OpenAI` speaks Chat Completions natively. It follows pi-ai's
     openai-completions adapter: request fields, thinking formats, the full
     `model.compat` (`OpenAICompat`), headers, message transforms, OpenRouter
-    reasoning details, and grammar-constrained tools.
+    reasoning details, grammar-constrained tools, and usage priced with a configured
+    `Cost` as pi-ai prices it, with OpenRouter's billed costs.
+  - `Usage` carries every counter and cost part of pi-ai's usage.
 - **Code mode.** The `codemode` package ports upstream's `codemode` tool and
   prompt section: model-written JavaScript calls the conversation's tools as
   nested calls and survives a restart by deterministic replay from a journal.

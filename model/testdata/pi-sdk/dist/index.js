@@ -1,8 +1,8 @@
 // Fake public SDK. No credentials or network are accessed by this fixture.
 import { writeFile } from "node:fs/promises";
 
-const usage = { input: 7, output: 3, cacheRead: 5, cacheWrite: 2,
-  totalTokens: 17, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0.25 } };
+const usage = { input: 7, output: 3, cacheRead: 5, cacheWrite: 2, cacheWrite1h: 1, reasoning: 2,
+  totalTokens: 17, cost: { input: 0.01, output: 0.02, cacheRead: 0.03, cacheWrite: 0.04, total: 0.25, totalFromProvider: true } };
 
 export class ModelRuntime {
   static async create(options) {

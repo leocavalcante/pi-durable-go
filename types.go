@@ -242,12 +242,31 @@ type ToolCall struct {
 	// gets an invalid_arguments result instead of the run failing.
 	ArgumentsError string `json:"argumentsError,omitempty"`
 }
+
+// Usage is pi-ai's Usage: token counts and their cost.
 type Usage struct {
-	InputTokens      int64   `json:"inputTokens"`
-	OutputTokens     int64   `json:"outputTokens"`
-	CacheReadTokens  int64   `json:"cacheReadTokens,omitempty"`
-	CacheWriteTokens int64   `json:"cacheWriteTokens,omitempty"`
+	InputTokens      int64 `json:"inputTokens"`
+	OutputTokens     int64 `json:"outputTokens"`
+	CacheReadTokens  int64 `json:"cacheReadTokens,omitempty"`
+	CacheWriteTokens int64 `json:"cacheWriteTokens,omitempty"`
+	// CacheWrite1hTokens is the part of CacheWriteTokens written with one
+	// hour retention (pi-ai cacheWrite1h; only Anthropic reports it); nil
+	// when not reported.
+	CacheWrite1hTokens *int64 `json:"cacheWrite1hTokens,omitempty"`
+	// ReasoningTokens is the reasoning part of OutputTokens (pi-ai
+	// reasoning), set, possibly to 0, by providers that report it.
+	ReasoningTokens *int64 `json:"reasoningTokens,omitempty"`
+	// TotalTokens is pi-ai's totalTokens.
+	TotalTokens int64 `json:"totalTokens,omitempty"`
+	// Cost is the best available total (pi-ai cost.total): the provider's
+	// billed cost when CostFromProvider, else the catalog estimate, the sum
+	// of the parts below.
 	Cost             float64 `json:"cost,omitempty"`
+	CostInput        float64 `json:"costInput,omitempty"`
+	CostOutput       float64 `json:"costOutput,omitempty"`
+	CostCacheRead    float64 `json:"costCacheRead,omitempty"`
+	CostCacheWrite   float64 `json:"costCacheWrite,omitempty"`
+	CostFromProvider bool    `json:"costFromProvider,omitempty"`
 }
 type UsageState struct {
 	Models map[string]Usage `json:"models"`

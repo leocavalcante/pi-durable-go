@@ -862,3 +862,91 @@ func TestCrosscheckOpenAIGrammarTools(t *testing.T) {
 		}
 	}
 }
+
+// Usage as pi-ai's openai-completions reports it: reasoning and total
+// tokens, the cost at the model's price and its tiers, and OpenRouter's
+// billed cost.
+func TestCrosscheckOpenAIUsage(t *testing.T) {
+	answer := `data: {"choices":[{"delta":{"content":"x"},"finish_reason":"stop"}]}`
+	usage := func(fields string) []string {
+		return []string{answer, `data: {"choices":[],"usage":` + fields + `}`, `data: [DONE]`}
+	}
+	price := map[string]any{"input": 3, "output": 15, "cacheRead": 0.3, "cacheWrite": 3.75}
+	tiered := map[string]any{"input": 3, "output": 15, "cacheRead": 0.3, "cacheWrite": 3.75,
+		"tiers": []map[string]any{{"inputTokensAbove": 100, "input": 6, "output": 30, "cacheRead": 0.6, "cacheWrite": 7.5}, {"inputTokensAbove": 1000, "input": 9, "output": 40, "cacheRead": 1, "cacheWrite": 9}}}
+	openRouter := func(cost map[string]any) map[string]any {
+		return map[string]any{"provider": "openrouter", "cost": cost}
+	}
+	cases := []struct {
+		stream []string
+		model  map[string]any
+	}{
+		{usage(`{"prompt_tokens":100,"completion_tokens":20,"prompt_tokens_details":{"cached_tokens":40,"cache_write_tokens":10},"completion_tokens_details":{"reasoning_tokens":5}}`), map[string]any{"cost": price}},
+		{usage(`{"prompt_tokens":100,"completion_tokens":20}`), map[string]any{"cost": price}},
+		{usage(`{"prompt_tokens":150,"completion_tokens":20,"prompt_tokens_details":{"cached_tokens":30}}`), map[string]any{"cost": tiered}},
+		{usage(`{"prompt_tokens":2000,"completion_tokens":1}`), map[string]any{"cost": tiered}},
+		{usage(`{"prompt_tokens":10,"completion_tokens":2,"cost":0.0123,"is_byok":false}`), openRouter(price)},
+		{usage(`{"prompt_tokens":10,"completion_tokens":2,"cost":0.01,"is_byok":true,"cost_details":{"upstream_inference_cost":0.5}}`), openRouter(price)},
+		{usage(`{"prompt_tokens":10,"completion_tokens":2,"cost":0.01,"is_byok":true,"cost_details":{"upstream_inference_cost":null,"upstream_inference_prompt_cost":0.2,"upstream_inference_completions_cost":0.3}}`), openRouter(price)},
+		{usage(`{"prompt_tokens":10,"completion_tokens":2,"cost":0.01,"is_byok":true,"cost_details":{"upstream_inference_cost":null,"upstream_inference_prompt_cost":0.2}}`), openRouter(price)},
+		{usage(`{"prompt_tokens":10,"completion_tokens":2,"cost":0.01,"is_byok":true}`), openRouter(price)},
+		{usage(`{"prompt_tokens":10,"completion_tokens":2,"cost":"0.01","is_byok":false}`), openRouter(price)},
+		{usage(`{"prompt_tokens":10,"completion_tokens":2,"cost":-1,"is_byok":false}`), openRouter(price)},
+		{usage(`{"prompt_tokens":10,"completion_tokens":2,"cost":0.01}`), openRouter(price)},
+		// Not OpenRouter: its billing is not read.
+		{usage(`{"prompt_tokens":10,"completion_tokens":2,"cost":0.01,"is_byok":false}`), map[string]any{"cost": price}},
+		{[]string{answer, `data: [DONE]`}, map[string]any{"cost": price}},
+	}
+	streams := make([][]string, len(cases))
+	models := make([]map[string]any, len(cases))
+	for i, c := range cases {
+		streams[i], models[i] = c.stream, c.model
+	}
+	type cost struct {
+		Input, Output, CacheRead, CacheWrite, Total float64
+		TotalFromProvider                           *bool `json:"totalFromProvider"`
+	}
+	var want []struct {
+		Usage struct {
+			Input, Output, CacheRead, CacheWrite int64
+			CacheWrite1h                         *int64 `json:"cacheWrite1h"`
+			Reasoning                            *int64 `json:"reasoning"`
+			TotalTokens                          int64  `json:"totalTokens"`
+			Cost                                 cost   `json:"cost"`
+		} `json:"usage"`
+	}
+	crosscheck.Run(t, "openaiStream", map[string]any{"streams": streams, "models": models}, &want)
+	if len(want) != len(cases) {
+		t.Fatalf("%d answers for %d streams", len(want), len(cases))
+	}
+	current := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		for _, line := range streams[current] {
+			fmt.Fprint(w, line+"\n\n")
+		}
+	}))
+	defer server.Close()
+	for current = range cases {
+		var price ModelCost
+		data, _ := json.Marshal(cases[current].model["cost"])
+		if err := json.Unmarshal(data, &price); err != nil {
+			t.Fatal(err)
+		}
+		provider, _ := cases[current].model["provider"].(string)
+		adapter := OpenAI{BaseURL: server.URL + "/v1", Cost: &price}
+		response, err := adapter.Generate(context.Background(), durable.ModelRequest{Model: durable.ModelRef{Provider: provider, ID: "m"}, Messages: []durable.Message{{Role: "user", Content: "hi"}}}, nil)
+		if err != nil {
+			t.Fatalf("stream %d: %v", current, err)
+		}
+		u, w := response.Usage, want[current].Usage
+		got := fmt.Sprintf("%d %d %d %d %v %v %d %v %v %v %v %v %v", u.InputTokens, u.OutputTokens, u.CacheReadTokens, u.CacheWriteTokens,
+			deref(u.CacheWrite1hTokens), deref(u.ReasoningTokens), u.TotalTokens, u.CostInput, u.CostOutput, u.CostCacheRead, u.CostCacheWrite, u.Cost, u.CostFromProvider)
+		fromProvider := w.Cost.TotalFromProvider != nil && *w.Cost.TotalFromProvider
+		upstream := fmt.Sprintf("%d %d %d %d %v %v %d %v %v %v %v %v %v", w.Input, w.Output, w.CacheRead, w.CacheWrite,
+			deref(w.CacheWrite1h), deref(w.Reasoning), w.TotalTokens, w.Cost.Input, w.Cost.Output, w.Cost.CacheRead, w.Cost.CacheWrite, w.Cost.Total, fromProvider)
+		if got != upstream {
+			t.Errorf("stream %d:\n got %s\nwant %s", current, got, upstream)
+		}
+	}
+}

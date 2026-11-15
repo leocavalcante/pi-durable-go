@@ -54,6 +54,10 @@ type OpenAI struct {
 	// Compat is pi-ai's model.compat: settings over what pi-ai detects from
 	// the provider and BaseURL, such as the thinking format.
 	Compat OpenAICompat
+	// Cost is the model's price (pi-ai model.cost), which prices each
+	// answer's usage; nil prices nothing, as a model without catalog
+	// prices.
+	Cost *ModelCost
 	// SamplingParams and SamplingParamsByThinkingLevel are pi-ai's
 	// model.samplingParams and samplingParamsByThinkingLevel: request fields
 	// such as temperature or top_p, the level's over the model's, sent last
@@ -340,7 +344,8 @@ func (o OpenAI) GenerateEvents(ctx context.Context, req durable.ModelRequest, on
 		maxBytes = defaultMaxResponseBytes
 	}
 	limited := &limitedReader{r: resp.Body, remaining: maxBytes}
-	response, err := parseSSE(ctx, limited, onEvent, req.Model, c.supportsFinishReason, grammars)
+	response, err := parseSSE(ctx, limited, onEvent, req.Model, c.supportsFinishReason, grammars,
+		usagePricing{cost: o.Cost, openRouter: openRouter(req.Model.Provider, o.BaseURL)})
 	if err != nil {
 		return durable.ModelResponse{}, err
 	}
@@ -523,6 +528,19 @@ type streamChunk struct {
 			CachedTokens     *int64 `json:"cached_tokens"`
 			CacheWriteTokens int64  `json:"cache_write_tokens"`
 		} `json:"prompt_tokens_details"`
+		CompletionTokensDetails *struct {
+			ReasoningTokens *int64 `json:"reasoning_tokens"`
+		} `json:"completion_tokens_details"`
+		// OpenRouter's billing (pi-ai applyOpenRouterReportedCost), read
+		// as raw JSON: values that are not costs are ignored, and a null
+		// upstream cost differs from a missing one.
+		Cost        json.RawMessage `json:"cost"`
+		IsByok      *bool           `json:"is_byok"`
+		CostDetails *struct {
+			UpstreamInferenceCost            json.RawMessage `json:"upstream_inference_cost"`
+			UpstreamInferencePromptCost      json.RawMessage `json:"upstream_inference_prompt_cost"`
+			UpstreamInferenceCompletionsCost json.RawMessage `json:"upstream_inference_completions_cost"`
+		} `json:"cost_details"`
 	} `json:"usage"`
 }
 
@@ -575,7 +593,7 @@ func (t *streamTool) customPiece(input string) string {
 // parseSSE reads a Chat Completions stream as pi-ai does. The answer ends
 // with the stream: its finish reason says how, and without one it is an
 // error, or with supportsFinishReason false a stop or a tool use.
-func parseSSE(ctx context.Context, r io.Reader, onEvent func(durable.StreamEvent) error, model durable.ModelRef, supportsFinishReason bool, grammars map[string]string) (durable.ModelResponse, error) {
+func parseSSE(ctx context.Context, r io.Reader, onEvent func(durable.StreamEvent) error, model durable.ModelRef, supportsFinishReason bool, grammars map[string]string, pricing usagePricing) (durable.ModelResponse, error) {
 	provider := model.Provider
 	response := durable.ModelResponse{}
 	// The field the thinking came in, and OpenRouter's reasoning details,
@@ -631,9 +649,19 @@ func parseSSE(ctx context.Context, r io.Reader, onEvent func(durable.StreamEvent
 			if usage.PromptTokensDetails != nil {
 				write = usage.PromptTokensDetails.CacheWriteTokens
 			}
-			response.Usage.InputTokens = max(0, usage.PromptTokens-read-write)
-			response.Usage.OutputTokens = usage.CompletionTokens
-			response.Usage.CacheReadTokens, response.Usage.CacheWriteTokens = read, write
+			input := max(0, usage.PromptTokens-read-write)
+			// completion_tokens already includes the reasoning tokens.
+			var reasoning int64
+			if details := usage.CompletionTokensDetails; details != nil && details.ReasoningTokens != nil {
+				reasoning = *details.ReasoningTokens
+			}
+			response.Usage = durable.Usage{InputTokens: input, OutputTokens: usage.CompletionTokens,
+				CacheReadTokens: read, CacheWriteTokens: write, ReasoningTokens: &reasoning,
+				TotalTokens: input + usage.CompletionTokens + read + write}
+			pricing.cost.price(&response.Usage)
+			if pricing.openRouter {
+				applyOpenRouterCost(&response.Usage, usage.Cost, usage.IsByok, usage.CostDetails)
+			}
 		}
 		for _, choice := range chunk.Choices {
 			if choice.FinishReason != nil && *choice.FinishReason != "" {

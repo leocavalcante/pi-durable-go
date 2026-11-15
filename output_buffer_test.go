@@ -90,3 +90,26 @@ func TestStreamedOutputIsBoundOnceByItsLimits(t *testing.T) {
 		t.Fatalf("result:\n%q\nwant\n%q", got[max(0, len(got)-200):], want[len(want)-200:])
 	}
 }
+
+// Ledgers add usage as upstream's addUsage: every counter and cost part;
+// optional counters once either side reports them; the first record's
+// provenance of its total stays.
+func TestUsageSumsAsUpstream(t *testing.T) {
+	n := func(v int64) *int64 { return &v }
+	first := Usage{InputTokens: 1, TotalTokens: 1, Cost: 0.5, CostInput: 0.5, CostFromProvider: true}
+	second := Usage{InputTokens: 2, OutputTokens: 3, ReasoningTokens: n(3), CacheWrite1hTokens: n(1), TotalTokens: 5, Cost: 0.25, CostOutput: 0.25}
+	sum := sumUsage(sumUsage(Usage{}, first), second)
+	sum = sumUsage(sum, Usage{ReasoningTokens: n(4)})
+	if sum.ReasoningTokens == nil || *sum.ReasoningTokens != 7 || sum.CacheWrite1hTokens == nil || *sum.CacheWrite1hTokens != 1 {
+		t.Fatalf("optional counters: %+v", sum)
+	}
+	if sum.InputTokens != 3 || sum.OutputTokens != 3 || sum.TotalTokens != 6 || sum.Cost != 0.75 || sum.CostInput != 0.5 || sum.CostOutput != 0.25 || !sum.CostFromProvider {
+		t.Fatalf("sum: %+v", sum)
+	}
+	if later := sumUsage(sumUsage(Usage{}, second), first); later.CostFromProvider {
+		t.Fatalf("a later record changed the provenance: %+v", later)
+	}
+	if none := sumUsage(Usage{}, Usage{InputTokens: 1}); none.ReasoningTokens != nil {
+		t.Fatalf("reasoning appeared: %+v", none)
+	}
+}

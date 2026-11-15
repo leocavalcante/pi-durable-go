@@ -259,7 +259,11 @@ const ops: Record<string, (input: any) => Promise<unknown>> = {
 	},
 
 	/** openai-completions answers to SSE streams served locally. */
-	async openaiStream({ streams, compats }: { streams: string[][]; compats?: (Record<string, unknown> | null)[] }) {
+	async openaiStream({
+		streams,
+		compats,
+		models,
+	}: { streams: string[][]; compats?: (Record<string, unknown> | null)[]; models?: (Record<string, unknown> | null)[] }) {
 		const oai = await ai("api/openai-completions.ts");
 		let current = 0;
 		const server = createServer((request, response) => {
@@ -288,8 +292,10 @@ const ops: Record<string, (input: any) => Promise<unknown>> = {
 		try {
 			for (current = 0; current < streams.length; current++) {
 				const compat = compats?.[current];
+				// Per stream, model fields over the default, such as a price or a provider.
+				const resolved = { ...model, ...(models?.[current] ?? {}), ...(compat ? { compat } : {}) };
 				const message = await oai
-					.streamSimple(compat ? { ...model, compat } : model, { messages: [{ role: "user", content: "hi", timestamp: 1 }] }, { apiKey: "t", maxRetries: 0 })
+					.streamSimple(resolved, { messages: [{ role: "user", content: "hi", timestamp: 1 }] }, { apiKey: "t", maxRetries: 0 })
 					.result();
 				out.push({
 					stopReason: message.stopReason,
@@ -301,7 +307,16 @@ const ops: Record<string, (input: any) => Promise<unknown>> = {
 							? [{ id: block.id, name: block.name, arguments: block.arguments, ...(block.argumentsError ? { argumentsError: block.argumentsError } : {}) }]
 							: [],
 					),
-					usage: { input: message.usage.input, output: message.usage.output, cacheRead: message.usage.cacheRead, cacheWrite: message.usage.cacheWrite },
+					usage: {
+						input: message.usage.input,
+						output: message.usage.output,
+						cacheRead: message.usage.cacheRead,
+						cacheWrite: message.usage.cacheWrite,
+						...(message.usage.cacheWrite1h === undefined ? {} : { cacheWrite1h: message.usage.cacheWrite1h }),
+						...(message.usage.reasoning === undefined ? {} : { reasoning: message.usage.reasoning }),
+						totalTokens: message.usage.totalTokens,
+						cost: message.usage.cost,
+					},
 					// OpenRouter's reasoning details, which pi-ai keeps in the thinking signature.
 					reasoningDetails: message.content.flatMap((block: any) => {
 						if (block.type !== "thinking" || !block.thinkingSignature?.startsWith("[")) return [];

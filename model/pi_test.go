@@ -45,8 +45,15 @@ func TestPiStreamingAndNativeReplay(t *testing.T) {
 	if response.Content != "hello world" || strings.Join(deltas, "") != response.Content || response.Thinking != "plan" {
 		t.Fatalf("response=%+v, deltas=%q", response, deltas)
 	}
-	if response.Usage != (durable.Usage{InputTokens: 7, OutputTokens: 3, CacheReadTokens: 5, CacheWriteTokens: 2, Cost: .25}) {
-		t.Fatalf("usage=%+v", response.Usage)
+	// Every counter and cost part of pi-ai's usage.
+	usage := response.Usage
+	if usage.CacheWrite1hTokens == nil || *usage.CacheWrite1hTokens != 1 || usage.ReasoningTokens == nil || *usage.ReasoningTokens != 2 {
+		t.Fatalf("usage=%+v", usage)
+	}
+	usage.CacheWrite1hTokens, usage.ReasoningTokens = nil, nil
+	if usage != (durable.Usage{InputTokens: 7, OutputTokens: 3, CacheReadTokens: 5, CacheWriteTokens: 2, TotalTokens: 17,
+		Cost: .25, CostInput: .01, CostOutput: .02, CostCacheRead: .03, CostCacheWrite: .04, CostFromProvider: true}) {
+		t.Fatalf("usage=%+v", usage)
 	}
 	if len(response.ToolCalls) != 1 || response.ToolCalls[0].ID != "call-1" || string(response.ToolCalls[0].Arguments) != `{"q":"x"}` {
 		t.Fatalf("tools=%+v", response.ToolCalls)
