@@ -88,12 +88,9 @@ jobs:
       - run: go test -race ./...
 
   windows:
-    name: Windows (experimental)
+    name: Windows
     runs-on: windows-latest
     timeout-minutes: 30
-    # Windows support is partial (COMPATIBILITY.md): JSONL storage and the
-    # local shell are POSIX-only, so failures here do not fail the run.
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
@@ -101,4 +98,7 @@ jobs:
           go-version: stable
       - run: go build ./...
       - run: go vet ./...
-      - run: go test ./...
+      # The portable packages. JSONL storage and the local shell are
+      # POSIX-only, and the tests of the root, storage, and tools packages
+      # assume them (COMPATIBILITY.md).
+      - run: go test ./codemode/... ./model/... ./internal/...

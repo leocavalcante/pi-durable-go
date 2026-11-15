@@ -400,26 +400,25 @@ func (c *Conversation) Submit(ctx context.Context, request SubmissionRequest) (*
 	c.h.Resume()
 	ctx, sp := c.h.submitSpan(ctx, request.Type, c.id)
 	var id SubmissionID
+	// The admission's own outcome (upstream admission.status): the run it
+	// starts may settle the submission before the span ends.
+	result := "done"
 	err := c.h.Commit(ctx, func(tx *Tx) error {
 		var err error
 		id, err = c.h.admitSubmission(tx, c.id, request)
-		return err
+		if err != nil {
+			return err
+		}
+		if rec, err := tx.Submission(id); err == nil && rec != nil && rec.Status != "unanswered" {
+			result = rec.Status
+		}
+		return nil
 	})
 	if err != nil {
 		sp.end(err)
 		return nil, err
 	}
-	if state, serr := c.h.read(ctx); serr == nil {
-		rec, _ := state.submission(id)
-		result := "done"
-		if rec != nil {
-			result = rec.Status
-		}
-		if result == "unanswered" {
-			result = "done"
-		}
-		sp.set(map[string]any{"submission.id": uint64(id), "result": result})
-	}
+	sp.set(map[string]any{"submission.id": uint64(id), "result": result})
 	sp.end(nil)
 	return &Submission{h: c.h, id: id}, nil
 }

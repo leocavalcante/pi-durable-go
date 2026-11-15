@@ -154,10 +154,8 @@ func TestFileMutationsRunInArrivalOrder(t *testing.T) {
 // directory, which is where bash spills its output.
 func TestTempPathsAreNamedAsNodes(t *testing.T) {
 	t.Setenv("TMPDIR", t.TempDir())
-	tmp, err := filepath.EvalSymlinks(os.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
+	// As Node's os.tmpdir() gives it: unresolved, as macOS's /var is.
+	tmp := os.TempDir()
 	cwd := t.TempDir()
 	env, err := NewLocalEnv(cwd)
 	if err != nil {

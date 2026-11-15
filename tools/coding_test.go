@@ -448,7 +448,11 @@ func TestToolErrorsReadAsNodes(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("permissions do not apply to root")
 	}
-	dir := t.TempDir()
+	// Canonical, as LocalEnv's working directory is (macOS's /var).
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, sub := range []string{"sub", "ro"} {
 		if err := os.Mkdir(filepath.Join(dir, sub), 0o755); err != nil {
 			t.Fatal(err)
@@ -500,7 +504,10 @@ func TestBashToolOptionsPrepareEachCommand(t *testing.T) {
 	if _, err := exec.LookPath("bash"); err != nil {
 		t.Skip("bash is not installed")
 	}
-	dir := t.TempDir()
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := os.MkdirAll(filepath.Join(dir, "sub"), 0o755); err != nil {
 		t.Fatal(err)
 	}
