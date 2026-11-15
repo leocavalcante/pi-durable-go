@@ -6,6 +6,9 @@ versions follow semantic versioning: before v1, a minor version may change the A
 
 ## Unreleased
 
+- `fix(codemode)`: two data races in `QuickJSSandbox` that Go 1.25's timers
+  exposed: a short timeout could fire before its timer was stored, and a run's VM
+  read the engine field the next run's start wrote.
 - `build!`: Go 1.25 or newer is required. `golang.org/x/image` v0.45.0 and
   `golang.org/x/text` v0.41.0 fix vulnerabilities that `govulncheck` finds
   reachable (image decoding, Unicode handling), and need Go 1.25; Go 1.24 is no

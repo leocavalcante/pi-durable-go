@@ -26,7 +26,6 @@ type QuickJSSandbox struct {
 	// MemoryLimitBytes bounds each VM's heap; 0 sets no limit.
 	MemoryLimitBytes int64
 
-	engine  *engine
 	mu      sync.Mutex
 	closed  bool
 	running map[*execution]struct{}
@@ -101,10 +100,7 @@ func (s *QuickJSSandbox) Start(code string, options RunOptions) (Run, error) {
 	if err != nil {
 		return nil, err
 	}
-	s.mu.Lock()
-	s.engine = engine
-	s.mu.Unlock()
-	e := newExecution(s, code, options)
+	e := newExecution(s, engine, code, options)
 	s.mu.Lock()
 	if s.running == nil {
 		s.running = map[*execution]struct{}{}
@@ -182,8 +178,11 @@ type pendingCall struct {
 // execution is the host side of one run (upstream Execution), and its Run.
 type execution struct {
 	sandbox *QuickJSSandbox
-	options RunOptions
-	code    string
+	// engine and memoryLimit are the sandbox's when the run started.
+	engine      *engine
+	memoryLimit int64
+	options     RunOptions
+	code        string
 
 	mu        sync.Mutex
 	output    []OutputItem
@@ -202,17 +201,21 @@ type execution struct {
 	events chan vmMessage
 }
 
-func newExecution(s *QuickJSSandbox, code string, options RunOptions) *execution {
-	return &execution{sandbox: s, options: options, code: code, pending: map[int]*pendingCall{}, delivered: map[int]bool{},
+func newExecution(s *QuickJSSandbox, engine *engine, code string, options RunOptions) *execution {
+	return &execution{sandbox: s, engine: engine, memoryLimit: s.MemoryLimitBytes, options: options, code: code, pending: map[int]*pendingCall{}, delivered: map[int]bool{},
 		done: make(chan struct{}), deliveries: make(chan vmDelivery, 64), events: make(chan vmMessage, 64)}
 }
 
 func (e *execution) launch() {
 	if e.options.TimeoutMs != nil && !math.IsInf(*e.options.TimeoutMs, 1) {
 		timeout := *e.options.TimeoutMs
+		// Under the lock finish takes: a short timer can fire before
+		// AfterFunc returns.
+		e.mu.Lock()
 		e.timer = time.AfterFunc(time.Duration(timeout*float64(time.Millisecond)), func() {
 			e.finish(&Error{Kind: "timeout", Message: fmt.Sprintf("Execution timed out after %s ms", js.Stringify(timeout))}, nil, nil, nil)
 		})
+		e.mu.Unlock()
 	}
 	go e.receive()
 	go e.runVM()
@@ -512,7 +515,7 @@ func (e *execution) runVM() {
 		e.post(vmMessage{kind: "crash", message: "Error: " + err.Error()})
 	}
 	ctx := context.Background()
-	v, err := e.sandbox.engine.newVM(ctx, e.sandbox.MemoryLimitBytes, e.options.StartedAt, e.options.Seed, e.interrupted.Load)
+	v, err := e.engine.newVM(ctx, e.memoryLimit, e.options.StartedAt, e.options.Seed, e.interrupted.Load)
 	if err != nil {
 		e.finish(&Error{Kind: "sandbox", Message: err.Error()}, nil, nil, nil)
 		return
