@@ -18,10 +18,8 @@ import (
 // own sandbox. PI_DURABLE_CROSSCHECK_CODEMODE=node plays them here with
 // pi-codemode's sandbox too, from the prepared checkout's dependencies.
 func TestCrosscheckCodemodeScenarios(t *testing.T) {
+	crosscheck.Require(t)
 	upstream := crosscheck.Upstream()
-	if upstream == "" {
-		t.Skip("no upstream checkout: run make crosscheck, or set PI_DURABLE_CROSSCHECK_UPSTREAM")
-	}
 	var sandbox interface {
 		codemode.Sandbox
 		Close() error

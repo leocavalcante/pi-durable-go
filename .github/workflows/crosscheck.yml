@@ -54,6 +54,8 @@ jobs:
       - name: Cross-checks
         env:
           PI_DURABLE_PI_MODULES: ${{ runner.temp }}/pi/node_modules
+          # A cross-check that cannot reach upstream fails instead of skipping.
+          PI_DURABLE_CROSSCHECK_REQUIRED: "1"
         run: make crosscheck
       - name: Tests with an installed Pi
         env:

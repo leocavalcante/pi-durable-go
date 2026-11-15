@@ -27,17 +27,30 @@ func Upstream() string { return os.Getenv("PI_DURABLE_CROSSCHECK_UPSTREAM") }
 // oracleTimeout bounds one run of upstream's code.
 const oracleTimeout = 3 * time.Minute
 
-// Run runs op on input in upstream's code and decodes its result into
-// output; it skips the test without a prepared upstream checkout.
-func Run(t testing.TB, op string, input, output any) {
+// Require returns Node's path, or skips the test without a prepared upstream
+// checkout or Node. With PI_DURABLE_CROSSCHECK_REQUIRED=1, as CI sets it, it
+// fails the test instead: a cross-check that cannot run must not pass.
+func Require(t testing.TB) string {
 	t.Helper()
+	skip := t.Skip
+	if os.Getenv("PI_DURABLE_CROSSCHECK_REQUIRED") == "1" {
+		skip = t.Fatal
+	}
 	if Upstream() == "" {
-		t.Skip("no upstream checkout: run make crosscheck, or set PI_DURABLE_CROSSCHECK_UPSTREAM")
+		skip("no upstream checkout: run make crosscheck, or set PI_DURABLE_CROSSCHECK_UPSTREAM")
 	}
 	node, err := exec.LookPath("node")
 	if err != nil {
-		t.Skip("no node")
+		skip("no node")
 	}
+	return node
+}
+
+// Run runs op on input in upstream's code and decodes its result into
+// output; see Require for when it skips.
+func Run(t testing.TB, op string, input, output any) {
+	t.Helper()
+	node := Require(t)
 	_, file, _, _ := runtime.Caller(0)
 	oracle := filepath.Join(filepath.Dir(file), "oracle.mts")
 	body, err := json.Marshal(map[string]any{"op": op, "input": input})

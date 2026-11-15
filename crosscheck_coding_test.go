@@ -17,9 +17,7 @@ import (
 // coding tools over a local environment, and in upstream's Harness with its
 // coding tools over a Node environment.
 func TestCrosscheckCodingScenarios(t *testing.T) {
-	if crosscheck.Upstream() == "" {
-		t.Skip("no upstream checkout: run make crosscheck, or set PI_DURABLE_CROSSCHECK_UPSTREAM")
-	}
+	crosscheck.Require(t)
 	durable.SetScenarioCoding(func(t *testing.T, dir string, bash json.RawMessage) (durable.Extension, func(durable.ConversationRecord) (durable.ExecutionEnv, error)) {
 		options := tools.CodingOptions{}
 		if len(bash) > 0 {

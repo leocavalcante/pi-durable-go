@@ -44,7 +44,9 @@ PI_DURABLE_PI_MODULES=~/.cache/pi/node_modules make crosscheck
 
 `scripts/crosscheck-setup.sh` clones upstream at the pinned tag into
 `.crosscheck/` and links Pi's packages into it. Cross-check tests are built
-with the `crosscheck` tag and named `TestCrosscheck*`.
+with the `crosscheck` tag and named `TestCrosscheck*`. Without an upstream
+checkout or Node they skip; `PI_DURABLE_CROSSCHECK_REQUIRED=1`, which CI sets,
+makes them fail instead.
 
 Comparisons that matter without Node too are recorded:
 `PI_DURABLE_CROSSCHECK_RECORD=1` writes upstream's answers to `testdata`, and
