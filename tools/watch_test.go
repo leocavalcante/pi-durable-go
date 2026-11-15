@@ -75,11 +75,10 @@ func watching(t *testing.T, setup func(env *LocalEnv), targets []WatchTarget, ru
 			if err != nil {
 				t.Fatal(err)
 			}
-			env, err := NewLocalEnv(dir)
+			env, err := NewLocalEnvWith(dir, LocalEnvOptions{Watch: WatchOptions{Mode: mode, PollInterval: 100 * time.Millisecond}})
 			if err != nil {
 				t.Fatal(err)
 			}
-			env.SetWatchOptions(WatchOptions{Mode: mode, PollInterval: 100 * time.Millisecond})
 			if setup != nil {
 				setup(env)
 			}
@@ -235,14 +234,13 @@ func TestWatchReportsChangesToTheFileAWatchedSymbolicLinkPointsTo(t *testing.T) 
 
 // A watcher over too many directories fails as upstream's does.
 func TestWatchRefusesTooManyDirectories(t *testing.T) {
-	env, err := NewLocalEnv(t.TempDir())
+	env, err := NewLocalEnvWith(t.TempDir(), LocalEnvOptions{Watch: WatchOptions{MaxDirectories: 2}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, name := range []string{"a/x", "a/y", "a/z"} {
 		must(t, env.CreateDir(context.Background(), name, true))
 	}
-	env.SetWatchOptions(WatchOptions{MaxDirectories: 2})
 	_, err = env.Watch(context.Background(), []WatchTarget{{Path: "a", Recursive: true}}, func(FileChange) {})
 	if fileError, ok := err.(*FileError); !ok || fileError.Code != "invalid" || fileError.Message != "Watched paths exceed 2 directories" {
 		t.Fatalf("error %v", err)

@@ -276,3 +276,101 @@ func TestEnvOpsAsNodes(t *testing.T) {
 		}
 	}
 }
+
+// Commands run as upstream's NodeExecutionEnv.exec runs them: the answers
+// were recorded by TestCrosscheckEnvExec (PI_DURABLE_CROSSCHECK_RECORD=1).
+func TestExecAsNodes(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("the recorded answers are Linux's")
+	}
+	if _, err := os.Stat("/bin/bash"); err != nil {
+		t.Skip("the recorded answers are /bin/bash's")
+	}
+	data, err := os.ReadFile(filepath.Join("testdata", "env-exec-upstream.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var recorded struct {
+		Cases []struct {
+			Command string         `json:"command"`
+			Argv    []string       `json:"argv"`
+			Options map[string]any `json:"options"`
+		} `json:"cases"`
+		Want []json.RawMessage `json:"want"`
+	}
+	if err := json.Unmarshal(data, &recorded); err != nil {
+		t.Fatal(err)
+	}
+	if len(recorded.Cases) < 15 || len(recorded.Cases) != len(recorded.Want) {
+		t.Fatalf("%d cases, %d answers", len(recorded.Cases), len(recorded.Want))
+	}
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(dir, "sub"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	env, err := NewLocalEnv(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, c := range recorded.Cases {
+		streams := map[string]string{"stdout": "", "stderr": ""}
+		options := ExecOptions{OnOutput: func(text string, info OutputInfo) error {
+			streams[info.Stream] += text
+			return nil
+		}}
+		if cwd, ok := c.Options["cwd"].(string); ok {
+			options.Cwd = cwd
+		}
+		if vars, ok := c.Options["env"].(map[string]any); ok {
+			options.Env = map[string]string{}
+			for name, value := range vars {
+				options.Env[name] = value.(string)
+			}
+		}
+		if inherit, ok := c.Options["inheritEnv"].(bool); ok {
+			options.InheritEnv = &inherit
+		}
+		if timeout, ok := c.Options["timeout"].(float64); ok {
+			options.Timeout = timeout
+		}
+		if spill, ok := c.Options["spill"].(map[string]any); ok {
+			options.Spill = &SpillOptions{AfterBytes: int(spill["afterBytes"].(float64)), AfterLines: int(spill["afterLines"].(float64))}
+		}
+		var result ShellExecResult
+		if c.Argv != nil {
+			result, err = env.ExecArgvWith(context.Background(), c.Argv, options)
+		} else {
+			result, err = env.ExecWith(context.Background(), c.Command, options)
+		}
+		spilled := func(path string) any {
+			if path == "" {
+				return nil
+			}
+			data, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			return string(data)
+		}
+		var got map[string]any
+		if err != nil {
+			var execErr *ExecutionError
+			if !errors.As(err, &execErr) {
+				t.Fatalf("case %d: %v", i, err)
+			}
+			got = map[string]any{"error": map[string]any{"code": execErr.Code, "message": execErr.Message, "spill": spilled(execErr.SpillPath)}, "stdout": streams["stdout"], "stderr": streams["stderr"]}
+		} else {
+			got = map[string]any{"exitCode": float64(result.ExitCode), "spill": spilled(result.SpillPath), "stdout": streams["stdout"], "stderr": streams["stderr"]}
+		}
+		normalized, _ := json.Marshal(got)
+		var a, b any
+		_ = json.Unmarshal([]byte(strings.ReplaceAll(string(normalized), dir, "<dir>")), &a)
+		_ = json.Unmarshal(recorded.Want[i], &b)
+		if !reflect.DeepEqual(a, b) {
+			t.Errorf("case %d %+v:\n got %v\nwant %s", i, c, a, recorded.Want[i])
+		}
+	}
+}

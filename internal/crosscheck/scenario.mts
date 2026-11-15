@@ -424,9 +424,28 @@ export async function runScenario(
 			mkdirSync(dirname(join(codingDir, path)), { recursive: true });
 			writeFileSync(join(codingDir, path), content as string);
 		}
-		const { createCodingTools } = await load.durable("tools/index.ts");
+		const coding = await load.durable("tools/index.ts");
 		const { NodeExecutionEnv } = await load.durable("env/node.ts");
-		registry.install(createCodingTools());
+		const bash = scenario.coding.bash;
+		registry.install(
+			bash === undefined
+				? coding.createCodingTools()
+				: pd.defineExtension({
+						name: "coding-tools",
+						tools: [
+							coding.createReadTool(),
+							coding.createWriteTool(),
+							coding.createEditTool(),
+							coding.createBashTool({
+								...(bash.commandPrefix === undefined ? {} : { commandPrefix: bash.commandPrefix }),
+								prepare: (execution: any) => {
+									Object.assign(execution.env, bash.env ?? {});
+									if (bash.cwd !== undefined) execution.cwd = join(execution.cwd, bash.cwd);
+								},
+							}),
+						],
+					}),
+		);
 		const dir = codingDir;
 		codingEnv = () => new NodeExecutionEnv({ cwd: dir });
 	}

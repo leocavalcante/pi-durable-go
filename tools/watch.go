@@ -71,13 +71,6 @@ const (
 	errWatchBudgetExceeded = "Watched paths exceed %d directories"
 )
 
-// SetWatchOptions sets how the environment's later watches watch.
-func (e *LocalEnv) SetWatchOptions(options WatchOptions) {
-	e.processes.Lock()
-	defer e.processes.Unlock()
-	e.watchOptions = options
-}
-
 // Watch reports changes to files and directories (upstream FileSystem.watch).
 // When it returns, coverage is established: a host that watches before it
 // loads cannot miss a change made during the load. onChange is called from
@@ -86,9 +79,7 @@ func (e *LocalEnv) Watch(ctx context.Context, targets []WatchTarget, onChange fu
 	if err := aborted(ctx, ""); err != nil {
 		return nil, err
 	}
-	e.processes.Lock()
-	options := e.watchOptions
-	e.processes.Unlock()
+	options := e.options.Watch
 	resolved := make([]watchTarget, len(targets))
 	for i, target := range targets {
 		names := map[string]bool{}

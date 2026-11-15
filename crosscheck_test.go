@@ -492,6 +492,9 @@ type scenarioSpec struct {
 	// the files the tools left.
 	Coding *struct {
 		Files map[string]string `json:"files,omitempty"`
+		// Bash configures the bash tool: commandPrefix, and env and cwd that
+		// its prepare sets.
+		Bash json.RawMessage `json:"bash,omitempty"`
 	} `json:"coding,omitempty"`
 	AfterRun *struct {
 		Hold string `json:"hold,omitempty"`
@@ -1198,7 +1201,7 @@ func runScenario(t *testing.T, sc scenarioSpec) json.RawMessage {
 				t.Fatal(err)
 			}
 		}
-		extension, env := scenarioCoding(t, dir)
+		extension, env := scenarioCoding(t, dir, sc.Coding.Bash)
 		if err := registry.Install(extension); err != nil {
 			t.Fatal(err)
 		}
@@ -1609,7 +1612,7 @@ var scenarioToolSearch func() Extension
 
 // scenarioCoding installs the coding tools over a local environment in dir;
 // the external test package sets it, as this package cannot import tools.
-var scenarioCoding func(t *testing.T, dir string) (Extension, func(ConversationRecord) (ExecutionEnv, error))
+var scenarioCoding func(t *testing.T, dir string, bash json.RawMessage) (Extension, func(ConversationRecord) (ExecutionEnv, error))
 
 func TestCrosscheckScenarios(t *testing.T) {
 	var names []string

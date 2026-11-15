@@ -405,6 +405,40 @@ const ops: Record<string, (input: any) => Promise<unknown>> = {
 		return JSON.parse(JSON.stringify(out).split(dir).join("<dir>"));
 	},
 
+	/**
+	 * NodeExecutionEnv.exec in a temp directory with a `sub` directory: each case's output per stream, exit code, and
+	 * spill file contents, or its error's code, message, and spill file; the directory named <dir>.
+	 */
+	async envExec(cases: { command?: string; argv?: string[]; options?: Record<string, unknown> }[]) {
+		const { NodeExecutionEnv } = await durable("env/node.ts");
+		const { mkdtempSync, mkdirSync, realpathSync, rmSync, readFileSync } = await import("node:fs");
+		const { tmpdir } = await import("node:os");
+		const { join } = await import("node:path");
+		const dir = realpathSync(mkdtempSync(join(tmpdir(), "crosscheck-exec-")));
+		mkdirSync(join(dir, "sub"));
+		const env = new NodeExecutionEnv({ cwd: dir });
+		const out: unknown[] = [];
+		const spilled = (path: string | undefined) => (path === undefined ? null : readFileSync(path, "utf8"));
+		try {
+			for (const c of cases) {
+				const streams: Record<string, string> = { stdout: "", stderr: "" };
+				const result = await env.exec(
+					c.argv ?? c.command,
+					{ ...(c.options ?? {}), onOutput: (text: string, _context: unknown, info: any) => (streams[info.stream] += text) },
+					{},
+				);
+				out.push(
+					result.ok
+						? { exitCode: result.value.exitCode, spill: spilled(result.value.spillPath), ...streams }
+						: { error: { code: result.error.code, message: result.error.message, spill: spilled(result.error.spillPath) }, ...streams },
+				);
+			}
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+		return JSON.parse(JSON.stringify(out).split(dir).join("<dir>"));
+	},
+
 	/** openai-completions answers to SSE streams served locally. */
 	async openaiStream({
 		streams,

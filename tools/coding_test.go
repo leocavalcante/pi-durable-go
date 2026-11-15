@@ -34,12 +34,18 @@ func (m codingModel) Generate(ctx context.Context, request durable.ModelRequest,
 }
 func runCoding(t *testing.T, dir, name, args string) (durable.Message, string) {
 	t.Helper()
+	return runCodingWith(t, dir, Coding(), name, args)
+}
+
+// runCodingWith is runCoding with the tools of extension.
+func runCodingWith(t *testing.T, dir string, extension durable.Extension, name, args string) (durable.Message, string) {
+	t.Helper()
 	// A hang bound, not a latency assertion: large reads under the race
 	// detector on a loaded host take seconds.
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	registry := durable.NewRegistry()
-	if err := registry.Install(Coding()); err != nil {
+	if err := registry.Install(extension); err != nil {
 		t.Fatal(err)
 	}
 	h, err := durable.Open(ctx, durable.NewMemoryStorage(), durable.HarnessOptions{Registry: registry, Model: codingModel{name: name, args: json.RawMessage(args)}, Environment: func(c durable.ConversationRecord) (durable.ExecutionEnv, error) { return NewLocalEnv(c.Agent.Cwd) }})
@@ -484,5 +490,38 @@ func TestToolErrorsReadAsNodes(t *testing.T) {
 	}
 	if _, err := env.ReadFile(context.Background(), "missing.txt"); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("missing file: %v", err)
+	}
+}
+
+// The bash tool runs each command with its prefix, then Prepare's changes
+// to its script, working directory, and environment (upstream
+// BashToolOptions); a failing Prepare fails the call.
+func TestBashToolOptionsPrepareEachCommand(t *testing.T) {
+	if _, err := exec.LookPath("bash"); err != nil {
+		t.Skip("bash is not installed")
+	}
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "sub"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	options := ShellToolOptions{CommandPrefix: "set -e\nexport PREFIXED=yes",
+		Prepare: func(_ context.Context, execution *ShellExecution, _ *durable.ToolRuntime) error {
+			if !strings.HasPrefix(execution.Command, "set -e\n") || execution.Cwd != dir || !execution.InheritEnv {
+				return fmt.Errorf("execution %+v", execution)
+			}
+			execution.Env["GREETING"] = "hello"
+			execution.Cwd = filepath.Join(execution.Cwd, "sub")
+			return nil
+		}}
+	got, _ := runCodingWith(t, dir, CodingWith(CodingOptions{Bash: options}), "bash", `{"command":"echo \"$GREETING $PREFIXED\"; basename \"$PWD\"; false; echo not reached"}`)
+	if want := "hello yes\nsub\n\n<harness>\n[error] Command exited with code 1\n</harness>"; got.Content != want {
+		t.Fatalf("result %q, want %q", got.Content, want)
+	}
+	failing := ShellToolOptions{Prepare: func(context.Context, *ShellExecution, *durable.ToolRuntime) error {
+		return errors.New("not allowed here")
+	}}
+	got, _ = runCodingWith(t, dir, CodingWith(CodingOptions{Bash: failing}), "bash", `{"command":"echo x"}`)
+	if want := "<harness>\n[error] not allowed here\n</harness>"; got.Content != want {
+		t.Fatalf("failing prepare: %q", got.Content)
 	}
 }

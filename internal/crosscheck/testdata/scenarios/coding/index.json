@@ -8,5 +8,6 @@
  "coding-write-bash-limits",
  "tool-search-loads",
  "model-tools-array",
- "model-tools-object"
+ "model-tools-object",
+ "coding-bash-options"
 ]

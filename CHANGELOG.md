@@ -53,12 +53,14 @@ says how the port is compared with upstream's own code.
 - **Execution environment.** `LocalEnv` ports the file system of upstream's
   `NodeExecutionEnv`: metadata, listings, directory, text-line, and binary readers with
   line scans, appends, truncation, flushing, renames, canonical paths, directories, and
-  removal, with upstream's `FileError` codes and Node's messages, and `Watch`, upstream's
-  snapshot watcher (inotify on Linux, polling elsewhere).
+  removal, with upstream's `FileError` codes and Node's messages; `Watch`, upstream's
+  snapshot watcher (inotify on Linux, polling elsewhere); and `ExecWith` and
+  `ExecArgvWith`, upstream's `exec` with its options, spill, and errors. The bash and
+  powershell tools take upstream's `commandPrefix` and `prepare`.
 - **Cross-checks.** `make crosscheck` runs upstream's TypeScript sources on the same
   inputs as the Go code:
-  - 117 conversation scenarios replayed through upstream's Harness, 10 of them
-    with code mode, 7 with the coding tools on files, and 3 with tool search;
+  - 118 conversation scenarios replayed through upstream's Harness, 10 of them
+    with code mode, 8 with the coding tools on files, and 3 with tool search;
   - checks of argument coercion and validation, JSON parsing, partial arguments, the
     read and edit tools, compaction, and OpenAI requests and responses;
   - code mode's declarations, source parsing, prompt section, result formatting, and
@@ -86,6 +88,9 @@ No release carried the earlier behavior. These matter only to code that followed
 - `fix(tools)!`: a `pi.tool-result` entry's data is `{"diagnostics": [...]}`, as
   upstream's, and the result's details are on its message (`Message.Details`); it
   held the whole result before.
+- `feat(tools)!`: `NewLocalEnvWith(cwd, LocalEnvOptions{...})` configures a local
+  environment's shell, base variables, and watching; it replaces
+  `LocalEnv.SetWatchOptions`.
 - `fix(tools)!`: progress commits are paced as upstream's: the first output after an
   idle period commits at once, an interval of 0 no longer commits synchronously in
   `ToolRuntime.Output`, and `ToolRuntime.Details` is a paced progress commit that

@@ -1,0 +1,53 @@
+{
+ "name": "coding tools: bash options",
+ "coding": {
+  "files": {
+   "sub/here.txt": "inside\n"
+  },
+  "bash": {
+   "commandPrefix": "set -e\nexport PREFIXED=yes",
+   "env": {
+    "GREETING": "hello"
+   },
+   "cwd": "sub"
+  }
+ },
+ "model": [
+  {
+   "calls": [
+    {
+     "id": "c1",
+     "name": "bash",
+     "args": {
+      "command": "echo \"$GREETING $PREFIXED\"; cat here.txt; basename \"$PWD\""
+     }
+    }
+   ]
+  },
+  {
+   "calls": [
+    {
+     "id": "c2",
+     "name": "bash",
+     "args": {
+      "command": "false; echo not reached"
+     }
+    }
+   ]
+  },
+  {
+   "text": "done"
+  }
+ ],
+ "steps": [
+  {
+   "submit": {
+    "type": "input",
+    "content": "go"
+   }
+  },
+  {
+   "wait": "settled"
+  }
+ ]
+}

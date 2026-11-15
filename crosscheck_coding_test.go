@@ -3,7 +3,9 @@
 package durable_test
 
 import (
+	"context"
 	"encoding/json"
+	"path/filepath"
 	"testing"
 
 	durable "github.com/leocavalcante/pi-durable-go"
@@ -18,8 +20,29 @@ func TestCrosscheckCodingScenarios(t *testing.T) {
 	if crosscheck.Upstream() == "" {
 		t.Skip("no upstream checkout: run make crosscheck, or set PI_DURABLE_CROSSCHECK_UPSTREAM")
 	}
-	durable.SetScenarioCoding(func(t *testing.T, dir string) (durable.Extension, func(durable.ConversationRecord) (durable.ExecutionEnv, error)) {
-		return tools.Coding(), func(durable.ConversationRecord) (durable.ExecutionEnv, error) { return tools.NewLocalEnv(dir) }
+	durable.SetScenarioCoding(func(t *testing.T, dir string, bash json.RawMessage) (durable.Extension, func(durable.ConversationRecord) (durable.ExecutionEnv, error)) {
+		options := tools.CodingOptions{}
+		if len(bash) > 0 {
+			var spec struct {
+				CommandPrefix string            `json:"commandPrefix"`
+				Env           map[string]string `json:"env"`
+				Cwd           string            `json:"cwd"`
+			}
+			if err := json.Unmarshal(bash, &spec); err != nil {
+				t.Fatal(err)
+			}
+			options.Bash = tools.ShellToolOptions{CommandPrefix: spec.CommandPrefix,
+				Prepare: func(_ context.Context, execution *tools.ShellExecution, _ *durable.ToolRuntime) error {
+					for name, value := range spec.Env {
+						execution.Env[name] = value
+					}
+					if spec.Cwd != "" {
+						execution.Cwd = filepath.Join(execution.Cwd, spec.Cwd)
+					}
+					return nil
+				}}
+		}
+		return tools.CodingWith(options), func(durable.ConversationRecord) (durable.ExecutionEnv, error) { return tools.NewLocalEnv(dir) }
 	})
 	defer durable.SetScenarioCoding(nil)
 	durable.SetScenarioToolSearch(tools.ToolSearch)

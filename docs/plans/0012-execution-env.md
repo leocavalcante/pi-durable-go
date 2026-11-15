@@ -1,6 +1,6 @@
 # Plan 0012: the execution environment's file system
 
-Status: Done (M1–M3)
+Status: Done (M1–M4)
 
 ## Goal
 
@@ -47,8 +47,12 @@ and implements what it supports.
 3. M3: `Watch`, a port of `NodeFileWatcher`: snapshots compared after
    debounced native events, inotify on Linux, polling elsewhere. `listFiles`
    is optional, and `NodeExecutionEnv` does not implement it.
+4. M4: `exec` with its options (`ExecWith`, `ExecArgvWith`, `ExecutionError`,
+   `NewLocalEnvWith`), and the bash and powershell tools' `commandPrefix` and
+   `prepare`, running through the environment's spill.
 
 ## Implementation record
 
 - M1, M2: `FileError` with upstream's codes, `FileInfo`, the plain methods, directory, text-line, and binary readers, and `LineScanner`; the `envOps` oracle op compares about 90 operations with `NodeExecutionEnv`, all equal (recorded in `tools/testdata/env-ops-upstream.json`). Node's recursive `mkdir` and `rename(2)`'s errors are ported where Go's `MkdirAll` and `os.Rename` differ.
 - M3: `Watch` with `WatchOptions` (`SetWatchOptions`), the snapshot watcher, inotify through `golang.org/x/sys/unix` on Linux with libuv's mask and reporting, polling elsewhere; upstream's nine watch conformance cases and eight reader cases are Go tests, the watch cases in both modes. macOS polls where upstream uses FSEvents.
+- M4: `ExecWith` and `ExecArgvWith` with `ExecOptions` and `ShellExecResult`, upstream's shell choice and environment, Node's spawn errors, raw spills over both streams, and `ExecutionError`; `ShellToolOptions` for bash and powershell. The `envExec` oracle op compares 18 cases (recorded for `TestExecAsNodes`), and a coding scenario compares the bash tool's options. `Exec` and `ExecArgv` keep their API on top. The output window is not ported, as `NodeExecutionEnv` ignores it.

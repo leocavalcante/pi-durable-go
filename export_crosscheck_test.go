@@ -17,7 +17,7 @@ func SetScenarioCodemode(build func(t *testing.T, options json.RawMessage) []Ext
 
 // SetScenarioCoding sets how a scenario's coding tools and environment are
 // built.
-func SetScenarioCoding(build func(t *testing.T, dir string) (Extension, func(ConversationRecord) (ExecutionEnv, error))) {
+func SetScenarioCoding(build func(t *testing.T, dir string, bash json.RawMessage) (Extension, func(ConversationRecord) (ExecutionEnv, error))) {
 	scenarioCoding = build
 }
 

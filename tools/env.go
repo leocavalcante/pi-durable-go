@@ -30,13 +30,12 @@ const maxExecOutput = 64 * 1024
 // not a filesystem or process sandbox.
 type LocalEnv struct {
 	cwd string
-	// processes are the running commands, which Cleanup ends; its mutex
-	// also guards watchOptions.
+	// processes are the running commands, which Cleanup ends.
 	processes struct {
 		sync.Mutex
 		running map[*exec.Cmd]func() error
 	}
-	watchOptions WatchOptions
+	options LocalEnvOptions
 }
 
 var _ durable.ExecutionEnv = (*LocalEnv)(nil)
@@ -194,39 +193,24 @@ func (e *LocalEnv) WriteFile(ctx context.Context, path string, data []byte) erro
 	return nodeError(os.WriteFile(path, data, 0o666))
 }
 
-// Exec executes command through bash, or /bin/sh without bash. Output is combined and retained as a
-// 64 KiB tail. Callback errors terminate the process but continue draining its
-// pipes to avoid blocked children. Shell execution is unavailable on Windows.
+// Exec executes command through the environment's shell (ExecWith):
+// output is streamed to onOutput and its decoded tail kept, 64 KiB; a
+// callback error ends the command but its pipes are drained.
 func (e *LocalEnv) Exec(ctx context.Context, command string, onOutput func(string) error) (durable.ExecResult, error) {
-	if err := ctx.Err(); err != nil {
-		return durable.ExecResult{}, err
-	}
 	if command == "" {
 		return durable.ExecResult{}, errors.New("tools: command must not be empty")
 	}
-	runCtx, cancel := context.WithCancel(ctx)
-	defer cancel()
-	// Like upstream, bash when it is installed; otherwise the POSIX shell.
-	shell := "/bin/sh"
-	if bash, err := exec.LookPath("bash"); err == nil {
-		shell = bash
-	}
-	return e.run(ctx, runCtx, cancel, []string{shell, "-c", command}, onOutput)
+	return e.execResult(ctx, func(options ExecOptions) (ShellExecResult, error) { return e.ExecWith(ctx, command, options) }, onOutput)
 }
 
 // ExecArgv runs a program directly with its arguments, so no shell parses
 // them (ArgvExecutor). A program that cannot start fails with
 // ErrSpawn.
 func (e *LocalEnv) ExecArgv(ctx context.Context, argv []string, onOutput func(string) error) (durable.ExecResult, error) {
-	if err := ctx.Err(); err != nil {
-		return durable.ExecResult{}, err
-	}
 	if len(argv) == 0 {
 		return durable.ExecResult{}, errors.New("tools: command must not be empty")
 	}
-	runCtx, cancel := context.WithCancel(ctx)
-	defer cancel()
-	return e.run(ctx, runCtx, cancel, argv, onOutput)
+	return e.execResult(ctx, func(options ExecOptions) (ShellExecResult, error) { return e.ExecArgvWith(ctx, argv, options) }, onOutput)
 }
 
 // ArgvExecutor is optionally implemented by an ExecutionEnv to run a program
@@ -237,69 +221,6 @@ type ArgvExecutor interface {
 
 // ErrSpawn marks a program that could not start.
 var ErrSpawn = errors.New("tools: program could not start")
-
-func (e *LocalEnv) run(ctx, runCtx context.Context, cancel context.CancelFunc, argv []string, onOutput func(string) error) (durable.ExecResult, error) {
-	cmd := exec.CommandContext(runCtx, argv[0], argv[1:]...)
-	cmd.Dir = e.cwd
-	configureProcess(cmd)
-	var output tailBuffer
-	var callbackMu sync.Mutex
-	var callbackErr error
-	// emit passes decoded text on; callbackMu is held.
-	emit := func(text string) {
-		if text == "" {
-			return
-		}
-		output.Write([]byte(text))
-		if onOutput == nil || callbackErr != nil {
-			return
-		}
-		if callbackErr = onOutput(text); callbackErr != nil {
-			cancel()
-		}
-	}
-	// One decoder per stream, so a character split across chunks of one
-	// stream survives interleaving (upstream).
-	var stdout, stderr streamDecoder
-	stream := func(decoder *streamDecoder) writerFunc {
-		return func(p []byte) (int, error) {
-			callbackMu.Lock()
-			defer callbackMu.Unlock()
-			emit(decoder.decode(p, false))
-			// Keep consuming after failure, so the child cannot block on a full pipe.
-			return len(p), nil
-		}
-	}
-	cmd.Stdout = stream(&stdout)
-	cmd.Stderr = stream(&stderr)
-	if err := cmd.Start(); err != nil {
-		return durable.ExecResult{}, fmt.Errorf("%w: %v", ErrSpawn, err)
-	}
-	e.track(cmd)
-	err := cmd.Wait()
-	e.untrack(cmd)
-	callbackMu.Lock()
-	emit(stdout.decode(nil, true))
-	emit(stderr.decode(nil, true))
-	cbErr := callbackErr
-	callbackMu.Unlock()
-	if cbErr != nil {
-		return durable.ExecResult{Output: output.String()}, cbErr
-	}
-	if ctx.Err() != nil {
-		return durable.ExecResult{Output: output.String()}, ctx.Err()
-	}
-	result := durable.ExecResult{Output: output.String()}
-	if err == nil {
-		return result, nil
-	}
-	var exitErr *exec.ExitError
-	if errors.As(err, &exitErr) {
-		result.ExitCode = exitErr.ExitCode()
-		return result, nil
-	}
-	return result, err
-}
 
 // streamDecoder decodes one output stream as upstream's StreamDecoder: as
 // UTF-8 decoded whole, a character split across chunks held back, and a

@@ -1,0 +1,265 @@
+{
+ "cases": [
+  {
+   "command": "echo out; echo err \u003e\u00262",
+   "argv": null
+  },
+  {
+   "command": "echo partial; exit 3",
+   "argv": null
+  },
+  {
+   "command": "pwd",
+   "argv": null,
+   "options": {
+    "cwd": "sub"
+   }
+  },
+  {
+   "command": "pwd",
+   "argv": null,
+   "options": {
+    "cwd": "missing"
+   }
+  },
+  {
+   "command": "echo \"$FOO-$HOME_SET\"",
+   "argv": null,
+   "options": {
+    "env": {
+     "FOO": "bar",
+     "HOME_SET": "1"
+    }
+   }
+  },
+  {
+   "command": "env | grep -v '^_=' | sort",
+   "argv": null,
+   "options": {
+    "env": {
+     "ONLY": "1"
+    },
+    "inheritEnv": false
+   }
+  },
+  {
+   "command": "echo before; sleep 3",
+   "argv": null,
+   "options": {
+    "timeout": 0.5
+   }
+  },
+  {
+   "command": "echo x",
+   "argv": null,
+   "options": {
+    "timeout": -1
+   }
+  },
+  {
+   "command": "echo x",
+   "argv": null,
+   "options": {
+    "timeout": 10000000000
+   }
+  },
+  {
+   "argv": [
+    "printf",
+    "%s|",
+    "a b",
+    "$HOME",
+    "*"
+   ]
+  },
+  {
+   "argv": [
+    "nonexistent-program-xyz",
+    "arg"
+   ]
+  },
+  {
+   "argv": []
+  },
+  {
+   "command": "seq 1 20",
+   "argv": null,
+   "options": {
+    "spill": {
+     "afterBytes": 10,
+     "afterLines": 100
+    }
+   }
+  },
+  {
+   "command": "printf 'a\\nb'",
+   "argv": null,
+   "options": {
+    "spill": {
+     "afterBytes": 100,
+     "afterLines": 1
+    }
+   }
+  },
+  {
+   "command": "printf 'a\\nb\\n'",
+   "argv": null,
+   "options": {
+    "spill": {
+     "afterBytes": 100,
+     "afterLines": 2
+    }
+   }
+  },
+  {
+   "command": "kill -9 $$",
+   "argv": null
+  },
+  {
+   "command": "printf '\\303'; sleep 0.1; printf '\\251\\n'",
+   "argv": null
+  },
+  {
+   "command": "echo spilled; seq 1 5; sleep 3",
+   "argv": null,
+   "options": {
+    "spill": {
+     "afterBytes": 5,
+     "afterLines": 100
+    },
+    "timeout": 0.5
+   }
+  }
+ ],
+ "want": [
+  {
+   "exitCode": 0,
+   "spill": null,
+   "stdout": "out\n",
+   "stderr": "err\n"
+  },
+  {
+   "exitCode": 3,
+   "spill": null,
+   "stdout": "partial\n",
+   "stderr": ""
+  },
+  {
+   "exitCode": 0,
+   "spill": null,
+   "stdout": "\u003cdir\u003e/sub\n",
+   "stderr": ""
+  },
+  {
+   "error": {
+    "code": "spawn_error",
+    "message": "Working directory does not exist: \u003cdir\u003e/missing\nCannot execute bash commands.",
+    "spill": null
+   },
+   "stdout": "",
+   "stderr": ""
+  },
+  {
+   "exitCode": 0,
+   "spill": null,
+   "stdout": "bar-1\n",
+   "stderr": ""
+  },
+  {
+   "exitCode": 0,
+   "spill": null,
+   "stdout": "ONLY=1\nPWD=\u003cdir\u003e\nSHLVL=1\n",
+   "stderr": ""
+  },
+  {
+   "error": {
+    "code": "timeout",
+    "message": "timeout:0.5",
+    "spill": null
+   },
+   "stdout": "before\n",
+   "stderr": ""
+  },
+  {
+   "error": {
+    "code": "timeout",
+    "message": "Invalid timeout: must be a finite number of seconds",
+    "spill": null
+   },
+   "stdout": "",
+   "stderr": ""
+  },
+  {
+   "error": {
+    "code": "timeout",
+    "message": "Invalid timeout: maximum is 2147483.647 seconds",
+    "spill": null
+   },
+   "stdout": "",
+   "stderr": ""
+  },
+  {
+   "exitCode": 0,
+   "spill": null,
+   "stdout": "a b|$HOME|*|",
+   "stderr": ""
+  },
+  {
+   "error": {
+    "code": "spawn_error",
+    "message": "spawn nonexistent-program-xyz ENOENT",
+    "spill": null
+   },
+   "stdout": "",
+   "stderr": ""
+  },
+  {
+   "error": {
+    "code": "spawn_error",
+    "message": "Empty argv: no program to run",
+    "spill": null
+   },
+   "stdout": "",
+   "stderr": ""
+  },
+  {
+   "exitCode": 0,
+   "spill": "1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n11\n12\n13\n14\n15\n16\n17\n18\n19\n20\n",
+   "stdout": "1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n11\n12\n13\n14\n15\n16\n17\n18\n19\n20\n",
+   "stderr": ""
+  },
+  {
+   "exitCode": 0,
+   "spill": "a\nb",
+   "stdout": "a\nb",
+   "stderr": ""
+  },
+  {
+   "exitCode": 0,
+   "spill": null,
+   "stdout": "a\nb\n",
+   "stderr": ""
+  },
+  {
+   "exitCode": 137,
+   "spill": null,
+   "stdout": "",
+   "stderr": ""
+  },
+  {
+   "exitCode": 0,
+   "spill": null,
+   "stdout": "é\n",
+   "stderr": ""
+  },
+  {
+   "error": {
+    "code": "timeout",
+    "message": "timeout:0.5",
+    "spill": "spilled\n1\n2\n3\n4\n5\n"
+   },
+   "stdout": "spilled\n1\n2\n3\n4\n5\n",
+   "stderr": ""
+  }
+ ]
+}

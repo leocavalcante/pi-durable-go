@@ -3,8 +3,10 @@
 package tools
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -388,6 +390,121 @@ func TestCrosscheckEnvOps(t *testing.T) {
 	for i := range ops {
 		if !crosscheck.Same(gotOps[i], wantOps[i]) {
 			t.Errorf("%v:\n got %s\nwant %s", ops[i], gotOps[i], wantOps[i])
+		}
+	}
+}
+
+// TestCrosscheckEnvExec runs commands with options through a local
+// environment and upstream's NodeExecutionEnv.exec.
+func TestCrosscheckEnvExec(t *testing.T) {
+	type execCase struct {
+		Command string         `json:"command,omitempty"`
+		Argv    []string       `json:"argv"`
+		Options map[string]any `json:"options,omitempty"`
+	}
+	cases := []execCase{
+		{Command: "echo out; echo err >&2"},
+		{Command: "echo partial; exit 3"},
+		{Command: "pwd", Options: map[string]any{"cwd": "sub"}},
+		{Command: "pwd", Options: map[string]any{"cwd": "missing"}},
+		{Command: "echo \"$FOO-$HOME_SET\"", Options: map[string]any{"env": map[string]any{"FOO": "bar", "HOME_SET": "1"}}},
+		{Command: "env | grep -v '^_=' | sort", Options: map[string]any{"env": map[string]any{"ONLY": "1"}, "inheritEnv": false}},
+		{Command: "echo before; sleep 3", Options: map[string]any{"timeout": 0.5}},
+		{Command: "echo x", Options: map[string]any{"timeout": -1}},
+		{Command: "echo x", Options: map[string]any{"timeout": 1e10}},
+		{Argv: []string{"printf", "%s|", "a b", "$HOME", "*"}},
+		{Argv: []string{"nonexistent-program-xyz", "arg"}},
+		{Argv: []string{}},
+		{Command: "seq 1 20", Options: map[string]any{"spill": map[string]any{"afterBytes": 10, "afterLines": 100}}},
+		{Command: "printf 'a\\nb'", Options: map[string]any{"spill": map[string]any{"afterBytes": 100, "afterLines": 1}}},
+		{Command: "printf 'a\\nb\\n'", Options: map[string]any{"spill": map[string]any{"afterBytes": 100, "afterLines": 2}}},
+		{Command: "kill -9 $$"},
+		{Command: "printf '\\303'; sleep 0.1; printf '\\251\\n'"},
+		{Command: "echo spilled; seq 1 5; sleep 3", Options: map[string]any{"timeout": 0.5, "spill": map[string]any{"afterBytes": 5, "afterLines": 100}}},
+	}
+	var want []json.RawMessage
+	crosscheck.Run(t, "envExec", cases, &want)
+	if os.Getenv("PI_DURABLE_CROSSCHECK_RECORD") == "1" {
+		// Upstream's answers, for TestExecAsNodes without Node.
+		data, err := json.MarshalIndent(map[string]any{"cases": cases, "want": want}, "", " ")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join("testdata", "env-exec-upstream.json"), append(data, '\n'), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(want) != len(cases) {
+		t.Fatalf("%d answers for %d cases", len(want), len(cases))
+	}
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(dir, "sub"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	env, err := NewLocalEnv(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, c := range cases {
+		streams := map[string]string{"stdout": "", "stderr": ""}
+		options := ExecOptions{OnOutput: func(text string, info OutputInfo) error {
+			streams[info.Stream] += text
+			return nil
+		}}
+		if cwd, ok := c.Options["cwd"].(string); ok {
+			options.Cwd = cwd
+		}
+		if vars, ok := c.Options["env"].(map[string]any); ok {
+			options.Env = map[string]string{}
+			for name, value := range vars {
+				options.Env[name] = value.(string)
+			}
+		}
+		if inherit, ok := c.Options["inheritEnv"].(bool); ok {
+			options.InheritEnv = &inherit
+		}
+		switch timeout := c.Options["timeout"].(type) {
+		case float64:
+			options.Timeout = timeout
+		case int:
+			options.Timeout = float64(timeout)
+		}
+		if spill, ok := c.Options["spill"].(map[string]any); ok {
+			options.Spill = &SpillOptions{AfterBytes: spill["afterBytes"].(int), AfterLines: spill["afterLines"].(int)}
+		}
+		var result ShellExecResult
+		if c.Argv != nil {
+			result, err = env.ExecArgvWith(context.Background(), c.Argv, options)
+		} else {
+			result, err = env.ExecWith(context.Background(), c.Command, options)
+		}
+		spilled := func(path string) any {
+			if path == "" {
+				return nil
+			}
+			data, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			return string(data)
+		}
+		var got map[string]any
+		if err != nil {
+			var execErr *ExecutionError
+			if !errors.As(err, &execErr) {
+				t.Fatalf("case %d: %v", i, err)
+			}
+			got = map[string]any{"error": map[string]any{"code": execErr.Code, "message": execErr.Message, "spill": spilled(execErr.SpillPath)}, "stdout": streams["stdout"], "stderr": streams["stderr"]}
+		} else {
+			got = map[string]any{"exitCode": result.ExitCode, "spill": spilled(result.SpillPath), "stdout": streams["stdout"], "stderr": streams["stderr"]}
+		}
+		data, _ := json.Marshal(got)
+		normalized := strings.ReplaceAll(string(data), dir, "<dir>")
+		if !crosscheck.Same(json.RawMessage(normalized), want[i]) {
+			t.Errorf("case %d %+v:\n got %s\nwant %s", i, c, normalized, want[i])
 		}
 	}
 }
