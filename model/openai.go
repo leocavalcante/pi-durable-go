@@ -805,10 +805,7 @@ func parseSSE(ctx context.Context, r io.Reader, onEvent func(durable.StreamEvent
 		}
 		if strings.HasPrefix(line, "data:") {
 			v := strings.TrimPrefix(line, "data:")
-			if strings.HasPrefix(v, " ") {
-				v = v[1:]
-			}
-			data = append(data, v)
+			data = append(data, strings.TrimPrefix(v, " "))
 		}
 	}
 	if err := scanner.Err(); err != nil {

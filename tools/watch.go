@@ -201,8 +201,10 @@ func (w *FileWatcher) Stop(ctx context.Context) error {
 			return ctx.Err()
 		}
 	}
-	// A delivery in progress finishes before Stop returns.
+	// A delivery in progress finishes before Stop returns: taking the lock
+	// waits for the delivery that holds it.
 	w.deliver.Lock()
+	//lint:ignore SA2001 the lock is taken only to wait for its holder.
 	w.deliver.Unlock()
 	return nil
 }

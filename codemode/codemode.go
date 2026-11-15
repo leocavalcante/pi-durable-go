@@ -658,7 +658,7 @@ func (c *call) execute(source string) (durable.ToolResult, error) {
 	}
 	declaredGlobals := make([]DeclaredGlobal, len(c.start.Globals))
 	for i, global := range c.start.Globals {
-		declaredGlobals[i] = DeclaredGlobal{Name: global.Name, Spread: global.Spread}
+		declaredGlobals[i] = DeclaredGlobal(global)
 	}
 	if c.ctx.Err() != nil {
 		c.aborted = true

@@ -179,8 +179,6 @@ func (e *engine) wasi(ctx context.Context) error {
 	return err
 }
 
-func (e *engine) close(ctx context.Context) { _ = e.runtime.Close(ctx) }
-
 // jsRound is Math.round: half up.
 func jsRound(x float64) float64 { return math.Floor(x + 0.5) }
 

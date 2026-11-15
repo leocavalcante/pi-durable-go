@@ -710,7 +710,7 @@ func (e *execution) data() (string, string, string, error) {
 	}
 	globals := make([]global, len(e.options.Globals))
 	for i, g := range e.options.Globals {
-		globals[i] = global{Name: g.Name, Spread: g.Spread}
+		globals[i] = global(g)
 	}
 	store := &js.Object{Values: map[string]any{}}
 	for key, raw := range e.options.Store {

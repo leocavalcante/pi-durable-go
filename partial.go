@@ -75,10 +75,6 @@ func (p *partialMessage) message() *Message {
 	return message
 }
 
-func (p *partialMessage) empty() bool {
-	return p.text.Len() == 0 && p.thinking.Len() == 0 && len(p.calls) == 0
-}
-
 // partialArguments are a streamed tool call's arguments so far: an object,
 // {} until one shows (pi-ai's ToolCallArgumentsStream).
 func partialArguments(raw string) json.RawMessage {

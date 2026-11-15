@@ -168,9 +168,6 @@ func (vm *fakeVM) wait(id int) Outcome {
 	}
 }
 
-// now is the VM clock.
-func (vm *fakeVM) now() float64 { return vm.clock }
-
 func (vm *fakeVM) text(text string) {
 	vm.output = append(vm.output, OutputItem{Type: "text", Text: text})
 }

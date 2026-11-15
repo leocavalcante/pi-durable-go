@@ -27,7 +27,6 @@ type recordingTelemetry struct {
 	panic      bool
 	active     map[string]float64
 	phases     int
-	metrics    bool
 	reports    map[string]float64
 }
 

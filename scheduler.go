@@ -95,11 +95,6 @@ func newScheduler(h *Harness) *Scheduler {
 		wakeClosed:  make(chan struct{}),
 	}
 }
-func (s *Scheduler) state() string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.stateLocked()
-}
 func (s *Scheduler) stateLocked() string {
 	if s.closing {
 		return "closing"
