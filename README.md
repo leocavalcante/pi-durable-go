@@ -1,207 +1,228 @@
+<div align="center">
+
 # pi-durable-go
 
-An experimental Go port of [Pi Durable v1.5.2](https://github.com/earendil-works/pi/tree/v1.5.2/packages/durable): persistent agent conversations, checkpointed tasks, transactional application state, and restart recovery.
+**Durable AI agents for Go.**
 
-**This is an independent project, not the Pi coding-agent CLI or a complete upstream-compatible replacement.** Its current compatibility reference is Pi Durable v1.5.2; the original Go port base remains v1.1.0. The Go implementation supports a subset of upstream contracts. Read [COMPATIBILITY.md](COMPATIBILITY.md) before relying on it.
+Conversations, tool calls, and long-running tasks that survive crashes,
+restarts, and deploys. A Go port of
+[Pi Durable](https://github.com/earendil-works/pi/tree/v1.5.2/packages/durable),
+checked against upstream's own code.
 
-## Requirements
+[![CI](https://github.com/leocavalcante/pi-durable-go/actions/workflows/ci.yml/badge.svg)](https://github.com/leocavalcante/pi-durable-go/actions/workflows/ci.yml)
+[![Cross-check](https://github.com/leocavalcante/pi-durable-go/actions/workflows/crosscheck.yml/badge.svg)](https://github.com/leocavalcante/pi-durable-go/actions/workflows/crosscheck.yml)
+[![Go Reference](https://pkg.go.dev/badge/github.com/leocavalcante/pi-durable-go.svg)](https://pkg.go.dev/github.com/leocavalcante/pi-durable-go)
+[![Go Report Card](https://goreportcard.com/badge/github.com/leocavalcante/pi-durable-go)](https://goreportcard.com/report/github.com/leocavalcante/pi-durable-go)
+[![Release](https://img.shields.io/github/v/release/leocavalcante/pi-durable-go?sort=semver)](https://github.com/leocavalcante/pi-durable-go/releases)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-Go 1.25 or newer. SQLite uses a pure-Go driver; CGO is not required.
+[Getting started](docs/getting-started.md) ·
+[Documentation](docs/README.md) ·
+[Examples](examples) ·
+[Compatibility](COMPATIBILITY.md) ·
+[Changelog](CHANGELOG.md)
+
+</div>
+
+---
+
+Agents fail halfway. A pod is rescheduled during a tool call, a provider times
+out on the third retry, a deploy lands in the middle of a conversation.
+**pi-durable-go commits every step of an agent's work before anyone sees it**,
+so the next process opens the same storage and carries on exactly where the
+last one stopped:
+
+```console
+$ go run ./examples/recovery -crash
+  step 1: running
+  step 1: done
+  step 2: running
+  step 2: the process dies here
+$ go run ./examples/recovery
+  step 2: running
+  step 2: done
+  step 3: running
+  step 3: done
+job 2: done
+```
+
+## Highlights
+
+- **Crash-proof by construction.** Conversations, tasks, and your own state
+  change in commits on one serialized line, and storage accepts each commit
+  before any reader sees it. Interrupted tasks resume from their checkpoints,
+  interrupted model requests count as failed attempts and retry, and
+  replay-safe tools run again.
+- **The agent loop, done for you.** Steering and follow-up queues, parallel
+  tool rounds with nested calls and structured output, retries with backoff,
+  automatic compaction of long contexts, hooks, prompt sections, forks, and a
+  live view of every run.
+- **Models included.** `model.OpenAI` streams Chat Completions in pure Go and
+  knows pi-ai's catalog of 728 models; `model.Pi` reaches every provider pi-ai
+  supports, with Pi's `/login` credentials. Or bring your own: it is one
+  method.
+- **Tools included.** Upstream's coding tools (`read`, `write`, `edit`, `bash`,
+  `powershell`, `tool_search`) over a local environment that answers as
+  upstream's Node environment does, error messages and file watching included.
+- **Code mode.** Models write JavaScript that calls your tools, in a QuickJS
+  sandbox that runs in pure Go, and the script survives a restart by
+  deterministic replay.
+- **Storage in pure Go.** Memory, JSONL, or SQLite without CGO, with bounded
+  memory for long-lived sessions and a conformance suite for your own backend.
+- **Checked against upstream.** 118 whole conversations replay through this
+  Harness and through upstream's TypeScript, next to thousands of smaller
+  comparisons, on every pull request.
+
+## Quick start
 
 ```sh
 go get github.com/leocavalcante/pi-durable-go
 ```
 
-## Quick start
+A durable coding agent on SQLite ([examples/quickstart](examples/quickstart/main.go)):
 
 ```go
 package main
 
 import (
-    "context"
-    "fmt"
+	"context"
+	"fmt"
+	"log"
+	"os"
 
-    durable "github.com/leocavalcante/pi-durable-go"
+	durable "github.com/leocavalcante/pi-durable-go"
+	"github.com/leocavalcante/pi-durable-go/model"
+	"github.com/leocavalcante/pi-durable-go/storage"
+	"github.com/leocavalcante/pi-durable-go/tools"
 )
 
-type Echo struct{}
-
-func (Echo) Generate(ctx context.Context, req durable.ModelRequest,
-    delta func(string) error) (durable.ModelResponse, error) {
-    if err := ctx.Err(); err != nil {
-        return durable.ModelResponse{}, err
-    }
-    return durable.ModelResponse{Content: "Hello from a durable agent"}, nil
-}
-
 func main() {
-    ctx := context.Background()
-    h, err := durable.Open(ctx, durable.NewMemoryStorage(),
-        durable.HarnessOptions{Model: Echo{}})
-    if err != nil { panic(err) }
-    defer h.Close(ctx)
+	ctx := context.Background()
 
-    root, err := h.Root(ctx, durable.ConversationOptions{
-        Agent: durable.Agent{Model: durable.ModelRef{Provider: "example", ID: "echo"}},
-    })
-    if err != nil { panic(err) }
-    submission, err := root.Submit(ctx, durable.SubmissionRequest{
-        Content: "Hello", RequestID: "hello-1",
-    })
-    if err != nil { panic(err) }
-    result, err := submission.Wait(ctx)
-    if err != nil { panic(err) }
-    if result.Status != "done" { panic(result.Reason) }
-    state, err := h.Snapshot(ctx)
-    if err != nil { panic(err) }
-    fmt.Println(state.Entries[result.Answer].Message.Content)
+	// Any of pi-ai's 728 OpenAI-compatible models, configured as pi-ai does.
+	llm, _ := model.OpenAIModel("groq", "llama-3.3-70b-versatile")
+	llm.APIKey = os.Getenv("GROQ_API_KEY")
+
+	// The coding tools: read, write, edit, and bash. A directory is not a sandbox!
+	registry := durable.NewRegistry()
+	if err := registry.Install(tools.Coding()); err != nil {
+		log.Fatal(err)
+	}
+
+	// Every step is committed to SQLite before anyone sees it.
+	store, err := storage.OpenSQLite(ctx, "agent.sqlite")
+	if err != nil {
+		log.Fatal(err)
+	}
+	h, err := durable.Open(ctx, store, durable.HarnessOptions{
+		Model:    llm,
+		Registry: registry,
+		Environment: func(durable.ConversationRecord) (durable.ExecutionEnv, error) {
+			return tools.NewLocalEnv(".")
+		},
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer h.Close(ctx)
+	h.Resume() // finish whatever a previous run left unfinished
+
+	agent, err := h.Root(ctx, durable.ConversationOptions{Agent: durable.Agent{
+		Model: durable.ModelRef{Provider: "groq", ID: "llama-3.3-70b-versatile"},
+	}})
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// The request ID admits the task once, even across restarts.
+	task, err := agent.Submit(ctx, durable.SubmissionRequest{
+		Content:   "Which Go packages does this directory have?",
+		RequestID: "inventory-1",
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+	result, err := task.Wait(ctx)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	entries, err := agent.Entries(ctx)
+	if err != nil {
+		log.Fatal(err)
+	}
+	for _, entry := range entries {
+		if entry.ID == result.Answer {
+			fmt.Println(entry.Message.Content)
+		}
+	}
 }
 ```
 
-The runnable [basic example](examples/basic/main.go) makes no network requests:
+Kill it halfway and run it again: it picks up the same task. No key at hand?
+`go run ./examples/basic` runs with a model that echoes, and
+`go run ./examples/recovery -crash` shows a crash and its recovery offline.
 
-```sh
-go run ./examples/basic
+## How it works
+
+```mermaid
+flowchart LR
+    app["Your program"] -- "Submit, Watch" --> conv["Conversations"]
+    conv --> tasks["Tasks: generations,<br/>tool calls, compactions"]
+    tasks -- "requests" --> llm[("Model")]
+    tasks -- "calls" --> tools["Tools"] --> env["Environment"]
+    conv & tasks --> session["Session:<br/>one commit line"] --> store[("Storage")]
 ```
 
-## Persistence and recovery
+A **Harness** runs **conversations**, durable transcripts of entries. Each run
+is a chain of **tasks** (a generation per turn, a task per tool call), which
+the scheduler runs from their checkpoints. Every change goes through the
+**Session**'s single commit line into **storage**, so whatever anyone saw is
+what a restart finds. [Concepts](docs/concepts.md) has the whole picture.
 
-Replace memory storage with SQLite or JSONL:
+## Examples
 
-```go
-store, err := storage.OpenSQLite(ctx, "agent.sqlite")
-// Or: storage.OpenJSONL(ctx, "agent-state")
-if err != nil { return err }
-h, err := durable.Open(ctx, store, options)
-if err != nil { store.Close(); return err }
-h.Resume()
-```
+| Example | What it shows |
+|---|---|
+| [basic](examples/basic/main.go) | A first conversation, with an echoing model and no keys |
+| [recovery](examples/recovery/main.go) | A job that survives a crash in the middle of a tool call |
+| [quickstart](examples/quickstart/main.go) | A coding agent on SQLite, with a model from the catalog |
+| [chat](examples/chat/main.go) | A command-line chat with Pi's credentials or any OpenAI-compatible API, and optional coding tools |
 
-Storage writes only what each commit changed (`DeltaStorage`); `storage.OpenJSONLReadOnly` and `storage.OpenSQLiteReadOnly` open a store another process writes without locking, repairing, or writing it, and `Harness.ObserveCommits` streams each commit's changes in order, for replicas. `HarnessOptions.ReadOnly` opens a viewer of a session another process drives: it recovers nothing, never schedules, and refuses commits with writes with `ErrReadOnly`. Import `github.com/leocavalcante/pi-durable-go/storage`. Reinstall application extensions on each reopen; `Open` restores built-in definitions. `Resume`, submission, or a task/submission wait starts scheduling; opening alone does not.
+## Documentation
 
-Submissions follow upstream's admission rules. An `input` starts a run in an idle conversation or, while one runs, queues as a follow-up (default), joins the run at its next tool boundary (`WhenBusy: "steer"`), or is refused (`"reject"`, `ErrBusy`); `WhenIdle: "reject"` refuses input to an idle conversation (`ErrIdle`). A `write` appends an entry, at once or at the next boundary. A `continue` starts a run on the context as it is, for example after a failed run; a busy conversation refuses it. Statuses are `queued`, `placed` (with its `Entry`), `done` (with its `Answer`), and `unanswered` (with a `Reason` code and optional JSON `Detail`). Boundaries place queued items one at a time or all at once (`Settings.SteeringMode`, `FollowUpMode`).
+- [Getting started](docs/getting-started.md) and [concepts](docs/concepts.md)
+- Guides: [conversations](docs/guides/conversations.md),
+  [persistence and recovery](docs/guides/persistence-and-recovery.md),
+  [retries and compaction](docs/guides/retries-and-compaction.md),
+  [tasks and documents](docs/guides/tasks.md),
+  [tools and models](docs/guides/tools-and-models.md),
+  [the execution environment](docs/guides/execution-environment.md),
+  [code mode](docs/guides/code-mode.md)
+- [API reference](https://pkg.go.dev/github.com/leocavalcante/pi-durable-go),
+  [safety and limits](docs/safety.md), [upgrading](docs/upgrading.md)
 
-Each run is in `pi.live` (`LiveState`, readable with `ReadDocument`): `Run` while busy, the current `Generation` attempt and retry, the round's tool slots, compaction statuses, and `RunFailure` after a run ended without an answer, with reason `model_error`, `no_model`, `nothing_to_answer`, `turn_limit` (`Agent.MaxTurns` tool rounds), `reset`, `aborted`, `faulted`, `orphaned`, `interrupted`, or `restart_limit`. A generation runs one turn: a tool round's end hands the run to the next generation, and a tool's `Handoff` continues the run in a new context. A streamed partial answer is presentation in `pi.live.generation.message`, with its text, thinking, and tool calls whose arguments are parsed as they stream (models that implement `EventModel`; both bundled adapters do), committed at most every `Settings.Progress.PartialIntervalMs` (default 100 ms) as a deferred commit: shown at once and stored within `Settings.Progress.PersistWithinMs` (default 1,000 ms), with the next commit that reads or writes it, or at close (`Harness.CommitWith` and `TaskRuntime.CommitWith` take `CommitOptions{Deferred, WithinMs}` for a host's own progress); `Conversation.Live` reads the conversation's `pi.live`. Assistant messages record their `StopReason` and requested `ThinkingLevel`; an answer cut off at its output limit (`length`) is an answer whose cut-off tool calls never run, and a failed attempt is kept as an error entry (`StopReason: "error"`, `ErrorMessage`) that never reaches model context. `ModelResponse.StopReason` reports `length`, and both bundled adapters set it. `Settings.AfterFailedRun` keeps (default), continues with, or withdraws (`run_failed`) the inputs queued behind a failed run. `Hooks.AfterRun` runs once a run answers (or every call of its round asks to terminate): the run settles its inputs, creates the tasks the hooks ask for (`RunEndTask`), and ends once they are terminal, keeping queued items queued meanwhile.
+## Compatibility and status
 
-A submission's `RequestID` deduplicates admission within one conversation. Retrying it returns the original even if the content changed; reusing it for another submission type is rejected. Persist `submission.ID()` for reconnection with `h.Submission(ctx, id)`. Inputs may use `Entry` to attach a custom non-`pi.*` kind and JSON data to the user message. Display-only write submissions settle immediately during a run unless a reset is queued.
+pi-durable-go follows upstream Pi Durable **v1.5.2**. Upstream's behavior
+decides the port's, and `make crosscheck` runs upstream's TypeScript on the
+same inputs to prove it ([how](docs/upstream-cross-checks.md)). Where Go
+differs on purpose, or where something is not ported yet,
+[COMPATIBILITY.md](COMPATIBILITY.md) says so.
 
-Tool results the Harness writes itself carry an error `ToolResult.Diagnostics` entry with upstream's code (`tool_unavailable`, `invalid_arguments`, `blocked`, `interrupted`, `restart_limit`, `aborted`, `abandoned`), shown to the model in a `<harness>` block after any output; every result passes `AfterTool` hooks. A failing hook is reported as `extension_error` and skipped. `Settings.ToolExecution: "sequential"`, or a called tool's `ExecutionMode: "sequential"`, runs a round one call at a time; a call to a tool the request did not offer settles `tool_unavailable` without running. A running tool can call another through `ToolRuntime.ExecuteTool`, which runs it as an owned task and returns a `NestedToolResult` (`StructuredOutput` is the tool's validated structured output, or its content as a JSON string); `ToolDefinition.Callers` limits a tool to the model or to tools. `Agent.ModelTools` selects which model-callable tools a request offers; `ToolDefinition.Deferred` tools are offered only once loaded, which a result's `AddTools` does from the next request on.
+It is **pre-1.0**: minor versions may change the API, and the changelog marks
+every breaking change. It needs Go 1.25 or newer; Linux and macOS are fully
+supported, while on Windows the JSONL storage and the local shell are not.
 
-**Admission deduplication is not exactly-once external execution.** A crash between an external effect and the commit recording its result leaves uncertainty. Use service-side idempotency keys, queryable receipts, or reconciliation. Interrupted tools replay only when both their stored and current policies declare `ReplaySafe`. Coding tools default to unsafe.
+## Contributing
 
-### Crashes, clean closes, and the restart limit
+Issues and pull requests are welcome; see [CONTRIBUTING.md](CONTRIBUTING.md)
+and the [code of conduct](CODE_OF_CONDUCT.md). Please report vulnerabilities
+privately, as [SECURITY.md](SECURITY.md) explains.
 
-- **Counting.** `Open` rewrites surviving `running` tasks, including running abort handlers, to `pending` and increments their optional `TaskRecord.Restarts`. Other statuses and stored backoff deadlines are unchanged. A clean `Close` joins local invocations and writes the tasks it stopped back to `pending` without counting them; a failure shutdown writes nothing, so its tasks count as crashed.
-- **Resets.** A task's changed checkpoint, yield, wait, outcome, or new or upgraded abort mark resets its count. Structurally identical checkpoints, memos, document writes, and a tool's `Output`/`Details` (stored only in its `pi.live` slot) do not. The count is scheduler-owned.
-- **Limit.** `Settings.RestartLimit` (default 5; values below 1 and NaN select the default, fractions round down, and `math.Inf(1)` disables it) ends crash loops. At reservation, before definition resolution, an abort handler or a run of any non-built-in kind cut off that many times in a row ends `faulted` with `ErrorDetail` `{"reason":"restart_limit"}`, reported as `task_faulted` with reason `restart_limit`. Blocked and would-be orphaned tasks end too. A generation whose abort handler is cut off ends its run `aborted` with the fault message as `Detail`, without converting its partial.
-- **Built-in endings.** Built-in tasks check the limit when each phase starts. A generation settles its inputs `unanswered` with reason `restart_limit` and `The generation was interrupted <count> in its <phase> phase` as `Detail`, keeping a committed partial as an aborted entry at the limit but dropping it past the limit. A tool call ends with the error result `Tool <name> was interrupted <count>; it is not run again`, followed by its committed output, even for a replay-unsafe tool, and its run continues. A compaction fails with `Compaction was interrupted <count>`. Each fails with `ErrorDetail` `{"reason":"restart_limit"}`.
-- **Interrupted requests.** A model request in flight when the host crashed is charged as a failed attempt rather than resent: its partial becomes an aborted entry and, while the retry policy allows that attempt, the generation backs off and prepares the next attempt. Otherwise the run ends `unanswered` with reason `interrupted` and `The host stopped while the model was answering, on attempt <n>`, and the task fails with `ErrorDetail` `{"reason":"interrupted"}`. A request stopped by a clean `Close` is resent; a generation backing off or waiting for its tools is not charged.
-- **Reports.** A `failed` outcome whose `ErrorDetail` reason is `restart_limit` or `interrupted` is reported as `task_interrupted`, with `Report.Restarts` holding the count before that commit. To recognize crash loops in stored outcomes, decode `ErrorDetail` of `faulted` outcomes (`restart_limit`) and `failed` outcomes (`interrupted` or `restart_limit`).
+## License
 
-Every task running when the host dies is counted, not only the one that caused the crash, and any checkpoint change counts as progress. Keep throttled progress that should not reset the count in documents or memos.
-
-### Model retries
-
-`Settings.Retry` is Pi Durable's retry policy. Its `RetrySettings` pointer fields merge one by one over the default: enabled, 3 retries after the first attempt, a 2,000 ms base delay that doubles per attempt, and a 60,000 ms cap per delay. A nil field keeps the default; an explicit `false` or `0` is honored, and the numbers follow JavaScript's (`math.Inf(1)` retries without bound).
-
-A generation retries a failed model attempt only when the error is transient and not a context overflow. `durable.IsRetryableModelError` and `durable.IsContextOverflowError` port pi-ai v1.5.2's classifiers; errors implementing `Retryable()` or `ContextOverflow()`, as both bundled adapters' sanitized errors do, answer for themselves. The failed attempt's partial is kept as an aborted entry, and the generation sleeps in a `retry` phase until the backoff ends. Afterwards it prepares the request again, so agent, section, and settings changes made meanwhile apply, without counting another turn. Compaction summaries retry under the same policy and classification, without the overflow check, resending their pinned request.
-
-### Compaction
-
-`Conversation.Compact` and automatic compaction follow upstream's policy (`Settings.Compaction`, overridden per conversation by `Agent.Compaction` and per model by `ModelOverrides`; defaults: enabled, 16,384 reserve tokens, 20,000 recent tokens kept, 32,768 background tokens). A compaction selects an old prefix of the model context that leaves `KeepRecentTokens` after it, summarizes it with upstream's prompt, and places the summary, which later context starts with. A run or compaction fails `no_model` when the agent has no model or the Harness's model does not serve it (`ModelLookup`, which `model.Pi` answers from Pi's catalog). When the model reports its context window (`ContextWindowModel`), preparing a request above `window − ReserveTokens` first runs a blocking compaction, and above the background threshold starts a background one. A context-overflow error compacts and prepares again instead of failing, unless compaction is disabled or nothing can be compacted. Small conversations may have nothing to compact; such a compaction completes without a summary.
-
-### Upgrading
-
-- `Submission.Abort` now returns what it found (`SubmissionAborted`, `SubmissionAlreadyPlaced`, or `SubmissionSettled`) instead of an error for a submission that was not queued.
-- `Settings.RetryMax` and `RetryDelay` are removed, and retries are now on by default. Replace `RetryMax: n, RetryDelay: d` with `Retry: durable.RetrySettings{MaxRetries: ptr(float64(n)), BaseDelayMs: ptr(float64(d.Milliseconds()))}` using a local `func ptr[T any](v T) *T { return &v }`; delays now double up to `MaxAgentDelayMs`. Set `Enabled: ptr(false)` to disable retries, for example for test fakes whose error text looks transient (such as "timeout" or "503").
-- `pi.generation` and `pi.compaction` are version 3, and `pi.tool` is version 2; each migrates older records at reservation. Older builds leave newer records blocked as `task_too_old`, so do not downgrade with runs live.
-- State version 4 keeps rewindable documents' revisions as records of their own (opening an older store moves them, and its next commit stores the whole upgraded State); version 3 stored the run model: opening an older store upgrades it in memory (`running` submissions become `placed`, a busy run moves to `pi.live.run`) and the next commit persists it. Older binaries cannot reopen a version-3 store. `Settings.MaxTurns` is removed; bound tool rounds with `Agent.MaxTurns`.
-- Restart accounting adds no storage-version change. On the first open after upgrading, tasks an older build's clean close left `running` are counted once; with the default policy an interrupted request is then retried after the backoff. An older State-v2 build can still open the store, but its snapshot writes drop the optional counter.
-
-## Tools and models
-
-- `tools.Coding()` supplies `read`, `write`, `edit`, and `bash` with upstream's results: streaming reads with continuation notes and images, fuzzy edits with diffs, and shell output with timeouts, spill files, and exit codes. Their parameter schemas are upstream's, checked against 1.5.2, and `bash` and `powershell` keep their output's tail. Tool arguments are coerced and checked as pi-ai does (`"42"` for a number, a single value for an array), after an optional `ToolDefinition.PrepareArguments` repair. Upstream's file mutation queue is ported: `write` and `edit` calls on one file (by canonical path, in a `LocalEnv`) run one at a time in arrival order. Other files never wait, and it is no lock against `bash` or other processes. `tools.CodingWith(CodingOptions{Images: tools.StdImages()})` also resizes, rotates, and converts images; `tools.PowerShell()` adds `powershell`; `tools.ToolSearch()` supplies `tool_search`, which loads deferred tools that match a query.
-- `tools.NewLocalEnv(cwd)` supplies local filesystem and process execution, resolving paths as upstream's Node environment does (`~`, `file://`, relative to `cwd`) and writing files in place as it does (through symbolic links, keeping inodes and modes; not atomic). **A working directory is not a sandbox.**
-- `codemode.Extension` adds upstream's `codemode` tool: the model writes JavaScript that calls the conversation's tools, and the script survives a restart by deterministic replay. `codemode.QuickJSSandbox`, the default, runs scripts in Go: pi-codemode's QuickJS VM (QuickJS-NG compiled to WebAssembly) through wazero, with upstream's prelude, clock, and randomness, and no Node. `codemode.NodeSandbox` runs pi-codemode itself from an installed Pi (Node.js 22.19+, Pi 1.5.2). Both report the same fingerprint, so a script started in one resumes in the other:
-
-  ```go
-  sandbox := &codemode.QuickJSSandbox{} // or &codemode.NodeSandbox{}
-  defer sandbox.Close()
-  // Models gives scripts models.*: Pi's catalog, classifiers, and image models.
-  if err := registry.Install(codemode.Extension(codemode.Options{Sandbox: sandbox, Models: model.Pi{}})); err != nil {
-      return err
-  }
-  ```
-- `model.Pi` reuses an installed Pi coding-agent SDK's authentication and provider transports, including existing `/login` OAuth credentials and refresh. Requires Node.js 22.19+ and the tested Pi SDK 1.5.2 baseline; no Pi agent/tool loop is started.
-- `model.OpenAI` supplies a pure-Go streaming OpenAI-compatible Chat Completions adapter with an explicit API key.
-- Messages, inputs (`SubmissionRequest.Images`), and tool results carry images, after the text or interleaved with it at `ImageOffsets` (`OrderedContent` gives the ordered blocks); both adapters send them in order, and a model without image input sees pi-ai's placeholders in place. `HarnessOptions.Identity` (pi-ai's `ClientIdentity`) is merged over `DefaultHarnessIdentity` (Pi's provider attribution; a JSON null `Attribution` turns it off) and set on every model request, including those tasks, hooks, and tools make through `TaskRuntime.Model`.
-- Implement `durable.Model` for other integrations. A native Go provider/OAuth catalog is not implemented. See [model/README.md](model/README.md) for setup, credential discovery, and limits.
-
-The [chat example](examples/chat/main.go) wires these together with SQLite and defaults to Pi authentication:
-
-```sh
-# First sign in using /login in Pi. Use a provider/model from Pi's /model picker.
-go run ./examples/chat -provider openai-codex -model YOUR_PI_MODEL_ID -prompt 'Hello'
-# Or keep the standalone pure-Go adapter:
-OPENAI_API_KEY=... go run ./examples/chat -adapter openai -model YOUR_MODEL_ID -prompt 'Hello'
-```
-
-It makes real model requests only when you run it. Review tools and isolate the process before giving it untrusted input or credentials. Pi credential commands and the selected SDK execute with host permissions; they are not sandboxed.
-
-## Runtime model
-
-A Harness owns one Session and scheduler. A conversation is a transcript, not a goroutine. Entries, tasks, submissions, and JSON documents change on one serialized atomic commit line. Storage succeeds before snapshots or progress are published.
-
-Each request's prompt and tools are recorded as positional `pi.system` messages, patched as sections and tools change and rebaselined after a compaction or reset (upstream spec §7.4); entries can omit or replace earlier entries' messages in context (`Entry.Edits`). A model that takes no system messages mid-conversation gets them folded into one leading prompt.
-
-Clients read state through views: `Conversation.WatchWindow` keeps a window over a conversation's history with its built-in documents (`pi.live`, `pi.inbox`, …), `ConversationTranscript` merges its values into the client's whole transcript with gaps to fill, `Conversation.ScanEntries` pages raw history, and `Harness.TaskGraph`/`WatchTaskGraph` show live tasks. `HarnessOptions.Telemetry` receives upstream's content-free spans, events, and metrics.
-
-Tasks are checkpointed state machines, not persisted Go stacks. Define their initial checkpoint, phase handler, and optional abort/migration handlers. Task records include start/end times; assistant and tool-result messages include per-attempt durations. Owned child tasks and conversations support cancellation trees. `TaskRuntime.OwnedTasks(ctx)` lists live direct task children, including those from earlier invocations; `AbortOwned(ctx, id)` durably marks a direct child and waits for it to settle. These calls belong outside commit callbacks. Background work can outlive an ordinary conversation abort. A task reads `TaskRuntime.Settings()` (the Harness settings, read at each call), `Env()` (`HarnessOptions.Environment` for its conversation), and `Model()`, as upstream's `TaskRuntime` does.
-
-### Task outcomes and definition lifecycle
-
-Task code may commit `completed`, `failed`, or `aborted` outcomes. `failed` requires a non-empty error; `ErrorDetail` is optional JSON. `aborted` may include a `Reason`; `orphaned` requires its blocked `Reason`, while `faulted` carries an error. `faulted` and `orphaned` are scheduler-owned: handler errors or panics, and a phase handler that returns still `running` without checkpoint progress, become `faulted`; aborting a task blocked by missing or incompatible code settles it as `orphaned`. A task can read terminal receipts with `TaskRuntime.Outcomes(ctx, ids)`. Update outcome switches that previously treated all `failed` receipts as execution faults: application-declared failure remains `failed`, while scheduler faults now have their own status. Text diagnostics generated by the runtime are bounded to 4 KiB of valid UTF-8; panic stacks are report-only.
-
-If a handler leaves its task `running`, a changed checkpoint lets `Run` continue into another phase in the same invocation; without that progress it faults. A committed `pending` transition yields, `waiting` waits on tasks, `sleeping` (or `TaskRuntime.SleepUntil`) sleeps until a time on the Harness clock (`WakeAt`), and a terminal transition ends the invocation. A sleeping task holds no invocation, is not counted by a crash, and resumes at its checkpoint once due; an abort mark ends a sleep at once, and abort handlers cannot sleep. The scheduler runs passes on commits, invocation ends, registry changes, `Resume`, and one timer for the earliest sleep (`HarnessOptions.SetTimer`, default `time.AfterFunc`); there is no polling. A host that wakes the process itself sets `HarnessOptions.OnWake`, which receives `Wake{Active, At}` instead of a timer being armed, and calls `Resume` when its alarm fires; `Harness.Wake()` answers the same question. `TaskRuntime.SetTimer` arms a non-durable pacing timer that the invocation's end disarms, and `TaskRuntime.Now` reads the Harness clock. Earlier Go sleeps written as `pending` or `waiting` with a deadline and nothing to wait on are stored as `sleeping`; a wait with targets and a deadline is rejected. Outcomes held in `completing` while ordinary owned work drains drop task memos immediately. A runtime remains valid across continuing phases of the same invocation, as upstream; join phase-owned goroutines before returning when their writes must count in that phase's progress decision.
-
-`TaskDefinition.Migrate` now receives `(fromVersion, input, checkpoint)` and returns migrated input and checkpoint together. It runs under the Session commit mutex at reservation and may also run as an abort/orphan eligibility probe, so keep it pure, deterministic, bounded, and free of Session/registry calls and external effects. A successful reservation commits migrated values atomically; a successful probe is not persisted and can be evaluated again. Missing or failed migrations leave the task live and blocked; failures are cached per task/definition identity for the open Harness (reopening permits retry). `Inspect` derives task states and submissions from one snapshot without running migrations or handlers. `AbortTask(ctx, id)` now returns `AbortMarked` (`"marked"`) or `AbortTerminal` (`"terminal"`) and joins only a captured active run; its join exits on caller cancellation or Session admission sealing, not `Done()`, and cancellation does not undo the durable mark. Do not synchronously abort a task from its own handler or abort a conversation scope containing that handler.
-
-Task-definition identity is per successful extension install. Replacing or reinstalling an extension creates new identities for its task definitions; unrelated installs do not. Reinstalling an unchanged extension is therefore an intentional migration-retry/handover boundary. Harness built-ins (`pi.generation`, `pi.tool`, and `pi.compaction`) take precedence over extension definitions. `CompactionExtension()` is deprecated and installing it is unnecessary.
-
-`HarnessOptions.OnReport` receives best-effort FIFO reports (`storage_failed`, `task_faulted`, `migration_failed`, `task_outdated`, `task_error`, `task_interrupted`, `extension_error`, and `host_error`) on a separate worker. `Harness.WaitForIdle` and `Conversation.WaitForIdle` resolve when the ordinary ownership scope has no live non-background task. A task that commits a `failed` outcome whose `ErrorDetail` reason is `restart_limit` or `interrupted` is reported as `task_interrupted`, with `Report.Restarts` holding its count before that commit. Task reports carry copied task metadata and identify the installing extension where applicable. Enqueueing does not wait for host code; callback panics are recovered and dropped so later reports can still be delivered. Delivery is not durable; already queued reports drain asynchronously and are not joined by `Done()` or `WaitClosed()`, so a handler may run after Session shutdown. `TaskRuntime.Report` is also nonblocking and does not prove that writes in the current commit callback succeeded. A phase sees one `TaskRuntime.Registry()` snapshot; replacement definitions take over at a phase boundary when they can reserve the task.
-
-**Persistence/API migration:** Stores of earlier state versions remain readable: `Open` upgrades them in memory and commits the current version (4) during reconciliation; older binaries cannot safely reopen an upgraded store. `SessionEnd.Reason` was renamed to `SessionEnd.Kind`. Scheduler bookkeeping failures, including certified rejected writes, fail the Session; the `RejectedError` exemption remains for ordinary caller commits and caller-cancelled scheduler writes certified unapplied. See [COMPATIBILITY.md](COMPATIBILITY.md) for the full gap list and intentional Go differences.
-
-Set `TaskOptions.AbandonOnRestart` for work whose creator only waits in memory and cannot resume after a restart. A later Harness marks still-live opted-in tasks with `AbortReason: "restart"` at its first scheduling pass, cascading to ordinary owned work before any run handler can replay. Inspection-only opens do not mark them, and newly created tasks in the current Harness are unaffected. Abort handlers can use the reason for cleanup; restart-marked tasks with missing/incompatible definitions remain blocked until code is installed. An explicit abort request replaces a restart reason and may orphan a blocked task, while `AbortOwned` preserves the restart mark. Neither abandonment nor admission deduplication makes external effects exactly once.
-
-Application documents have explicit versions, scopes, and fork policies. Use `UpdateDocument[T]` inside a commit and `ReadDocument[T]` outside it. Reads do not initialize absent state. Rewindable `asOf` documents fork at the entry's entire commit.
-
-`Conversation.Watch` and `WatchDocument` deliver current snapshots with bounded latest-state buffering. They are not audit logs. Retain important facts as immutable entries.
-
-## Safety and limits
-
-- One owning Session per storage. Database transaction safety does not coordinate multiple schedulers.
-- SQLite uses WAL and `synchronous=FULL`; JSONL fsyncs complete records. Initial file/directory creation is not directory-fsynced, and guarantees depend on the OS/filesystem/device. Do not assume full power-loss durability.
-- Commits store only the records they changed (`DeltaStorage`). Over a `RecordStorage` (memory, JSONL, SQLite) the Session keeps live work only: tasks that are not terminal, the ended tasks a live task waits on, and open submissions; ended tasks and settled submissions leave memory once the commit that settled them is published, and reads by ID find them through a cache of 256 each and storage (plan 0008). Entries stay in memory only within the context ranges of conversations in use (from the newest reset or compaction cut on, or all entries without one, and what forks reaching into them need): a range loads when a commit touches its conversation and leaves once the conversation has been idle for `Settings.ContextRetentionMs` (default ten minutes, upstream's `contextRetentionMs`); whole-history reads, scans, forks, windows larger than the range, and idle conversations read entries from storage. A conversation's documents load and drop with its range, and any document unused for `Settings.DocumentRetentionMs` (default ten minutes, upstream's `documentRetentionMs`) leaves memory unless held or observed; reads, updates, and retirements reach dropped ones through storage. Conversation records stay while in use (the root, loaded or busy conversations, those of live tasks and open submissions, and those live tasks own); others are read through a cache of 4096 and storage. Opening a store reads only what the Session keeps. `Snapshot` and `Session.Watch` copy the whole State, reading the records it no longer keeps from storage, while conversation views, waits, and derived watches copy only what they return. A read-only Harness keeps everything, as do storages without record reads. A storage wrapper that embeds a `DeltaStorage` and overrides `Commit` must also override `CommitDelta`, which the Session prefers. The first commit after opening a store an older version wrote stores the whole upgraded State.
-- A storage backend can check itself with `storagetest.Run(t, open)`, the storage conformance suite (upstream's `@earendil-works/pi-durable/testing`). It covers the `Storage` sequence rules and refusals, detached values, `DeltaStorage` deltas, `BatchDeltaStorage` batches, `RecordStorage` reads against the State, and close. Memory, JSONL, and SQLite run it.
-- Storage failures are final, as upstream's are: any storage commit error, or a scheduler bookkeeping failure, poisons and automatically closes the Session: observers end, pending waits fail, and running invocations are signalled. The failing call returns the original error; later operations return `SessionFailedError`, matching `ErrPoisoned` and unwrapping to the first cause. A commit's caller context is checked when its job starts; an admitted commit is stored even if the context is cancelled meanwhile. Never continue mutating a failed Session; reopen only after shutdown settles.
-- `Done()` and `WaitClosed(ctx)` on a Harness or Session expose shutdown completion (`SessionEnd{Kind: "closed"}` or `"failed"` with `Err`). `Err()` reports sealed admission/failure immediately. Waiting does not initiate shutdown; cancelling a wait does not cancel cleanup.
-- `Close` stops local invocations without durably cancelling pending work, then writes stopped `running` tasks back to `pending`, so a stopped model request is resent rather than charged as a crash. A write-back failure fails the Session and reports `storage_failed`; `Close` still returns only the backend close error, so inspect `WaitClosed` for the shutdown result. An uncertain write may or may not have applied; reopening reads the durable truth. `AbortTask` requests persisted cancellation and joins the active run. Cancellation is cooperative: task code that ignores it keeps shutdown pending and storage open. A timed-out `Close(ctx)` seals admission and continues cleanup, including write-back; call again or use `WaitClosed` to join it.
-- Never make network/model calls, wait for approval, or nest a commit inside a commit callback.
-- History and files can contain sensitive information. Do not publish runtime databases or sessions.
-
-Changes are listed in [CHANGELOG.md](CHANGELOG.md).
-
-## Development
-
-```sh
-make check
-```
-
-Runs formatting checks, `go vet`, unit/integration tests, and the race detector. Tests use fake models, temporary files, and local HTTP servers. No provider credentials or paid calls are required. See [CONTRIBUTING.md](CONTRIBUTING.md).
-
-`make crosscheck` compares the port with upstream's own code, the pinned release's TypeScript sources run with Node, on the same cases. It needs Node 22.6+ and the installed Pi of that version. See [docs/upstream-cross-checks.md](docs/upstream-cross-checks.md).
-
-## License and provenance
-
-[MIT](LICENSE), the same license as Pi and Pi Durable. The original upstream copyright notice is preserved. See [NOTICE](NOTICE) for the original v1.1.0 port base and current v1.5.2 reference, and [DEPENDENCIES.md](DEPENDENCIES.md) for dependency licenses.
+[MIT](LICENSE), the same as Pi. pi-durable-go is an independent port of
+[Pi](https://github.com/earendil-works/pi) by Mario Zechner and is not an
+official Earendil project; [NOTICE](NOTICE) has the attribution and
+[DEPENDENCIES.md](DEPENDENCIES.md) the licenses of what it uses.

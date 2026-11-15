@@ -24,7 +24,8 @@ func main() {
 	adapter := flag.String("adapter", "pi", "model adapter: pi (reuse Pi auth) or openai (pure Go)")
 	piPackage := flag.String("pi-package-dir", "", "installed pi-coding-agent package directory; empty discovers Pi")
 	piAgent := flag.String("pi-agent-dir", "", "Pi auth/models directory; empty uses Pi's default")
-	baseURL := flag.String("base-url", "https://api.openai.com/v1", "API base URL for -adapter openai only")
+	baseURL := flag.String("base-url", "", "API base URL for -adapter openai only; empty uses pi-ai's catalog, or OpenAI's")
+	apiKeyEnv := flag.String("api-key-env", "OPENAI_API_KEY", "environment variable with the API key, for -adapter openai only")
 	stateDir := flag.String("state", ".pi-durable", "private state directory")
 	prompt := flag.String("prompt", "", "input prompt; empty resumes existing work")
 	coding := flag.Bool("coding-tools", false, "enable local read/write/edit/bash; not sandboxed")
@@ -38,11 +39,21 @@ func main() {
 	case "pi":
 		generator = model.Pi{PackageDir: *piPackage, AgentDir: *piAgent}
 	case "openai":
-		generator = model.OpenAI{BaseURL: *baseURL, APIKey: os.Getenv("OPENAI_API_KEY")}
+		// pi-ai's catalog configures the models it knows: their base URL,
+		// limits, thinking levels, compat, and price.
+		openai, ok := model.OpenAIModel(*provider, *modelID)
+		if !ok {
+			openai = model.OpenAI{BaseURL: "https://api.openai.com/v1"}
+		}
+		if *baseURL != "" {
+			openai.BaseURL = *baseURL
+		}
+		openai.APIKey = os.Getenv(*apiKeyEnv)
+		generator = openai
 	default:
 		log.Fatal("-adapter must be pi or openai")
 	}
-	if *adapter != "openai" && *baseURL != "https://api.openai.com/v1" {
+	if *adapter != "openai" && *baseURL != "" {
 		log.Fatal("-base-url applies only to -adapter openai; configure Pi models.json for -adapter pi")
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

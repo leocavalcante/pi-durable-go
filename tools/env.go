@@ -1,8 +1,16 @@
-// Package tools provides a local execution environment and coding tools.
+// Package tools provides upstream Pi Durable's coding tools and LocalEnv, the
+// local execution environment they run in.
 //
-// LocalEnv uses cwd to resolve relative paths and as the process working
-// directory. It is not a sandbox: absolute paths, parent traversal, and shell
-// commands can access anything permitted to the current process.
+// Coding returns read, write, edit, and bash; PowerShell and ToolSearch add
+// powershell and tool_search. LocalEnv ports upstream's NodeExecutionEnv:
+// files (FileInfo, ListDir, OpenBinaryReader, and the rest), commands
+// (ExecWith, with spills and timeouts), and watching (Watch), with upstream's
+// results and Node's error messages.
+//
+// LocalEnv uses its working directory to resolve relative paths and as the
+// processes' working directory. It is not a sandbox: absolute paths, parent
+// traversal, and shell commands can access anything permitted to the current
+// process.
 package tools
 
 import (

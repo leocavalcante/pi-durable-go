@@ -1,5 +1,9 @@
-// Package model contains a pure-Go OpenAI-compatible Chat Completions adapter
-// and an optional Pi coding-agent SDK adapter for shared auth and providers.
+// Package model provides two durable.Model adapters.
+//
+// OpenAI speaks OpenAI-compatible Chat Completions in pure Go, as pi-ai's
+// openai-completions adapter does; OpenAIModel configures it for any of the
+// models of pi-ai's catalog. Pi reaches every provider pi-ai supports through
+// an installed Pi coding-agent SDK, with its authentication.
 package model
 
 import (

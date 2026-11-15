@@ -1,5 +1,11 @@
-// Package storage provides durable whole-snapshot storage backends.
-// The JSONL and SQLite formats here are MVP formats and are not upstream wire compatible.
+// Package storage provides the JSONL and SQLite storage backends of a
+// durable.Harness.
+//
+// Both store what each commit changed (durable.DeltaStorage), read records on
+// demand (durable.RecordStorage), and open read-only for viewers of a store
+// another process writes (OpenJSONLReadOnly, OpenSQLiteReadOnly). SQLite uses
+// a pure-Go driver, without CGO. Their file formats are this port's own, not
+// upstream Pi Durable's. One Harness owns a store at a time.
 package storage
 
 import (

@@ -1,5 +1,3 @@
-// Package durable implements checkpointed agent conversations, tasks, and documents.
-// It is an experimental Go port of Pi Durable, not a Pi CLI implementation.
 package durable
 
 import (
