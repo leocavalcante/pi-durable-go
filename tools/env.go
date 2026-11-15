@@ -30,6 +30,11 @@ const maxExecOutput = 64 * 1024
 // not a filesystem or process sandbox.
 type LocalEnv struct {
 	cwd string
+	// processes are the running commands, which Cleanup ends.
+	processes struct {
+		sync.Mutex
+		running map[*exec.Cmd]func() error
+	}
 }
 
 var _ durable.ExecutionEnv = (*LocalEnv)(nil)
@@ -69,16 +74,19 @@ func (e *LocalEnv) AbsolutePath(ctx context.Context, path string) (string, error
 	return e.resolve(path), nil
 }
 
-// Exists reports whether path exists (PathResolver).
+// Exists reports whether path exists, as its FileInfo says (upstream
+// exists, PathResolver): a missing path is false, other failures, a file
+// of an unsupported kind included, are errors.
 func (e *LocalEnv) Exists(ctx context.Context, path string) (bool, error) {
-	if err := ctx.Err(); err != nil {
-		return false, err
-	}
-	_, err := os.Lstat(e.resolve(path))
-	if errors.Is(err, os.ErrNotExist) {
+	_, err := e.FileInfo(ctx, path)
+	var fileError *FileError
+	switch {
+	case err == nil:
+		return true, nil
+	case errors.As(err, &fileError) && fileError.Code == "not_found":
 		return false, nil
 	}
-	return err == nil, nodeError(err)
+	return false, err
 }
 
 // CreateTempDir creates a directory in the system's temporary directory
@@ -132,11 +140,7 @@ func mkdtemp(prefix string) (string, error) {
 		}
 	}
 	// Node names the template in its error.
-	code, message, ok := errnoOf(err)
-	if !ok {
-		return "", err
-	}
-	return "", &fsError{message: code + ": " + message + ", mkdtemp '" + base + "XXXXXX'", err: err}
+	return "", syscallError("mkdtemp", base+"XXXXXX", err)
 }
 
 // randomUUID is a random (version 4) UUID, as crypto.randomUUID makes.
@@ -179,8 +183,8 @@ func (e *LocalEnv) WriteFile(ctx context.Context, path string, data []byte) erro
 		return err
 	}
 	path = e.resolve(path)
-	if err := os.MkdirAll(filepath.Dir(path), 0o777); err != nil {
-		return nodeError(err)
+	if err := mkdirAll(filepath.Dir(path)); err != nil {
+		return err
 	}
 	if err := ctx.Err(); err != nil {
 		return err
@@ -269,7 +273,9 @@ func (e *LocalEnv) run(ctx, runCtx context.Context, cancel context.CancelFunc, a
 	if err := cmd.Start(); err != nil {
 		return durable.ExecResult{}, fmt.Errorf("%w: %v", ErrSpawn, err)
 	}
+	e.track(cmd)
 	err := cmd.Wait()
+	e.untrack(cmd)
 	callbackMu.Lock()
 	emit(stdout.decode(nil, true))
 	emit(stderr.decode(nil, true))
@@ -308,6 +314,26 @@ func (d *streamDecoder) decode(p []byte, end bool) string {
 	}
 	d.started = true
 	return strings.TrimPrefix(text, "\ufeff")
+}
+
+// track records a started command for Cleanup.
+func (e *LocalEnv) track(cmd *exec.Cmd) {
+	cancel := cmd.Cancel
+	if cancel == nil {
+		cancel = cmd.Process.Kill
+	}
+	e.processes.Lock()
+	defer e.processes.Unlock()
+	if e.processes.running == nil {
+		e.processes.running = map[*exec.Cmd]func() error{}
+	}
+	e.processes.running[cmd] = cancel
+}
+
+func (e *LocalEnv) untrack(cmd *exec.Cmd) {
+	e.processes.Lock()
+	defer e.processes.Unlock()
+	delete(e.processes.running, cmd)
 }
 
 type writerFunc func([]byte) (int, error)

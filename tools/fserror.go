@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"context"
 	"errors"
 	"io"
 	"io/fs"
@@ -13,14 +14,43 @@ import (
 // such file or directory, open '/path'". The local environment reports its
 // errors the same way; the original error stays wrapped for errors.Is.
 
-// fsError is a file error with Node's message.
-type fsError struct {
-	message string
-	err     error
+// FileError is a failed file operation (upstream FileError): Code is one of
+// aborted, not_found, permission_denied, not_directory, is_directory,
+// invalid, not_supported, or unknown; the message is Node's; Path is the
+// path involved, when there is one.
+type FileError struct {
+	Code    string
+	Message string
+	Path    string
+	Err     error
 }
 
-func (e *fsError) Error() string { return e.message }
-func (e *fsError) Unwrap() error { return e.err }
+func (e *FileError) Error() string { return e.Message }
+func (e *FileError) Unwrap() error { return e.Err }
+
+// fileErrorCodes are upstream toFileError's codes by Node's error code.
+var fileErrorCodes = map[string]string{
+	"ENOENT": "not_found", "EACCES": "permission_denied", "EPERM": "permission_denied",
+	"ENOTDIR": "not_directory", "EISDIR": "is_directory", "EINVAL": "invalid",
+}
+
+// newFileError is a FileError with Node's message for code.
+func newFileError(code, message, path string, err error) *FileError {
+	fileCode, ok := fileErrorCodes[code]
+	if !ok {
+		fileCode = "unknown"
+	}
+	return &FileError{Code: fileCode, Message: code + ": " + message, Path: path, Err: err}
+}
+
+// aborted is the error of an operation whose context ended (upstream
+// abortResult).
+func aborted(ctx context.Context, path string) error {
+	if ctx.Err() == nil {
+		return nil
+	}
+	return &FileError{Code: "aborted", Message: "aborted", Path: path, Err: ctx.Err()}
+}
 
 // errnoMessages are libuv's messages (uv_strerror), which Node's fs errors
 // use, by code.
@@ -98,12 +128,24 @@ var nodeSyscalls = map[string]struct {
 // nodeError is err with Node's message when it is a file error Node would
 // report with one.
 func nodeError(err error) error {
-	var pathError *fs.PathError
-	if err == nil || !errors.As(err, &pathError) {
+	if err == nil {
+		return nil
+	}
+	var already *FileError
+	if errors.As(err, &already) {
 		return err
 	}
-	var already *fsError
-	if errors.As(err, &already) {
+	var linkError *os.LinkError
+	if errors.As(err, &linkError) {
+		code, message, ok := errnoOf(linkError.Err)
+		if !ok {
+			return err
+		}
+		// Node names the source as the error's path.
+		return newFileError(code, message+", "+linkError.Op+" '"+linkError.Old+"' -> '"+linkError.New+"'", linkError.Old, err)
+	}
+	var pathError *fs.PathError
+	if !errors.As(err, &pathError) {
 		return err
 	}
 	code, message, ok := errnoOf(pathError.Err)
@@ -114,21 +156,26 @@ func nodeError(err error) error {
 	if !known {
 		call.name, call.withPath = pathError.Op, true
 	}
-	text := code + ": " + message + ", " + call.name
+	text := message + ", " + call.name
 	if call.withPath {
 		text += " '" + pathError.Path + "'"
 	}
-	return &fsError{message: text, err: err}
+	return newFileError(code, text, pathError.Path, err)
+}
+
+// syscallError is err as Node reports a failed call on path.
+func syscallError(call, path string, err error) error {
+	code, message, ok := errnoOf(err)
+	if !ok {
+		return err
+	}
+	return newFileError(code, message+", "+call+" '"+path+"'", path, err)
 }
 
 // realpathError is the error Node's realpath reports for path when Go
 // cannot resolve it: the call on the whole path.
 func realpathError(path string, err error) error {
-	code, message, ok := errnoOf(err)
-	if !ok {
-		return err
-	}
-	return &fsError{message: code + ": " + message + ", realpath '" + path + "'", err: err}
+	return syscallError("realpath", path, err)
 }
 
 // nodeFile reports its reads' errors as Node does.

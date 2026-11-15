@@ -471,6 +471,10 @@ func (e *fileAccessError) Unwrap() error { return e.cause }
 
 // fileErrorCode is upstream's FileErrorCode for a file system error.
 func fileErrorCode(err error) string {
+	var fileError *FileError
+	if errors.As(err, &fileError) {
+		return fileError.Code
+	}
 	switch {
 	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
 		return "aborted"

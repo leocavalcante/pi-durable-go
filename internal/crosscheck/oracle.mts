@@ -258,6 +258,153 @@ const ops: Record<string, (input: any) => Promise<unknown>> = {
 		return out;
 	},
 
+	/**
+	 * NodeExecutionEnv's file system on files set up in a temp directory: each op's value or its error's code, message,
+	 * and path, the directory named <dir>, times as presence, and directory reader pages sorted.
+	 */
+	async envOps({
+		setup,
+		ops,
+	}: {
+		setup: { dirs?: string[]; files?: Record<string, string>; links?: Record<string, string> };
+		ops: any[][];
+	}) {
+		const { NodeExecutionEnv } = await durable("env/node.ts");
+		const { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, realpathSync, rmSync } = await import("node:fs");
+		const { tmpdir } = await import("node:os");
+		const { join, dirname } = await import("node:path");
+		const dir = realpathSync(mkdtempSync(join(tmpdir(), "crosscheck-env-")));
+		for (const d of setup.dirs ?? []) mkdirSync(join(dir, d), { recursive: true });
+		for (const [path, content] of Object.entries(setup.files ?? {})) {
+			mkdirSync(dirname(join(dir, path)), { recursive: true });
+			writeFileSync(join(dir, path), Buffer.from(content, "base64"));
+		}
+		for (const [path, target] of Object.entries(setup.links ?? {})) symlinkSync(target, join(dir, path));
+		const env = new NodeExecutionEnv({ cwd: dir });
+		const context = {};
+		const info = (value: any) => ({ ...value, mtimeMs: typeof value.mtimeMs === "number" });
+		const result = (r: any, map: (value: any) => unknown = (value) => value) =>
+			r.ok ? { value: map(r.value) } : { error: { code: r.error.code, message: r.error.message, path: r.error.path ?? null } };
+		const out: unknown[] = [];
+		try {
+			for (const [op, ...args] of ops) {
+				switch (op) {
+					case "fileInfo":
+						out.push(result(await env.fileInfo(args[0], context), info));
+						break;
+					case "listDir":
+						out.push(result(await env.listDir(args[0], context), (list: any[]) => list.map(info)));
+						break;
+					case "dirReader": {
+						const opened = await env.openDirReader(args[0], context);
+						if (!opened.ok) {
+							out.push(result(opened));
+							break;
+						}
+						const names: string[] = [];
+						let pages = 0;
+						let failure: unknown;
+						for (;;) {
+							const page = await opened.value.next(args[1], context);
+							if (!page.ok) {
+								failure = result(page);
+								break;
+							}
+							pages++;
+							names.push(...page.value.entries.map((entry: any) => `${entry.name}:${entry.kind}`));
+							if (page.value.done) break;
+						}
+						const invalid = await opened.value.next(0, context);
+						await opened.value.close(context);
+						const closed = await opened.value.next(1, context);
+						out.push({ names: names.sort(), pages, failure: failure ?? null, invalid: result(invalid), closed: result(closed) });
+						break;
+					}
+					case "canonicalPath":
+						out.push(result(await env.canonicalPath(args[0], context)));
+						break;
+					case "exists":
+						out.push(result(await env.exists(args[0], context)));
+						break;
+					case "createDir":
+						out.push(result(await env.createDir(args[0], { recursive: args[1] }, context), () => null));
+						break;
+					case "remove":
+						out.push(result(await env.remove(args[0], { recursive: args[1], force: args[2] }, context), () => null));
+						break;
+					case "appendFile":
+						out.push(result(await env.appendFile(args[0], args[1], context), () => null));
+						break;
+					case "truncateFile":
+						out.push(result(await env.truncateFile(args[0], args[1], context), () => null));
+						break;
+					case "flushFile":
+						out.push(result(await env.flushFile(args[0], context), () => null));
+						break;
+					case "renameFile":
+						out.push(result(await env.renameFile(args[0], args[1], context), () => null));
+						break;
+					case "readTextFile":
+						out.push(result(await env.readTextFile(args[0], context)));
+						break;
+					case "readBinaryFile":
+						out.push(result(await env.readBinaryFile(args[0], context), (bytes: Uint8Array) => Buffer.from(bytes).toString("base64")));
+						break;
+					case "readTextLines":
+						out.push(result(await env.readTextLines(args[0], args[1] === null ? undefined : { maxLines: args[1] }, context)));
+						break;
+					case "textLines": {
+						const opened = await env.openTextLineReader(args[0], context);
+						if (!opened.ok) {
+							out.push(result(opened));
+							break;
+						}
+						const lines: unknown[] = [];
+						for (;;) {
+							const line = await opened.value.readLine(context);
+							if (!line.ok || line.value === undefined) {
+								if (!line.ok) lines.push(result(line));
+								break;
+							}
+							lines.push(line.value);
+						}
+						await opened.value.close(context);
+						lines.push(result(await opened.value.readLine(context)));
+						out.push(lines);
+						break;
+					}
+					case "binary": {
+						const opened = await env.openBinaryReader(args[0], { noFollow: args[1] }, context);
+						if (!opened.ok) {
+							out.push(result(opened));
+							break;
+						}
+						const reader = opened.value;
+						const steps: unknown[] = [result(await reader.info(context), info)];
+						for (const [offset, length] of args[2] ?? []) {
+							steps.push(result(await reader.read(offset, length, context), (bytes: Uint8Array) => Buffer.from(bytes).toString("base64")));
+						}
+						for (const [start, end] of args[3] ?? []) {
+							steps.push(result(await reader.scanLines(end === null ? { startLine: start } : { startLine: start, endLine: end }, context)));
+						}
+						await reader.close(context);
+						steps.push(result(await reader.read(0, 1, context)));
+						out.push(steps);
+						break;
+					}
+					case "joinPath":
+						out.push(result(await env.joinPath(args[0], context)));
+						break;
+					default:
+						throw new Error(`unknown env op ${op}`);
+				}
+			}
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+		return JSON.parse(JSON.stringify(out).split(dir).join("<dir>"));
+	},
+
 	/** openai-completions answers to SSE streams served locally. */
 	async openaiStream({
 		streams,

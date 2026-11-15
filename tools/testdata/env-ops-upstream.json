@@ -1,0 +1,1535 @@
+{
+ "ops": [
+  [
+   "fileInfo",
+   "ok.txt"
+  ],
+  [
+   "fileInfo",
+   "sub"
+  ],
+  [
+   "fileInfo",
+   "link"
+  ],
+  [
+   "fileInfo",
+   "missing"
+  ],
+  [
+   "fileInfo",
+   "ok.txt/x"
+  ],
+  [
+   "fileInfo",
+   "dangling"
+  ],
+  [
+   "listDir",
+   "."
+  ],
+  [
+   "listDir",
+   "sub"
+  ],
+  [
+   "listDir",
+   "ok.txt"
+  ],
+  [
+   "listDir",
+   "missing"
+  ],
+  [
+   "listDir",
+   "empty"
+  ],
+  [
+   "dirReader",
+   "sub",
+   2
+  ],
+  [
+   "dirReader",
+   "empty",
+   1
+  ],
+  [
+   "dirReader",
+   "ok.txt",
+   1
+  ],
+  [
+   "dirReader",
+   "missing",
+   1
+  ],
+  [
+   "canonicalPath",
+   "link"
+  ],
+  [
+   "canonicalPath",
+   "dirlink/a.txt"
+  ],
+  [
+   "canonicalPath",
+   "missing/x"
+  ],
+  [
+   "canonicalPath",
+   "dangling"
+  ],
+  [
+   "canonicalPath",
+   "ok.txt/x"
+  ],
+  [
+   "exists",
+   "ok.txt"
+  ],
+  [
+   "exists",
+   "missing"
+  ],
+  [
+   "exists",
+   "ok.txt/x"
+  ],
+  [
+   "exists",
+   "dangling"
+  ],
+  [
+   "createDir",
+   "newdir/a/b",
+   true
+  ],
+  [
+   "createDir",
+   "ok.txt",
+   true
+  ],
+  [
+   "createDir",
+   "sub",
+   false
+  ],
+  [
+   "createDir",
+   "ok.txt/sub",
+   true
+  ],
+  [
+   "createDir",
+   "x/y",
+   false
+  ],
+  [
+   "createDir",
+   "sub",
+   true
+  ],
+  [
+   "remove",
+   "sub",
+   false,
+   false
+  ],
+  [
+   "remove",
+   "missing",
+   false,
+   false
+  ],
+  [
+   "remove",
+   "missing",
+   false,
+   true
+  ],
+  [
+   "remove",
+   "missing",
+   true,
+   false
+  ],
+  [
+   "remove",
+   "newdir",
+   true,
+   false
+  ],
+  [
+   "remove",
+   "ok2.txt",
+   false,
+   false
+  ],
+  [
+   "remove",
+   "empty",
+   false,
+   false
+  ],
+  [
+   "remove",
+   "dirlink",
+   false,
+   false
+  ],
+  [
+   "appendFile",
+   "log.txt",
+   "a\n"
+  ],
+  [
+   "appendFile",
+   "log.txt",
+   "b\n"
+  ],
+  [
+   "readTextFile",
+   "log.txt"
+  ],
+  [
+   "appendFile",
+   "deep/new/log.txt",
+   "x"
+  ],
+  [
+   "appendFile",
+   "sub",
+   "x"
+  ],
+  [
+   "truncateFile",
+   "log.txt",
+   2
+  ],
+  [
+   "readTextFile",
+   "log.txt"
+  ],
+  [
+   "truncateFile",
+   "log.txt",
+   5
+  ],
+  [
+   "readBinaryFile",
+   "log.txt"
+  ],
+  [
+   "truncateFile",
+   "log.txt",
+   -1
+  ],
+  [
+   "truncateFile",
+   "missing",
+   1
+  ],
+  [
+   "truncateFile",
+   "sub",
+   0
+  ],
+  [
+   "flushFile",
+   "log.txt"
+  ],
+  [
+   "flushFile",
+   "sub"
+  ],
+  [
+   "flushFile",
+   "missing"
+  ],
+  [
+   "renameFile",
+   "log.txt",
+   "renamed.txt"
+  ],
+  [
+   "renameFile",
+   "missing",
+   "x"
+  ],
+  [
+   "renameFile",
+   "sub",
+   "ok.txt"
+  ],
+  [
+   "renameFile",
+   "renamed.txt",
+   "nowhere/inner/renamed.txt"
+  ],
+  [
+   "renameFile",
+   "ok.txt",
+   "sub"
+  ],
+  [
+   "readTextFile",
+   "bom.txt"
+  ],
+  [
+   "readTextFile",
+   "invalid.bin"
+  ],
+  [
+   "readTextFile",
+   "sub"
+  ],
+  [
+   "readTextFile",
+   "missing"
+  ],
+  [
+   "readBinaryFile",
+   "invalid.bin"
+  ],
+  [
+   "readTextLines",
+   "lines.txt",
+   null
+  ],
+  [
+   "readTextLines",
+   "lines.txt",
+   2
+  ],
+  [
+   "readTextLines",
+   "lines.txt",
+   0
+  ],
+  [
+   "readTextLines",
+   "bom.txt",
+   null
+  ],
+  [
+   "readTextLines",
+   "crlf.txt",
+   null
+  ],
+  [
+   "readTextLines",
+   "missing",
+   null
+  ],
+  [
+   "readTextLines",
+   "nl.txt",
+   null
+  ],
+  [
+   "textLines",
+   "lines.txt"
+  ],
+  [
+   "textLines",
+   "invalid.bin"
+  ],
+  [
+   "textLines",
+   "nl.txt"
+  ],
+  [
+   "textLines",
+   "sub"
+  ],
+  [
+   "binary",
+   "lines.txt",
+   false,
+   [
+    [
+     0,
+     5
+    ],
+    [
+     3,
+     100
+    ],
+    [
+     100,
+     2
+    ],
+    [
+     -1,
+     2
+    ],
+    [
+     0,
+     0
+    ]
+   ],
+   [
+    [
+     1,
+     3
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     5,
+     2
+    ],
+    [
+     2,
+     null
+    ],
+    [
+     3,
+     4
+    ],
+    [
+     9,
+     null
+    ],
+    [
+     0,
+     1
+    ]
+   ]
+  ],
+  [
+   "binary",
+   "bom.txt",
+   false,
+   [
+    [
+     0,
+     4
+    ]
+   ],
+   [
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     1
+    ],
+    [
+     1,
+     null
+    ]
+   ]
+  ],
+  [
+   "binary",
+   "utf8.txt",
+   false,
+   [],
+   [
+    [
+     0,
+     2
+    ],
+    [
+     1,
+     null
+    ],
+    [
+     2,
+     3
+    ]
+   ]
+  ],
+  [
+   "binary",
+   "invalid.bin",
+   false,
+   [],
+   [
+    [
+     0,
+     null
+    ]
+   ]
+  ],
+  [
+   "binary",
+   "nl.txt",
+   false,
+   [],
+   [
+    [
+     1,
+     null
+    ],
+    [
+     2,
+     null
+    ],
+    [
+     3,
+     null
+    ]
+   ]
+  ],
+  [
+   "binary",
+   "link",
+   true,
+   [],
+   []
+  ],
+  [
+   "binary",
+   "link",
+   false,
+   [
+    [
+     0,
+     3
+    ]
+   ],
+   []
+  ],
+  [
+   "binary",
+   "sub",
+   false,
+   [],
+   []
+  ],
+  [
+   "binary",
+   "missing",
+   false,
+   [],
+   []
+  ],
+  [
+   "joinPath",
+   [
+    "a",
+    "",
+    "../b",
+    "c/"
+   ]
+  ],
+  [
+   "joinPath",
+   []
+  ],
+  [
+   "joinPath",
+   [
+    "/",
+    "..",
+    "x"
+   ]
+  ],
+  [
+   "joinPath",
+   [
+    "",
+    ""
+   ]
+  ],
+  [
+   "joinPath",
+   [
+    "a/",
+    "./"
+   ]
+  ],
+  [
+   "joinPath",
+   [
+    "..",
+    "a",
+    "..",
+    ".."
+   ]
+  ]
+ ],
+ "setup": {
+  "dirs": [
+   "sub",
+   "empty"
+  ],
+  "files": {
+   "bom.txt": "77u/Ym9tIGxpbmUKc2Vjb25k",
+   "crlf.txt": "YQ0KYg0K",
+   "invalid.bin": "Yf9i4oI=",
+   "lines.txt": "b25lCnR3bw0KdGhyZWUKZm91cg==",
+   "nl.txt": "eAoK",
+   "ok.txt": "aGVsbG8K",
+   "ok2.txt": "eA==",
+   "sub/a.txt": "YQ==",
+   "sub/b.txt": "YmI=",
+   "sub/c.txt": "Y2Nj",
+   "utf8.txt": "w6kxCuKckzIK8J+YgDMK"
+  },
+  "links": {
+   "dangling": "nowhere",
+   "dirlink": "sub",
+   "link": "ok.txt"
+  }
+ },
+ "want": [
+  {
+   "value": {
+    "name": "ok.txt",
+    "path": "\u003cdir\u003e/ok.txt",
+    "kind": "file",
+    "size": 6,
+    "mtimeMs": true
+   }
+  },
+  {
+   "value": {
+    "name": "sub",
+    "path": "\u003cdir\u003e/sub",
+    "kind": "directory",
+    "size": 4096,
+    "mtimeMs": true
+   }
+  },
+  {
+   "value": {
+    "name": "link",
+    "path": "\u003cdir\u003e/link",
+    "kind": "symlink",
+    "size": 6,
+    "mtimeMs": true
+   }
+  },
+  {
+   "error": {
+    "code": "not_found",
+    "message": "ENOENT: no such file or directory, lstat '\u003cdir\u003e/missing'",
+    "path": "\u003cdir\u003e/missing"
+   }
+  },
+  {
+   "error": {
+    "code": "not_directory",
+    "message": "ENOTDIR: not a directory, lstat '\u003cdir\u003e/ok.txt/x'",
+    "path": "\u003cdir\u003e/ok.txt/x"
+   }
+  },
+  {
+   "value": {
+    "name": "dangling",
+    "path": "\u003cdir\u003e/dangling",
+    "kind": "symlink",
+    "size": 7,
+    "mtimeMs": true
+   }
+  },
+  {
+   "value": [
+    {
+     "name": "bom.txt",
+     "path": "\u003cdir\u003e/bom.txt",
+     "kind": "file",
+     "size": 18,
+     "mtimeMs": true
+    },
+    {
+     "name": "crlf.txt",
+     "path": "\u003cdir\u003e/crlf.txt",
+     "kind": "file",
+     "size": 6,
+     "mtimeMs": true
+    },
+    {
+     "name": "dangling",
+     "path": "\u003cdir\u003e/dangling",
+     "kind": "symlink",
+     "size": 7,
+     "mtimeMs": true
+    },
+    {
+     "name": "dirlink",
+     "path": "\u003cdir\u003e/dirlink",
+     "kind": "symlink",
+     "size": 3,
+     "mtimeMs": true
+    },
+    {
+     "name": "empty",
+     "path": "\u003cdir\u003e/empty",
+     "kind": "directory",
+     "size": 4096,
+     "mtimeMs": true
+    },
+    {
+     "name": "invalid.bin",
+     "path": "\u003cdir\u003e/invalid.bin",
+     "kind": "file",
+     "size": 5,
+     "mtimeMs": true
+    },
+    {
+     "name": "lines.txt",
+     "path": "\u003cdir\u003e/lines.txt",
+     "kind": "file",
+     "size": 19,
+     "mtimeMs": true
+    },
+    {
+     "name": "link",
+     "path": "\u003cdir\u003e/link",
+     "kind": "symlink",
+     "size": 6,
+     "mtimeMs": true
+    },
+    {
+     "name": "nl.txt",
+     "path": "\u003cdir\u003e/nl.txt",
+     "kind": "file",
+     "size": 3,
+     "mtimeMs": true
+    },
+    {
+     "name": "ok.txt",
+     "path": "\u003cdir\u003e/ok.txt",
+     "kind": "file",
+     "size": 6,
+     "mtimeMs": true
+    },
+    {
+     "name": "ok2.txt",
+     "path": "\u003cdir\u003e/ok2.txt",
+     "kind": "file",
+     "size": 1,
+     "mtimeMs": true
+    },
+    {
+     "name": "sub",
+     "path": "\u003cdir\u003e/sub",
+     "kind": "directory",
+     "size": 4096,
+     "mtimeMs": true
+    },
+    {
+     "name": "utf8.txt",
+     "path": "\u003cdir\u003e/utf8.txt",
+     "kind": "file",
+     "size": 15,
+     "mtimeMs": true
+    }
+   ]
+  },
+  {
+   "value": [
+    {
+     "name": "a.txt",
+     "path": "\u003cdir\u003e/sub/a.txt",
+     "kind": "file",
+     "size": 1,
+     "mtimeMs": true
+    },
+    {
+     "name": "b.txt",
+     "path": "\u003cdir\u003e/sub/b.txt",
+     "kind": "file",
+     "size": 2,
+     "mtimeMs": true
+    },
+    {
+     "name": "c.txt",
+     "path": "\u003cdir\u003e/sub/c.txt",
+     "kind": "file",
+     "size": 3,
+     "mtimeMs": true
+    }
+   ]
+  },
+  {
+   "error": {
+    "code": "not_directory",
+    "message": "ENOTDIR: not a directory, scandir '\u003cdir\u003e/ok.txt'",
+    "path": "\u003cdir\u003e/ok.txt"
+   }
+  },
+  {
+   "error": {
+    "code": "not_found",
+    "message": "ENOENT: no such file or directory, scandir '\u003cdir\u003e/missing'",
+    "path": "\u003cdir\u003e/missing"
+   }
+  },
+  {
+   "value": []
+  },
+  {
+   "names": [
+    "a.txt:file",
+    "b.txt:file",
+    "c.txt:file"
+   ],
+   "pages": 2,
+   "failure": null,
+   "invalid": {
+    "error": {
+     "code": "invalid",
+     "message": "maxEntries must be a positive safe integer",
+     "path": "\u003cdir\u003e/sub"
+    }
+   },
+   "closed": {
+    "error": {
+     "code": "invalid",
+     "message": "Directory reader is closed",
+     "path": "\u003cdir\u003e/sub"
+    }
+   }
+  },
+  {
+   "names": [],
+   "pages": 1,
+   "failure": null,
+   "invalid": {
+    "error": {
+     "code": "invalid",
+     "message": "maxEntries must be a positive safe integer",
+     "path": "\u003cdir\u003e/empty"
+    }
+   },
+   "closed": {
+    "error": {
+     "code": "invalid",
+     "message": "Directory reader is closed",
+     "path": "\u003cdir\u003e/empty"
+    }
+   }
+  },
+  {
+   "error": {
+    "code": "not_directory",
+    "message": "ENOTDIR: not a directory, opendir '\u003cdir\u003e/ok.txt'",
+    "path": "\u003cdir\u003e/ok.txt"
+   }
+  },
+  {
+   "error": {
+    "code": "not_found",
+    "message": "ENOENT: no such file or directory, opendir '\u003cdir\u003e/missing'",
+    "path": "\u003cdir\u003e/missing"
+   }
+  },
+  {
+   "value": "\u003cdir\u003e/ok.txt"
+  },
+  {
+   "value": "\u003cdir\u003e/sub/a.txt"
+  },
+  {
+   "error": {
+    "code": "not_found",
+    "message": "ENOENT: no such file or directory, realpath '\u003cdir\u003e/missing/x'",
+    "path": "\u003cdir\u003e/missing/x"
+   }
+  },
+  {
+   "error": {
+    "code": "not_found",
+    "message": "ENOENT: no such file or directory, realpath '\u003cdir\u003e/dangling'",
+    "path": "\u003cdir\u003e/dangling"
+   }
+  },
+  {
+   "error": {
+    "code": "not_directory",
+    "message": "ENOTDIR: not a directory, realpath '\u003cdir\u003e/ok.txt/x'",
+    "path": "\u003cdir\u003e/ok.txt/x"
+   }
+  },
+  {
+   "value": true
+  },
+  {
+   "value": false
+  },
+  {
+   "error": {
+    "code": "not_directory",
+    "message": "ENOTDIR: not a directory, lstat '\u003cdir\u003e/ok.txt/x'",
+    "path": "\u003cdir\u003e/ok.txt/x"
+   }
+  },
+  {
+   "value": true
+  },
+  {
+   "value": null
+  },
+  {
+   "error": {
+    "code": "unknown",
+    "message": "EEXIST: file already exists, mkdir '\u003cdir\u003e/ok.txt'",
+    "path": "\u003cdir\u003e/ok.txt"
+   }
+  },
+  {
+   "error": {
+    "code": "unknown",
+    "message": "EEXIST: file already exists, mkdir '\u003cdir\u003e/sub'",
+    "path": "\u003cdir\u003e/sub"
+   }
+  },
+  {
+   "error": {
+    "code": "not_directory",
+    "message": "ENOTDIR: not a directory, mkdir '\u003cdir\u003e/ok.txt/sub'",
+    "path": "\u003cdir\u003e/ok.txt/sub"
+   }
+  },
+  {
+   "error": {
+    "code": "not_found",
+    "message": "ENOENT: no such file or directory, mkdir '\u003cdir\u003e/x/y'",
+    "path": "\u003cdir\u003e/x/y"
+   }
+  },
+  {
+   "value": null
+  },
+  {
+   "error": {
+    "code": "unknown",
+    "message": "Path is a directory: rm returned EISDIR (is a directory) \u003cdir\u003e/sub",
+    "path": "\u003cdir\u003e/sub"
+   }
+  },
+  {
+   "error": {
+    "code": "not_found",
+    "message": "ENOENT: no such file or directory, lstat '\u003cdir\u003e/missing'",
+    "path": "\u003cdir\u003e/missing"
+   }
+  },
+  {
+   "value": null
+  },
+  {
+   "error": {
+    "code": "not_found",
+    "message": "ENOENT: no such file or directory, lstat '\u003cdir\u003e/missing'",
+    "path": "\u003cdir\u003e/missing"
+   }
+  },
+  {
+   "value": null
+  },
+  {
+   "value": null
+  },
+  {
+   "error": {
+    "code": "unknown",
+    "message": "Path is a directory: rm returned EISDIR (is a directory) \u003cdir\u003e/empty",
+    "path": "\u003cdir\u003e/empty"
+   }
+  },
+  {
+   "value": null
+  },
+  {
+   "value": null
+  },
+  {
+   "value": null
+  },
+  {
+   "value": "a\nb\n"
+  },
+  {
+   "value": null
+  },
+  {
+   "error": {
+    "code": "is_directory",
+    "message": "EISDIR: illegal operation on a directory, open '\u003cdir\u003e/sub'",
+    "path": "\u003cdir\u003e/sub"
+   }
+  },
+  {
+   "value": null
+  },
+  {
+   "value": "a\n"
+  },
+  {
+   "value": null
+  },
+  {
+   "value": "YQoAAAA="
+  },
+  {
+   "error": {
+    "code": "invalid",
+    "message": "File size must be a non-negative safe integer",
+    "path": "\u003cdir\u003e/log.txt"
+   }
+  },
+  {
+   "error": {
+    "code": "not_found",
+    "message": "ENOENT: no such file or directory, open '\u003cdir\u003e/missing'",
+    "path": "\u003cdir\u003e/missing"
+   }
+  },
+  {
+   "error": {
+    "code": "is_directory",
+    "message": "EISDIR: illegal operation on a directory, open '\u003cdir\u003e/sub'",
+    "path": "\u003cdir\u003e/sub"
+   }
+  },
+  {
+   "value": null
+  },
+  {
+   "error": {
+    "code": "is_directory",
+    "message": "EISDIR: illegal operation on a directory, open '\u003cdir\u003e/sub'",
+    "path": "\u003cdir\u003e/sub"
+   }
+  },
+  {
+   "error": {
+    "code": "not_found",
+    "message": "ENOENT: no such file or directory, open '\u003cdir\u003e/missing'",
+    "path": "\u003cdir\u003e/missing"
+   }
+  },
+  {
+   "value": null
+  },
+  {
+   "error": {
+    "code": "not_found",
+    "message": "ENOENT: no such file or directory, rename '\u003cdir\u003e/missing' -\u003e '\u003cdir\u003e/x'",
+    "path": "\u003cdir\u003e/missing"
+   }
+  },
+  {
+   "error": {
+    "code": "not_directory",
+    "message": "ENOTDIR: not a directory, rename '\u003cdir\u003e/sub' -\u003e '\u003cdir\u003e/ok.txt'",
+    "path": "\u003cdir\u003e/sub"
+   }
+  },
+  {
+   "error": {
+    "code": "not_found",
+    "message": "ENOENT: no such file or directory, rename '\u003cdir\u003e/renamed.txt' -\u003e '\u003cdir\u003e/nowhere/inner/renamed.txt'",
+    "path": "\u003cdir\u003e/renamed.txt"
+   }
+  },
+  {
+   "error": {
+    "code": "is_directory",
+    "message": "EISDIR: illegal operation on a directory, rename '\u003cdir\u003e/ok.txt' -\u003e '\u003cdir\u003e/sub'",
+    "path": "\u003cdir\u003e/ok.txt"
+   }
+  },
+  {
+   "value": "﻿bom line\nsecond"
+  },
+  {
+   "value": "a�b�"
+  },
+  {
+   "error": {
+    "code": "is_directory",
+    "message": "EISDIR: illegal operation on a directory, read",
+    "path": "\u003cdir\u003e/sub"
+   }
+  },
+  {
+   "error": {
+    "code": "not_found",
+    "message": "ENOENT: no such file or directory, open '\u003cdir\u003e/missing'",
+    "path": "\u003cdir\u003e/missing"
+   }
+  },
+  {
+   "value": "Yf9i4oI="
+  },
+  {
+   "value": [
+    "one",
+    "two\r",
+    "three",
+    "four"
+   ]
+  },
+  {
+   "value": [
+    "one",
+    "two\r"
+   ]
+  },
+  {
+   "value": []
+  },
+  {
+   "value": [
+    "bom line",
+    "second"
+   ]
+  },
+  {
+   "value": [
+    "a\r",
+    "b\r"
+   ]
+  },
+  {
+   "error": {
+    "code": "not_found",
+    "message": "ENOENT: no such file or directory, open '\u003cdir\u003e/missing'",
+    "path": "\u003cdir\u003e/missing"
+   }
+  },
+  {
+   "value": [
+    "x",
+    ""
+   ]
+  },
+  [
+   {
+    "text": "one",
+    "terminated": true
+   },
+   {
+    "text": "two\r",
+    "terminated": true
+   },
+   {
+    "text": "three",
+    "terminated": true
+   },
+   {
+    "text": "four",
+    "terminated": false
+   },
+   {
+    "error": {
+     "code": "invalid",
+     "message": "Text line reader is closed",
+     "path": "\u003cdir\u003e/lines.txt"
+    }
+   }
+  ],
+  [
+   {
+    "text": "a�b�",
+    "terminated": false
+   },
+   {
+    "error": {
+     "code": "invalid",
+     "message": "Text line reader is closed",
+     "path": "\u003cdir\u003e/invalid.bin"
+    }
+   }
+  ],
+  [
+   {
+    "text": "x",
+    "terminated": true
+   },
+   {
+    "text": "",
+    "terminated": true
+   },
+   {
+    "error": {
+     "code": "invalid",
+     "message": "Text line reader is closed",
+     "path": "\u003cdir\u003e/nl.txt"
+    }
+   }
+  ],
+  [
+   {
+    "error": {
+     "code": "is_directory",
+     "message": "EISDIR: illegal operation on a directory, read",
+     "path": "\u003cdir\u003e/sub"
+    }
+   },
+   {
+    "error": {
+     "code": "invalid",
+     "message": "Text line reader is closed",
+     "path": "\u003cdir\u003e/sub"
+    }
+   }
+  ],
+  [
+   {
+    "value": {
+     "name": "lines.txt",
+     "path": "\u003cdir\u003e/lines.txt",
+     "kind": "file",
+     "size": 19,
+     "mtimeMs": true
+    }
+   },
+   {
+    "value": "b25lCnQ="
+   },
+   {
+    "value": "CnR3bw0KdGhyZWUKZm91cg=="
+   },
+   {
+    "value": ""
+   },
+   {
+    "error": {
+     "code": "invalid",
+     "message": "Offset and length must be non-negative safe integers",
+     "path": "\u003cdir\u003e/lines.txt"
+    }
+   },
+   {
+    "value": ""
+   },
+   {
+    "value": {
+     "newlines": 3,
+     "start": 4,
+     "end": 14,
+     "firstLineEnd": 8,
+     "lastLineStart": 9,
+     "selectedBytes": 10,
+     "firstLineBytes": 4
+    }
+   },
+   {
+    "value": {
+     "newlines": 3,
+     "start": 0,
+     "end": 19,
+     "firstLineEnd": 3,
+     "lastLineStart": 15,
+     "selectedBytes": 19,
+     "firstLineBytes": 3
+    }
+   },
+   {
+    "error": {
+     "code": "invalid",
+     "message": "Invalid line range",
+     "path": "\u003cdir\u003e/lines.txt"
+    }
+   },
+   {
+    "value": {
+     "newlines": 3,
+     "start": 9,
+     "end": 19,
+     "firstLineEnd": 14,
+     "lastLineStart": 15,
+     "selectedBytes": 10,
+     "firstLineBytes": 5
+    }
+   },
+   {
+    "value": {
+     "newlines": 3,
+     "start": 15,
+     "end": 19,
+     "firstLineEnd": 19,
+     "lastLineStart": 15,
+     "selectedBytes": 4,
+     "firstLineBytes": 4
+    }
+   },
+   {
+    "value": {
+     "newlines": 3,
+     "start": 19,
+     "end": 19,
+     "firstLineEnd": 19,
+     "lastLineStart": 19,
+     "selectedBytes": 0,
+     "firstLineBytes": 0
+    }
+   },
+   {
+    "value": {
+     "newlines": 3,
+     "start": 0,
+     "end": 3,
+     "firstLineEnd": 3,
+     "lastLineStart": 0,
+     "selectedBytes": 3,
+     "firstLineBytes": 3
+    }
+   },
+   {
+    "error": {
+     "code": "invalid",
+     "message": "Binary reader is closed",
+     "path": "\u003cdir\u003e/lines.txt"
+    }
+   }
+  ],
+  [
+   {
+    "value": {
+     "name": "bom.txt",
+     "path": "\u003cdir\u003e/bom.txt",
+     "kind": "file",
+     "size": 18,
+     "mtimeMs": true
+    }
+   },
+   {
+    "value": "77u/Yg=="
+   },
+   {
+    "value": {
+     "newlines": 1,
+     "start": 0,
+     "end": 18,
+     "firstLineEnd": 11,
+     "lastLineStart": 12,
+     "selectedBytes": 15,
+     "firstLineBytes": 8
+    }
+   },
+   {
+    "value": {
+     "newlines": 1,
+     "start": 0,
+     "end": 11,
+     "firstLineEnd": 11,
+     "lastLineStart": 0,
+     "selectedBytes": 8,
+     "firstLineBytes": 8
+    }
+   },
+   {
+    "value": {
+     "newlines": 1,
+     "start": 12,
+     "end": 18,
+     "firstLineEnd": 18,
+     "lastLineStart": 12,
+     "selectedBytes": 6,
+     "firstLineBytes": 6
+    }
+   },
+   {
+    "error": {
+     "code": "invalid",
+     "message": "Binary reader is closed",
+     "path": "\u003cdir\u003e/bom.txt"
+    }
+   }
+  ],
+  [
+   {
+    "value": {
+     "name": "utf8.txt",
+     "path": "\u003cdir\u003e/utf8.txt",
+     "kind": "file",
+     "size": 15,
+     "mtimeMs": true
+    }
+   },
+   {
+    "value": {
+     "newlines": 3,
+     "start": 0,
+     "end": 8,
+     "firstLineEnd": 3,
+     "lastLineStart": 4,
+     "selectedBytes": 8,
+     "firstLineBytes": 3
+    }
+   },
+   {
+    "value": {
+     "newlines": 3,
+     "start": 4,
+     "end": 15,
+     "firstLineEnd": 8,
+     "lastLineStart": 15,
+     "selectedBytes": 11,
+     "firstLineBytes": 4
+    }
+   },
+   {
+    "value": {
+     "newlines": 3,
+     "start": 9,
+     "end": 14,
+     "firstLineEnd": 14,
+     "lastLineStart": 9,
+     "selectedBytes": 5,
+     "firstLineBytes": 5
+    }
+   },
+   {
+    "error": {
+     "code": "invalid",
+     "message": "Binary reader is closed",
+     "path": "\u003cdir\u003e/utf8.txt"
+    }
+   }
+  ],
+  [
+   {
+    "value": {
+     "name": "invalid.bin",
+     "path": "\u003cdir\u003e/invalid.bin",
+     "kind": "file",
+     "size": 5,
+     "mtimeMs": true
+    }
+   },
+   {
+    "value": {
+     "newlines": 0,
+     "start": 0,
+     "end": 5,
+     "firstLineEnd": 5,
+     "lastLineStart": 0,
+     "selectedBytes": 8,
+     "firstLineBytes": 8
+    }
+   },
+   {
+    "error": {
+     "code": "invalid",
+     "message": "Binary reader is closed",
+     "path": "\u003cdir\u003e/invalid.bin"
+    }
+   }
+  ],
+  [
+   {
+    "value": {
+     "name": "nl.txt",
+     "path": "\u003cdir\u003e/nl.txt",
+     "kind": "file",
+     "size": 3,
+     "mtimeMs": true
+    }
+   },
+   {
+    "value": {
+     "newlines": 2,
+     "start": 2,
+     "end": 3,
+     "firstLineEnd": 2,
+     "lastLineStart": 3,
+     "selectedBytes": 1,
+     "firstLineBytes": 0
+    }
+   },
+   {
+    "value": {
+     "newlines": 2,
+     "start": 3,
+     "end": 3,
+     "firstLineEnd": 3,
+     "lastLineStart": 3,
+     "selectedBytes": 0,
+     "firstLineBytes": 0
+    }
+   },
+   {
+    "value": {
+     "newlines": 2,
+     "start": 3,
+     "end": 3,
+     "firstLineEnd": 3,
+     "lastLineStart": 3,
+     "selectedBytes": 0,
+     "firstLineBytes": 0
+    }
+   },
+   {
+    "error": {
+     "code": "invalid",
+     "message": "Binary reader is closed",
+     "path": "\u003cdir\u003e/nl.txt"
+    }
+   }
+  ],
+  {
+   "error": {
+    "code": "invalid",
+    "message": "Refusing to follow a symbolic link",
+    "path": "\u003cdir\u003e/link"
+   }
+  },
+  [
+   {
+    "value": {
+     "name": "link",
+     "path": "\u003cdir\u003e/link",
+     "kind": "file",
+     "size": 6,
+     "mtimeMs": true
+    }
+   },
+   {
+    "value": "aGVs"
+   },
+   {
+    "error": {
+     "code": "invalid",
+     "message": "Binary reader is closed",
+     "path": "\u003cdir\u003e/link"
+    }
+   }
+  ],
+  {
+   "error": {
+    "code": "is_directory",
+    "message": "EISDIR: illegal operation on a directory, read",
+    "path": "\u003cdir\u003e/sub"
+   }
+  },
+  {
+   "error": {
+    "code": "not_found",
+    "message": "ENOENT: no such file or directory, open '\u003cdir\u003e/missing'",
+    "path": "\u003cdir\u003e/missing"
+   }
+  },
+  {
+   "value": "b/c/"
+  },
+  {
+   "value": "."
+  },
+  {
+   "value": "/x"
+  },
+  {
+   "value": "."
+  },
+  {
+   "value": "a/"
+  },
+  {
+   "value": "../.."
+  }
+ ]
+}

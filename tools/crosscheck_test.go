@@ -3,6 +3,7 @@
 package tools
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -315,6 +316,78 @@ func TestCrosscheckToolErrors(t *testing.T) {
 		}
 		if got.Content != expected {
 			t.Errorf("%s %s:\n got %q\nwant %q", c[0], c[1], got.Content, expected)
+		}
+	}
+}
+
+// TestCrosscheckEnvOps plays file system operations on a local environment
+// and on upstream's NodeExecutionEnv over the same files.
+func TestCrosscheckEnvOps(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("permissions do not apply to root")
+	}
+	b64 := func(s string) string { return base64.StdEncoding.EncodeToString([]byte(s)) }
+	setup := envSetup{
+		Dirs: []string{"sub", "empty"},
+		Files: map[string]string{"ok.txt": b64("hello\n"), "ok2.txt": b64("x"), "sub/a.txt": b64("a"), "sub/b.txt": b64("bb"), "sub/c.txt": b64("ccc"),
+			"bom.txt": b64("\ufeffbom line\nsecond"), "invalid.bin": base64.StdEncoding.EncodeToString([]byte{0x61, 0xff, 0x62, 0xe2, 0x82}),
+			"lines.txt": b64("one\ntwo\r\nthree\nfour"), "crlf.txt": b64("a\r\nb\r\n"), "utf8.txt": b64("é1\n✓2\n😀3\n"), "nl.txt": b64("x\n\n")},
+		Links: map[string]string{"link": "ok.txt", "dangling": "nowhere", "dirlink": "sub"},
+	}
+	ops := [][]any{
+		{"fileInfo", "ok.txt"}, {"fileInfo", "sub"}, {"fileInfo", "link"}, {"fileInfo", "missing"}, {"fileInfo", "ok.txt/x"}, {"fileInfo", "dangling"},
+		{"listDir", "."}, {"listDir", "sub"}, {"listDir", "ok.txt"}, {"listDir", "missing"}, {"listDir", "empty"},
+		{"dirReader", "sub", 2}, {"dirReader", "empty", 1}, {"dirReader", "ok.txt", 1}, {"dirReader", "missing", 1},
+		{"canonicalPath", "link"}, {"canonicalPath", "dirlink/a.txt"}, {"canonicalPath", "missing/x"}, {"canonicalPath", "dangling"}, {"canonicalPath", "ok.txt/x"},
+		{"exists", "ok.txt"}, {"exists", "missing"}, {"exists", "ok.txt/x"}, {"exists", "dangling"},
+		{"createDir", "newdir/a/b", true}, {"createDir", "ok.txt", true}, {"createDir", "sub", false}, {"createDir", "ok.txt/sub", true}, {"createDir", "x/y", false}, {"createDir", "sub", true},
+		{"remove", "sub", false, false}, {"remove", "missing", false, false}, {"remove", "missing", false, true}, {"remove", "missing", true, false}, {"remove", "newdir", true, false}, {"remove", "ok2.txt", false, false}, {"remove", "empty", false, false}, {"remove", "dirlink", false, false},
+		{"appendFile", "log.txt", "a\n"}, {"appendFile", "log.txt", "b\n"}, {"readTextFile", "log.txt"}, {"appendFile", "deep/new/log.txt", "x"}, {"appendFile", "sub", "x"},
+		{"truncateFile", "log.txt", 2}, {"readTextFile", "log.txt"}, {"truncateFile", "log.txt", 5}, {"readBinaryFile", "log.txt"}, {"truncateFile", "log.txt", -1}, {"truncateFile", "missing", 1}, {"truncateFile", "sub", 0},
+		{"flushFile", "log.txt"}, {"flushFile", "sub"}, {"flushFile", "missing"},
+		{"renameFile", "log.txt", "renamed.txt"}, {"renameFile", "missing", "x"}, {"renameFile", "sub", "ok.txt"}, {"renameFile", "renamed.txt", "nowhere/inner/renamed.txt"}, {"renameFile", "ok.txt", "sub"},
+		{"readTextFile", "bom.txt"}, {"readTextFile", "invalid.bin"}, {"readTextFile", "sub"}, {"readTextFile", "missing"}, {"readBinaryFile", "invalid.bin"},
+		{"readTextLines", "lines.txt", nil}, {"readTextLines", "lines.txt", 2}, {"readTextLines", "lines.txt", 0}, {"readTextLines", "bom.txt", nil}, {"readTextLines", "crlf.txt", nil}, {"readTextLines", "missing", nil}, {"readTextLines", "nl.txt", nil},
+		{"textLines", "lines.txt"}, {"textLines", "invalid.bin"}, {"textLines", "nl.txt"}, {"textLines", "sub"},
+		{"binary", "lines.txt", false, []any{[]any{0, 5}, []any{3, 100}, []any{100, 2}, []any{-1, 2}, []any{0, 0}}, []any{[]any{1, 3}, []any{0, nil}, []any{5, 2}, []any{2, nil}, []any{3, 4}, []any{9, nil}, []any{0, 1}}},
+		{"binary", "bom.txt", false, []any{[]any{0, 4}}, []any{[]any{0, nil}, []any{0, 1}, []any{1, nil}}},
+		{"binary", "utf8.txt", false, []any{}, []any{[]any{0, 2}, []any{1, nil}, []any{2, 3}}},
+		{"binary", "invalid.bin", false, []any{}, []any{[]any{0, nil}}},
+		{"binary", "nl.txt", false, []any{}, []any{[]any{1, nil}, []any{2, nil}, []any{3, nil}}},
+		{"binary", "link", true, []any{}, []any{}}, {"binary", "link", false, []any{[]any{0, 3}}, []any{}}, {"binary", "sub", false, []any{}, []any{}}, {"binary", "missing", false, []any{}, []any{}},
+		{"joinPath", []any{"a", "", "../b", "c/"}}, {"joinPath", []any{}}, {"joinPath", []any{"/", "..", "x"}}, {"joinPath", []any{"", ""}}, {"joinPath", []any{"a/", "./"}}, {"joinPath", []any{"..", "a", "..", ".."}},
+	}
+	var want json.RawMessage
+	crosscheck.Run(t, "envOps", map[string]any{"setup": setup, "ops": ops}, &want)
+	if os.Getenv("PI_DURABLE_CROSSCHECK_RECORD") == "1" {
+		// Upstream's answers, for TestEnvOpsAsNodes without Node.
+		data, err := json.MarshalIndent(map[string]any{"setup": setup, "ops": ops, "want": want}, "", " ")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join("testdata", "env-ops-upstream.json"), append(data, '\n'), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	setup.create(t, dir)
+	got := runEnvOps(t, dir, ops)
+	var gotOps, wantOps []json.RawMessage
+	if err := json.Unmarshal(got, &gotOps); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(want, &wantOps); err != nil {
+		t.Fatal(err)
+	}
+	if len(gotOps) != len(wantOps) {
+		t.Fatalf("%d results, upstream %d", len(gotOps), len(wantOps))
+	}
+	for i := range ops {
+		if !crosscheck.Same(gotOps[i], wantOps[i]) {
+			t.Errorf("%v:\n got %s\nwant %s", ops[i], gotOps[i], wantOps[i])
 		}
 	}
 }

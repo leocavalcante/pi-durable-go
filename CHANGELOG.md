@@ -50,6 +50,11 @@ says how the port is compared with upstream's own code.
   with upstream's schemas, outputs, and notes. Paths resolve as upstream resolves
   them, and `LocalEnv` writes files in place, reports file errors with Node's messages,
   and names temporary files as upstream's Node environment does.
+- **Execution environment.** `LocalEnv` ports the file system of upstream's
+  `NodeExecutionEnv`: metadata, listings, directory, text-line, and binary readers with
+  line scans, appends, truncation, flushing, renames, canonical paths, directories, and
+  removal, with upstream's `FileError` codes and Node's messages. `listFiles` and file
+  watchers are not ported yet.
 - **Cross-checks.** `make crosscheck` runs upstream's TypeScript sources on the same
   inputs as the Go code:
   - 117 conversation scenarios replayed through upstream's Harness, 10 of them
