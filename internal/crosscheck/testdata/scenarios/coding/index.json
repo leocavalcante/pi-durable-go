@@ -5,5 +5,8 @@
  "coding-image",
  "coding-edit-matching",
  "coding-read-limits",
- "coding-write-bash-limits"
+ "coding-write-bash-limits",
+ "tool-search-loads",
+ "model-tools-array",
+ "model-tools-object"
 ]

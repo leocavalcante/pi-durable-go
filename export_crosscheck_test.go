@@ -21,5 +21,8 @@ func SetScenarioCoding(build func(t *testing.T, dir string) (Extension, func(Con
 	scenarioCoding = build
 }
 
+// SetScenarioToolSearch sets the tool_search extension scenarios install.
+func SetScenarioToolSearch(build func() Extension) { scenarioToolSearch = build }
+
 // CompareScenario runs a scenario here and in upstream's Harness.
 func CompareScenario(t *testing.T, raw json.RawMessage) { compareScenario(t, raw) }

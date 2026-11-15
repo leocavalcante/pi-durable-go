@@ -1,0 +1,95 @@
+{
+ "name": "model tools as an array",
+ "toolSearch": true,
+ "tools": [
+  {
+   "name": "send_email",
+   "description": "Sends an email to a recipient.\nSecond line of help.",
+   "parameters": {
+    "type": "object",
+    "properties": {
+     "to": {
+      "type": "string",
+      "description": "Recipient address"
+     },
+     "subject": {
+      "type": "string"
+     }
+    }
+   },
+   "deferred": true
+  },
+  {
+   "name": "weather",
+   "description": "Reads the weather forecast for a city",
+   "parameters": {
+    "type": "object",
+    "properties": {
+     "city": {
+      "type": "string",
+      "description": "City name"
+     }
+    }
+   },
+   "deferred": true
+  },
+  {
+   "name": "calendar",
+   "description": "Creates calendar events and email invitations",
+   "parameters": {
+    "type": "object"
+   },
+   "deferred": true
+  },
+  {
+   "name": "always",
+   "description": "An always offered tool",
+   "parameters": {
+    "type": "object"
+   }
+  }
+ ],
+ "agent": {
+  "modelTools": [
+   "always",
+   "weather",
+   "tool_search"
+  ]
+ },
+ "model": [
+  {
+   "calls": [
+    {
+     "id": "c1",
+     "name": "tool_search",
+     "args": {
+      "query": "email"
+     }
+    }
+   ]
+  },
+  {
+   "calls": [
+    {
+     "id": "c2",
+     "name": "send_email",
+     "args": {}
+    }
+   ]
+  },
+  {
+   "text": "done"
+  }
+ ],
+ "steps": [
+  {
+   "submit": {
+    "type": "input",
+    "content": "go"
+   }
+  },
+  {
+   "wait": "settled"
+  }
+ ]
+}

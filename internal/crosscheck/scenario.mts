@@ -185,6 +185,7 @@ export async function runScenario(
 			...(tool.replaySafe ? { replay: "safe" } : {}),
 			...(tool.callers ? { callers: tool.callers } : {}),
 			...(tool.outputLimits ? { outputLimits: tool.outputLimits } : {}),
+			...(tool.deferred ? { deferred: true } : {}),
 			async execute(args: unknown, api: any, callContext: any) {
 				const results = tool.results ?? [];
 				const result = results[Math.min(calls++, results.length - 1)] ?? { text: JSON.stringify(args) };
@@ -371,6 +372,10 @@ export async function runScenario(
 	// with the scenario's files; the report names it <dir>.
 	let codingDir: string | undefined;
 	let codingEnv: (() => unknown) | undefined;
+	if (scenario.toolSearch) {
+		const { createToolSearchExtension } = await load.durable("tool-search/index.ts");
+		registry.install(createToolSearchExtension());
+	}
 	if (scenario.coding) {
 		codingDir = realpathSync(mkdtempSync(join(tmpdir(), "crosscheck-coding-")));
 		for (const [path, content] of Object.entries(scenario.coding.files ?? {})) {
@@ -396,12 +401,24 @@ export async function runScenario(
 			context,
 		);
 		// Tools are named in scenarios and passed as their registrations.
-		const { tools: enabled, ...agent } = scenario.agent ?? {};
+		const { tools: enabled, modelTools, ...agent } = scenario.agent ?? {};
+		// modelTools takes registrations too; only their names are read.
+		const named = (list: string[]) => list.map((name) => ({ name }));
 		const conversation = await opened.root(context, {
 			agent: {
 				model: { provider: "faux", modelId: "faux-1" },
 				...agent,
 				...(enabled === undefined ? {} : { tools: enabled.map((name: string) => tools.find((tool: any) => tool.name === name)) }),
+				...(modelTools === undefined
+					? {}
+					: {
+							modelTools: Array.isArray(modelTools)
+								? named(modelTools)
+								: {
+										...(modelTools.remove ? { remove: named(modelTools.remove) } : {}),
+										...(modelTools.add ? { add: named(modelTools.add) } : {}),
+									},
+						}),
 			},
 		});
 		return { opened, conversation };

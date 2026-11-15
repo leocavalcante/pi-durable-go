@@ -563,6 +563,7 @@ type scenarioSpec struct {
 			} `json:"nested,omitempty"`
 		} `json:"results,omitempty"`
 		Callers      []string `json:"callers,omitempty"`
+		Deferred     bool     `json:"deferred,omitempty"`
 		OutputLimits *struct {
 			MaxBytes int    `json:"maxBytes,omitempty"`
 			MaxLines int    `json:"maxLines,omitempty"`
@@ -586,7 +587,12 @@ type scenarioSpec struct {
 		MaxTurns     int      `json:"maxTurns,omitempty"`
 		Instructions *string  `json:"instructions,omitempty"`
 		Tools        []string `json:"tools,omitempty"`
+		// ModelTools is upstream's modelTools: an array, or {remove, add}.
+		ModelTools json.RawMessage `json:"modelTools,omitempty"`
 	} `json:"agent"`
+	// ToolSearch installs the tool_search extension, through
+	// scenarioToolSearch.
+	ToolSearch bool `json:"toolSearch,omitempty"`
 	Extensions []struct {
 		Name     string `json:"name"`
 		Sections []struct {
@@ -851,7 +857,7 @@ func runScenario(t *testing.T, sc scenarioSpec) json.RawMessage {
 		}
 		var toolCalls int
 		var toolMu sync.Mutex
-		definition := ToolDefinition{ToolSpec: ToolSpec{Name: spec.Name, Description: description, Parameters: parameters}, ReplaySafe: spec.ReplaySafe, Callers: spec.Callers,
+		definition := ToolDefinition{ToolSpec: ToolSpec{Name: spec.Name, Description: description, Parameters: parameters}, ReplaySafe: spec.ReplaySafe, Callers: spec.Callers, Deferred: spec.Deferred,
 			Execute: func(ctx context.Context, args json.RawMessage, rt *ToolRuntime) (ToolResult, error) {
 				toolMu.Lock()
 				i := toolCalls
@@ -1061,6 +1067,37 @@ func runScenario(t *testing.T, sc scenarioSpec) json.RawMessage {
 			t.Fatal(err)
 		}
 	}
+	var modelTools *ModelTools
+	if len(sc.Agent.ModelTools) > 0 {
+		modelTools = &ModelTools{}
+		if sc.Agent.ModelTools[0] == '[' {
+			if err := json.Unmarshal(sc.Agent.ModelTools, &modelTools.Only); err != nil {
+				t.Fatal(err)
+			}
+			modelTools.Only = append([]string{}, modelTools.Only...)
+		} else if err := json.Unmarshal(sc.Agent.ModelTools, modelTools); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Installed in the order upstream's runner installs them.
+	if sc.Codemode != nil {
+		if scenarioCodemode == nil {
+			t.Skip("a code mode scenario runs from TestCrosscheckCodemodeScenarios")
+		}
+		for _, extension := range scenarioCodemode(t, sc.Codemode) {
+			if err := registry.Install(extension); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	if sc.ToolSearch {
+		if scenarioToolSearch == nil {
+			t.Skip("a tool search scenario runs from TestCrosscheckCodingScenarios")
+		}
+		if err := registry.Install(scenarioToolSearch()); err != nil {
+			t.Fatal(err)
+		}
+	}
 	var codingDir string
 	var codingEnv func(ConversationRecord) (ExecutionEnv, error)
 	if sc.Coding != nil {
@@ -1103,16 +1140,6 @@ func runScenario(t *testing.T, sc scenarioSpec) json.RawMessage {
 		}
 		codingEnv = env
 	}
-	if sc.Codemode != nil {
-		if scenarioCodemode == nil {
-			t.Skip("a code mode scenario runs from TestCrosscheckCodemodeScenarios")
-		}
-		for _, extension := range scenarioCodemode(t, sc.Codemode) {
-			if err := registry.Install(extension); err != nil {
-				t.Fatal(err)
-			}
-		}
-	}
 	settings := Settings{ToolExecution: sc.Settings.ToolExecution, SteeringMode: sc.Settings.SteeringMode, FollowUpMode: sc.Settings.FollowUpMode, AfterFailedRun: sc.Settings.AfterFailedRun}
 	if sc.Settings.Compaction != nil {
 		settings.Compaction = *sc.Settings.Compaction
@@ -1130,7 +1157,7 @@ func runScenario(t *testing.T, sc scenarioSpec) json.RawMessage {
 		if err != nil {
 			t.Fatal(err)
 		}
-		root, err = h.Root(ctx, ConversationOptions{Agent: Agent{Model: ModelRef{Provider: "faux", ID: "faux-1"}, MaxTurns: sc.Agent.MaxTurns, Instructions: sc.Agent.Instructions, Tools: sc.Agent.Tools}})
+		root, err = h.Root(ctx, ConversationOptions{Agent: Agent{Model: ModelRef{Provider: "faux", ID: "faux-1"}, MaxTurns: sc.Agent.MaxTurns, Instructions: sc.Agent.Instructions, Tools: sc.Agent.Tools, ModelTools: modelTools}})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1503,6 +1530,10 @@ func runScenario(t *testing.T, sc scenarioSpec) json.RawMessage {
 
 // fullOutputPath is a spill file's path in a full_output diagnostic.
 var fullOutputPath = regexp.MustCompile(`Full output: [^"\\]*`)
+
+// scenarioToolSearch is the tool_search extension; the external test
+// package sets it, as this package cannot import tools.
+var scenarioToolSearch func() Extension
 
 // scenarioCoding installs the coding tools over a local environment in dir;
 // the external test package sets it, as this package cannot import tools.

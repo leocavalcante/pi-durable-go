@@ -169,7 +169,7 @@ This table highlights compatibility changes since the previous runtime reference
 
 ## Cross-checks
 
-`make crosscheck` checks behavior against upstream's own 1.5.2 code, run from its TypeScript sources: tool argument coercion and validation, the coding tools, tool search, context ordering, compaction, prompt planning, error classification, and `model.OpenAI`'s requests and responses. It also plays 111 conversation scenarios through upstream's Harness and this one, 10 of them with code mode and 7 with the coding tools over an environment. They cover:
+`make crosscheck` checks behavior against upstream's own 1.5.2 code, run from its TypeScript sources: tool argument coercion and validation, the coding tools, tool search, context ordering, compaction, prompt planning, error classification, and `model.OpenAI`'s requests and responses. It also plays 114 conversation scenarios through upstream's Harness and this one, 10 of them with code mode, 7 with the coding tools over an environment, and 3 with tool search. They cover:
 - tool rounds, parallel and sequential tools, failing and unknown tools, invalid arguments, and a model failure after tool rounds;
 - model errors and retries, turn limits, length stops, and failed-run policies;
 - follow-ups, steering, queue modes, refusals, and aborts;

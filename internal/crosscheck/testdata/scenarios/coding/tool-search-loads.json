@@ -1,0 +1,149 @@
+{
+ "name": "tool search loads deferred tools",
+ "toolSearch": true,
+ "tools": [
+  {
+   "name": "send_email",
+   "description": "Sends an email to a recipient.\nSecond line of help.",
+   "parameters": {
+    "type": "object",
+    "properties": {
+     "to": {
+      "type": "string",
+      "description": "Recipient address"
+     },
+     "subject": {
+      "type": "string"
+     }
+    }
+   },
+   "deferred": true
+  },
+  {
+   "name": "weather",
+   "description": "Reads the weather forecast for a city",
+   "parameters": {
+    "type": "object",
+    "properties": {
+     "city": {
+      "type": "string",
+      "description": "City name"
+     }
+    }
+   },
+   "deferred": true
+  },
+  {
+   "name": "calendar",
+   "description": "Creates calendar events and email invitations",
+   "parameters": {
+    "type": "object"
+   },
+   "deferred": true
+  },
+  {
+   "name": "always",
+   "description": "An always offered tool",
+   "parameters": {
+    "type": "object"
+   }
+  }
+ ],
+ "model": [
+  {
+   "calls": [
+    {
+     "id": "c1",
+     "name": "tool_search",
+     "args": {
+      "query": "email"
+     }
+    }
+   ]
+  },
+  {
+   "calls": [
+    {
+     "id": "c2",
+     "name": "send_email",
+     "args": {
+      "to": "a@b.c"
+     }
+    }
+   ]
+  },
+  {
+   "calls": [
+    {
+     "id": "c3",
+     "name": "tool_search",
+     "args": {
+      "query": "nothing matches this",
+      "limit": 3
+     }
+    }
+   ]
+  },
+  {
+   "calls": [
+    {
+     "id": "c4",
+     "name": "tool_search",
+     "args": {
+      "query": "weather city",
+      "limit": 1
+     }
+    }
+   ]
+  },
+  {
+   "calls": [
+    {
+     "id": "c5",
+     "name": "tool_search",
+     "args": {
+      "query": "  "
+     }
+    }
+   ]
+  },
+  {
+   "calls": [
+    {
+     "id": "c6",
+     "name": "tool_search",
+     "args": {
+      "query": "x",
+      "limit": 1.5
+     }
+    }
+   ]
+  },
+  {
+   "text": "done"
+  },
+  {
+   "text": "done again"
+  }
+ ],
+ "steps": [
+  {
+   "submit": {
+    "type": "input",
+    "content": "go"
+   }
+  },
+  {
+   "wait": "settled"
+  },
+  {
+   "submit": {
+    "type": "input",
+    "content": "again"
+   }
+  },
+  {
+   "wait": "settled"
+  }
+ ]
+}

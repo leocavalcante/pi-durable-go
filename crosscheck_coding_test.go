@@ -22,6 +22,8 @@ func TestCrosscheckCodingScenarios(t *testing.T) {
 		return tools.Coding(), func(durable.ConversationRecord) (durable.ExecutionEnv, error) { return tools.NewLocalEnv(dir) }
 	})
 	defer durable.SetScenarioCoding(nil)
+	durable.SetScenarioToolSearch(tools.ToolSearch)
+	defer durable.SetScenarioToolSearch(nil)
 	var names []string
 	crosscheck.Cases(t, "scenarios/coding/index.json", &names)
 	for _, name := range names {
