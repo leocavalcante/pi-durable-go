@@ -19,6 +19,10 @@ COMPATIBILITY.md; the Go storage format is not compatible with upstream files.
 
 Dependencies retain their own licenses; see go.mod and DEPENDENCIES.md.
 
+The model package embeds the model catalog of @earendil-works/pi-ai 1.5.2
+(MIT, the Pi monorepo): its openai-completions models, in
+model/catalog/openai-completions.json.
+
 The codemode package embeds quickjs-wasi 3.6.2's quickjs.wasm (MIT, Copyright
 (c) 2026 Vercel, Inc.), which contains QuickJS-NG v0.17.0 (MIT, Copyright (c)
 2017-2026 Fabrice Bellard, Charlie Gordon, Ben Noordhuis, Saúl Ibarra

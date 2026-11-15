@@ -69,15 +69,25 @@ type OpenAI struct {
 	// does not name is sent as it is, except xhigh and max, which a model
 	// supports only when they are named.
 	ThinkingLevelMap map[string]*string
+	// Headers are pi-ai's model.headers, sent with every request over the
+	// identity's headers.
+	Headers map[string]string
+	// InputImageLimits are the images the model takes (pi-ai
+	// model.inputLimits.images.resize), for tools that prepare images.
+	InputImageLimits durable.ImageLimits
 }
 
 var (
 	_ durable.ContextWindowModel = OpenAI{}
 	_ durable.ImageInputModel    = OpenAI{}
+	_ durable.ImageLimitsModel   = OpenAI{}
 )
 
 // AcceptsImages reports whether images reach the model.
 func (o OpenAI) AcceptsImages(durable.ModelRef) bool { return !o.NoImages }
+
+// ImageLimits are the model's image limits (InputImageLimits).
+func (o OpenAI) ImageLimits(durable.ModelRef) durable.ImageLimits { return o.InputImageLimits }
 
 // pi-ai's placeholders for images a model cannot take.
 const (

@@ -12,90 +12,91 @@ import (
 )
 
 // OpenAICompat is pi-ai's compat for an openai-completions model, as its
-// catalog's model.compat sets it. Each field that is set replaces what pi-ai
-// detects from the provider (the request's ModelRef.Provider) and the base
-// URL; nil and empty fields keep the detected value.
+// catalog's model.compat sets it, decoded from pi-ai's JSON as it is. Each
+// field that is set replaces what pi-ai detects from the provider (the
+// request's ModelRef.Provider) and the base URL; nil and empty fields keep
+// the detected value.
 type OpenAICompat struct {
 	// SupportsStore sends store: false. Detected: not on the endpoints pi-ai
 	// treats as non-standard.
-	SupportsStore *bool
+	SupportsStore *bool `json:"supportsStore,omitempty"`
 	// SupportsDeveloperRole sends a reasoning model's instructions as a
 	// developer message.
-	SupportsDeveloperRole *bool
+	SupportsDeveloperRole *bool `json:"supportsDeveloperRole,omitempty"`
 	// SupportsReasoningEffort sends reasoning_effort where the thinking
 	// format may.
-	SupportsReasoningEffort *bool
+	SupportsReasoningEffort *bool `json:"supportsReasoningEffort,omitempty"`
 	// SupportsUsageInStreaming false sends no stream_options.
-	SupportsUsageInStreaming *bool
+	SupportsUsageInStreaming *bool `json:"supportsUsageInStreaming,omitempty"`
 	// SupportsFinishReason false reads a stream without a finish reason as
 	// a stop, or a tool use when it has tool calls, instead of an error.
-	SupportsFinishReason *bool
+	SupportsFinishReason *bool `json:"supportsFinishReason,omitempty"`
 	// MaxTokensField is max_completion_tokens or max_tokens.
-	MaxTokensField string
+	MaxTokensField string `json:"maxTokensField,omitempty"`
 	// SupportsMidConvoSystemMessages keeps later system messages in place,
 	// as updates of the prompt, instead of folding them into the first.
 	// SupportsMidConvoToolAdditions also declares tools added later in
 	// place, offering only the tools up to the last removal or redefinition.
-	SupportsMidConvoSystemMessages *bool
-	SupportsMidConvoToolAdditions  *bool
+	SupportsMidConvoSystemMessages *bool `json:"supportsMidConvoSystemMessages,omitempty"`
+	SupportsMidConvoToolAdditions  *bool `json:"supportsMidConvoToolAdditions,omitempty"`
 	// SupportsOpenAIGrammarTools sends a tool whose ConstrainedSampling is a
 	// grammar ({"type": "grammar", "variants": {"openai_lark" | "openai_regex":
 	// definition}}) as an OpenAI custom tool: the model writes its single
 	// required string property as grammar-constrained input.
-	SupportsOpenAIGrammarTools *bool
+	SupportsOpenAIGrammarTools *bool `json:"supportsOpenAIGrammarTools,omitempty"`
 	// RequiresToolResultName sends a tool result's tool name.
-	RequiresToolResultName *bool
+	RequiresToolResultName *bool `json:"requiresToolResultName,omitempty"`
 	// RequiresAssistantAfterToolResult puts an assistant message between
 	// tool results and a user message, and sends "" for no assistant text.
-	RequiresAssistantAfterToolResult *bool
+	RequiresAssistantAfterToolResult *bool `json:"requiresAssistantAfterToolResult,omitempty"`
 	// RequiresNonNullAssistantContent sends "" for no assistant text.
-	RequiresNonNullAssistantContent *bool
+	RequiresNonNullAssistantContent *bool `json:"requiresNonNullAssistantContent,omitempty"`
 	// RequiresToolsWithToolHistory sends "tools": [] when a request offers no
 	// tools and its history has tool calls or results.
-	RequiresToolsWithToolHistory *bool
+	RequiresToolsWithToolHistory *bool `json:"requiresToolsWithToolHistory,omitempty"`
 	// RequiresThinkingAsText replays an answer's thinking as text.
-	RequiresThinkingAsText *bool
+	RequiresThinkingAsText *bool `json:"requiresThinkingAsText,omitempty"`
 	// RequiresReasoningContentOnAssistantMessages sends an empty
 	// reasoning_content on a reasoning model's assistant messages.
-	RequiresReasoningContentOnAssistantMessages *bool
+	RequiresReasoningContentOnAssistantMessages *bool `json:"requiresReasoningContentOnAssistantMessages,omitempty"`
 	// ThinkingFormat is how a reasoning model's thinking level is sent:
 	// openai, openrouter, deepseek, together, baseten, zai, qwen,
 	// chat-template, qwen-chat-template, string-thinking, or ant-ling.
-	ThinkingFormat string
+	ThinkingFormat string `json:"thinkingFormat,omitempty"`
 	// ChatTemplateKwargs and ChatTemplateArgs are the values the
 	// chat-template and baseten formats send; an object {"$var":
 	// "thinking.enabled" | "thinking.effort" | "thinking.budget",
 	// "omitWhenOff": bool} takes the request's value.
-	ChatTemplateKwargs map[string]json.RawMessage
-	ChatTemplateArgs   map[string]json.RawMessage
+	ChatTemplateKwargs map[string]json.RawMessage `json:"chatTemplateKwargs,omitempty"`
+	ChatTemplateArgs   map[string]json.RawMessage `json:"chatTemplateArgs,omitempty"`
 	// OpenRouterRouting is sent as the provider routing object.
-	OpenRouterRouting json.RawMessage
+	OpenRouterRouting json.RawMessage `json:"openRouterRouting,omitempty"`
 	// VercelGatewayRouting is sent as providerOptions.gateway.
-	VercelGatewayRouting *GatewayRouting
+	VercelGatewayRouting *GatewayRouting `json:"vercelGatewayRouting,omitempty"`
 	// ZaiToolStream sends tool_stream: true with tools.
-	ZaiToolStream *bool
+	ZaiToolStream *bool `json:"zaiToolStream,omitempty"`
 	// ThinkingTokenBudgetField caps reasoning with the thinking level's
 	// budget (StreamOptions.ThinkingBudgets over pi-ai's defaults):
 	// thinking_token_budget, thinking_budget, or thinking_budget_tokens.
-	ThinkingTokenBudgetField string
+	ThinkingTokenBudgetField string `json:"thinkingTokenBudgetField,omitempty"`
 	// SupportsThinkingTokenBudget is ThinkingTokenBudgetField
 	// thinking_token_budget.
-	SupportsThinkingTokenBudget *bool
+	SupportsThinkingTokenBudget *bool `json:"supportsThinkingTokenBudget,omitempty"`
 	// SupportsLongCacheRetention allows long prompt cache retention.
-	SupportsLongCacheRetention *bool
+	SupportsLongCacheRetention *bool `json:"supportsLongCacheRetention,omitempty"`
 	// CacheControlFormat anthropic marks the system prompt, the last tool,
 	// and the last conversation text with cache_control.
-	CacheControlFormat string
+	CacheControlFormat string `json:"cacheControlFormat,omitempty"`
 	// PromptCacheKeyMode is auto, enabled, or disabled.
-	PromptCacheKeyMode string
+	PromptCacheKeyMode string `json:"promptCacheKeyMode,omitempty"`
 	// SendSessionAffinityHeaders sends the request's session ID in headers
 	// (detected: OpenRouter). SessionAffinityFormat names them: openrouter
 	// sends x-session-id; openai sends session_id, x-client-request-id, and
 	// x-session-affinity; openai-nosession the last two.
-	SendSessionAffinityHeaders *bool
-	SessionAffinityFormat      string
+	SendSessionAffinityHeaders *bool  `json:"sendSessionAffinityHeaders,omitempty"`
+	SessionAffinityFormat      string `json:"sessionAffinityFormat,omitempty"`
 	// VLLMPriority is sent as vLLM's priority.
-	VLLMPriority *float64
+	VLLMPriority *float64 `json:"vllmPriority,omitempty"`
 }
 
 // GatewayRouting is pi-ai's compat.vercelGatewayRouting.
@@ -366,8 +367,9 @@ func hasToolHistory(messages []durable.Message) bool {
 }
 
 // requestHeaders are the headers pi-ai's createClient sends: the identity's
-// User-Agent and provider attribution, then the session-affinity headers
-// the compat asks for; the request's own headers go over them.
+// User-Agent and provider attribution, the model's headers, GitHub
+// Copilot's per-request headers, then the session-affinity headers the
+// compat asks for; the request's own headers go over them.
 func (o OpenAI) requestHeaders(req durable.ModelRequest, c completionsCompat) map[string]string {
 	headers := map[string]string{}
 	if ua := userAgent(req.Identity); ua != "" {
@@ -375,6 +377,14 @@ func (o OpenAI) requestHeaders(req durable.ModelRequest, c completionsCompat) ma
 	}
 	for name, value := range attributionHeaders(req.Model.Provider, o.baseURL(), req.Identity) {
 		headers[name] = value
+	}
+	for name, value := range o.Headers {
+		headers[name] = value
+	}
+	if req.Model.Provider == "github-copilot" {
+		for name, value := range copilotHeaders(req.Messages) {
+			headers[name] = value
+		}
 	}
 	if id := req.SessionID; id != "" && c.sendSessionAffinityHeaders {
 		if c.sessionAffinityFormat == "openrouter" {
@@ -575,4 +585,22 @@ func jsQuote(s string) string {
 	}
 	b.WriteByte('"')
 	return b.String()
+}
+
+// copilotHeaders are GitHub Copilot's per-request headers (pi-ai
+// buildCopilotDynamicHeaders): who started the turn, and whether images are
+// sent.
+func copilotHeaders(messages []durable.Message) map[string]string {
+	initiator := "user"
+	if len(messages) > 0 && messages[len(messages)-1].Role != "user" {
+		initiator = "agent"
+	}
+	headers := map[string]string{"X-Initiator": initiator, "Openai-Intent": "conversation-edits"}
+	for _, m := range messages {
+		if (m.Role == "user" || m.Role == "tool") && len(m.Images) > 0 {
+			headers["Copilot-Vision-Request"] = "true"
+			break
+		}
+	}
+	return headers
 }

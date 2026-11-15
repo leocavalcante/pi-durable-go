@@ -113,3 +113,14 @@ func TestUsageSumsAsUpstream(t *testing.T) {
 		t.Fatalf("reasoning appeared: %+v", none)
 	}
 }
+
+// A request's size from its usage prefers the reported total (pi-ai
+// calculateContextTokens).
+func TestUsageTokensPreferTheTotal(t *testing.T) {
+	if got := usageTokens(Usage{InputTokens: 10, OutputTokens: 5, TotalTokens: 40}); got != 40 {
+		t.Fatalf("with a total: %d", got)
+	}
+	if got := usageTokens(Usage{InputTokens: 10, OutputTokens: 5, CacheReadTokens: 2, CacheWriteTokens: 1}); got != 18 {
+		t.Fatalf("without a total: %d", got)
+	}
+}

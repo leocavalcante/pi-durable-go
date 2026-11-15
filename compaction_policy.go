@@ -199,7 +199,12 @@ func stringifyJSON(v any) string {
 	return strings.TrimSuffix(out.String(), "\n")
 }
 
+// usageTokens is a request's size from its usage (pi-ai
+// calculateContextTokens): the total, or the sum of the counts without one.
 func usageTokens(u Usage) int {
+	if u.TotalTokens > 0 {
+		return int(u.TotalTokens)
+	}
 	return int(u.InputTokens + u.OutputTokens + u.CacheReadTokens + u.CacheWriteTokens)
 }
 

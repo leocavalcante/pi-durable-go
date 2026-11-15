@@ -11,21 +11,21 @@ import (
 // ModelCost is a model's price in dollars per million tokens (pi-ai
 // ModelCost), with optional tiers that apply above an input size.
 type ModelCost struct {
-	Input      float64
-	Output     float64
-	CacheRead  float64
-	CacheWrite float64
-	Tiers      []ModelCostTier
+	Input      float64         `json:"input"`
+	Output     float64         `json:"output"`
+	CacheRead  float64         `json:"cacheRead"`
+	CacheWrite float64         `json:"cacheWrite"`
+	Tiers      []ModelCostTier `json:"tiers,omitempty"`
 }
 
 // ModelCostTier is a price that applies when a request's input tokens,
 // cache reads and writes included, are above InputTokensAbove.
 type ModelCostTier struct {
-	Input            float64
-	Output           float64
-	CacheRead        float64
-	CacheWrite       float64
-	InputTokensAbove float64
+	Input            float64 `json:"input"`
+	Output           float64 `json:"output"`
+	CacheRead        float64 `json:"cacheRead"`
+	CacheWrite       float64 `json:"cacheWrite"`
+	InputTokensAbove float64 `json:"inputTokensAbove"`
 }
 
 // price sets usage's cost from the model's price, as pi-ai's calculateCost
