@@ -146,12 +146,16 @@ type ConversationOptions struct {
 }
 
 type Entry struct {
-	ID           EntryID         `json:"id"`
-	Conversation ConversationID  `json:"conversation"`
-	Parent       EntryID         `json:"parent,omitempty"`
-	Kind         string          `json:"kind"`
-	Message      *Message        `json:"message,omitempty"`
-	Data         json.RawMessage `json:"data,omitempty"`
+	ID           EntryID        `json:"id"`
+	Conversation ConversationID `json:"conversation"`
+	Parent       EntryID        `json:"parent,omitempty"`
+	Kind         string         `json:"kind"`
+	Message      *Message       `json:"message,omitempty"`
+	// Messages are the model messages of an entry that has more than one
+	// (upstream EntryRecord.model, a list); Message is the one message of
+	// most entries. An entry has one or the other.
+	Messages []Message       `json:"messages,omitempty"`
+	Data     json.RawMessage `json:"data,omitempty"`
 	// Edits omit or replace earlier entries' messages in model context
 	// (upstream ContextEdit); the newest edit of a target wins.
 	Edits []ContextEdit `json:"edits,omitempty"`

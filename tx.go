@@ -176,6 +176,12 @@ func (tx *Tx) Append(cid ConversationID, e Entry) (EntryID, error) {
 	if e.Kind == "" {
 		return 0, fmt.Errorf("%w: entry kind required", ErrInvalid)
 	}
+	if e.Message != nil && len(e.Messages) > 0 {
+		return 0, fmt.Errorf("%w: an entry has Message or Messages, not both", ErrInvalid)
+	}
+	if e.Messages != nil {
+		e.Messages = append([]Message(nil), e.Messages...)
+	}
 	id := EntryID(tx.id())
 	e.ID = id
 	e.Conversation = cid

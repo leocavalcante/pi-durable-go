@@ -1,0 +1,71 @@
+{
+ "name": "entry-with-two-messages",
+ "model": [
+  {
+   "text": "first answer"
+  },
+  {
+   "text": "second answer"
+  }
+ ],
+ "steps": [
+  {
+   "submit": {
+    "type": "write",
+    "entry": {
+     "kind": "notes",
+     "data": {
+      "n": 2
+     },
+     "model": [
+      {
+       "role": "user",
+       "content": "first note"
+      },
+      {
+       "role": "user",
+       "content": "second note"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "submit": {
+    "type": "input",
+    "content": "go"
+   }
+  },
+  {
+   "wait": "settled"
+  },
+  {
+   "submit": {
+    "type": "write",
+    "entry": {
+     "kind": "notes",
+     "head": "self",
+     "model": [
+      {
+       "role": "user",
+       "content": "fresh start"
+      },
+      {
+       "role": "user",
+       "content": "and more"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "submit": {
+    "type": "input",
+    "content": "again"
+   }
+  },
+  {
+   "wait": "settled"
+  }
+ ]
+}

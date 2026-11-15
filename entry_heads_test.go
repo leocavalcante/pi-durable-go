@@ -3,6 +3,7 @@ package durable
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 	"time"
 )
@@ -212,4 +213,41 @@ func mustRecord(t *testing.T, ctx context.Context, s *Submission) SubmissionReco
 		t.Fatal(err)
 	}
 	return record
+}
+
+// An entry may contribute several model messages (upstream model is a
+// list); it has Message or Messages, not both, and an input's entry has
+// neither.
+func TestEntriesContributeEveryMessage(t *testing.T) {
+	h := taskTestHarness(t, HarnessOptions{Model: echoModel{}})
+	c := testRoot(t, h)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	notes := []Message{{Role: "user", Content: "first note"}, {Role: "user", Content: "second note"}}
+	sub, err := c.Submit(ctx, SubmissionRequest{Type: "write", Entry: &Entry{Kind: "app.notes", Messages: notes}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if record, err := sub.Wait(ctx); err != nil || record.Status != "done" {
+		t.Fatalf("write %+v %v", record, err)
+	}
+	// The caller's slice is not the stored entry's.
+	notes[0].Content = "changed"
+	view, err := c.ContextView(ctx, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	last := view.Contributions[len(view.Contributions)-1]
+	if len(last) != 2 || last[0].Content != "first note" || last[1].Content != "second note" {
+		t.Fatalf("contribution %+v", last)
+	}
+	if err := h.Commit(ctx, func(tx *Tx) error {
+		_, err := tx.Append(c.ID(), Entry{Kind: "app.both", Message: &Message{Role: "user", Content: "x"}, Messages: notes})
+		return err
+	}); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("both forms: %v", err)
+	}
+	if _, err := c.Submit(ctx, SubmissionRequest{Content: "go", Entry: &Entry{Kind: "app.input", Messages: notes}}); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("an input entry with messages: %v", err)
+	}
 }

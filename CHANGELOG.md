@@ -19,7 +19,8 @@ says how the port is compared with upstream's own code.
   record storage are supported. Any storage error fails the Session. Every
   conversation and fork starts with upstream's built-in documents: `pi.live`,
   `pi.inbox`, `pi.usage`, `pi.provider`, and `pi.agent`. Any entry can start a new
-  context with a head, as upstream's do, and entries name the task that appended them.
+  context with a head, as upstream's do, entries name the task that appended them, and
+  an entry may carry several model messages (`Entry.Messages`).
 - **Agent harness.** Ported from upstream:
   - generation runs with retries, steering, follow-ups, turn limits, and failed-run
     policies;
@@ -51,7 +52,7 @@ says how the port is compared with upstream's own code.
   and names temporary files as upstream's Node environment does.
 - **Cross-checks.** `make crosscheck` runs upstream's TypeScript sources on the same
   inputs as the Go code:
-  - 116 conversation scenarios replayed through upstream's Harness, 10 of them
+  - 117 conversation scenarios replayed through upstream's Harness, 10 of them
     with code mode, 7 with the coding tools on files, and 3 with tool search;
   - checks of argument coercion and validation, JSON parsing, partial arguments, the
     read and edit tools, compaction, and OpenAI requests and responses;

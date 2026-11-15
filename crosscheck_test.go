@@ -1363,8 +1363,13 @@ func runScenario(t *testing.T, sc scenarioSpec) json.RawMessage {
 				if e.Head == "self" {
 					request.Entry.Head = HeadSelf
 				}
-				if len(e.Model) == 1 {
+				switch {
+				case len(e.Model) == 1:
 					request.Entry.Message = &Message{Role: e.Model[0].Role, Content: e.Model[0].Content}
+				case len(e.Model) > 1:
+					for _, m := range e.Model {
+						request.Entry.Messages = append(request.Entry.Messages, Message{Role: m.Role, Content: m.Content})
+					}
 				}
 			}
 			submission, err := current.Submit(ctx, request)
@@ -1471,6 +1476,9 @@ func runScenario(t *testing.T, sc scenarioSpec) json.RawMessage {
 			messages := []any{}
 			if e.Message != nil {
 				messages = append(messages, scenarioMessage(*e.Message))
+			}
+			for _, m := range e.Messages {
+				messages = append(messages, scenarioMessage(m))
 			}
 			entry := map[string]any{"kind": e.Kind, "messages": messages}
 			if !strings.HasPrefix(e.Kind, "pi.") && len(e.Data) > 0 {

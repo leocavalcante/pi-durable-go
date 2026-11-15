@@ -339,6 +339,12 @@ func (e Entry) detached() Entry {
 		m := e.Message.detached()
 		out.Message = &m
 	}
+	if e.Messages != nil {
+		out.Messages = make([]Message, len(e.Messages))
+		for i, m := range e.Messages {
+			out.Messages[i] = m.detached()
+		}
+	}
 	out.Data = cloneRaw(e.Data)
 	if e.Edits != nil {
 		out.Edits = make([]ContextEdit, len(e.Edits))

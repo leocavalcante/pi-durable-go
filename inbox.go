@@ -22,7 +22,7 @@ func inputEntry(request SubmissionRequest) Entry {
 // and summaries queued before entries had heads are heads.
 func isDisplayOnlyWrite(request SubmissionRequest) bool {
 	e := request.Entry
-	return request.Type == "write" && e != nil && e.Message == nil && e.Head == 0 && len(e.Edits) == 0 &&
+	return request.Type == "write" && e != nil && e.Message == nil && len(e.Messages) == 0 && e.Head == 0 && len(e.Edits) == 0 &&
 		e.Kind != "pi.reset" && e.Kind != "pi.compaction"
 }
 

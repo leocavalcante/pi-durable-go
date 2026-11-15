@@ -69,6 +69,11 @@ func carriesSystemMessage(e Entry) bool {
 	if e.Message != nil && e.Message.Role == "system" {
 		return true
 	}
+	for _, m := range e.Messages {
+		if m.Role == "system" {
+			return true
+		}
+	}
 	for _, edit := range e.Edits {
 		if edit.Action == "replace" {
 			for _, m := range edit.Messages {
@@ -190,6 +195,10 @@ func contribute(e Entry, edit ContextEdit, edited bool) ([]Message, error) {
 		// A plain reset contributes nothing; a handoff carries its text.
 		if e.Message != nil && e.Message.Content != "" {
 			messages = []Message{*e.Message}
+		}
+	case len(e.Messages) > 0:
+		for _, m := range e.Messages {
+			messages = append(messages, m.detached())
 		}
 	case e.Message != nil:
 		messages = []Message{*e.Message}

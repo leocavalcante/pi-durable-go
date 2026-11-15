@@ -94,5 +94,6 @@
  "tool-streamed-head-beyond-window",
  "tool-streamed-tail-lines-beyond-window",
  "wraps-tools",
- "wraps-sections"
+ "wraps-sections",
+ "entry-with-two-messages"
 ]
