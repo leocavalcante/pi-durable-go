@@ -9,8 +9,11 @@ import (
 	"math"
 	"os"
 	"os/exec"
+	"path"
+	"regexp"
 	"runtime"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -117,11 +120,15 @@ func (e *LocalEnv) ExecWith(ctx context.Context, command string, options ExecOpt
 	if err := checkTimeout(options.Timeout); err != nil {
 		return ShellExecResult{}, err
 	}
-	shell, args, err := e.shellConfig()
+	shell, err := e.shellConfig()
 	if err != nil {
 		return ShellExecResult{}, err
 	}
-	return e.execute(ctx, append(append([]string{shell}, args...), command), options)
+	argv := append([]string{shell.shell}, shell.args...)
+	if shell.stdin {
+		return e.execute(ctx, argv, options, command)
+	}
+	return e.execute(ctx, append(argv, command), options, "")
 }
 
 // ExecArgvWith runs argv[0] directly with the rest as its arguments,
@@ -136,7 +143,7 @@ func (e *LocalEnv) ExecArgvWith(ctx context.Context, argv []string, options Exec
 	if len(argv) == 0 {
 		return ShellExecResult{}, &ExecutionError{Code: "spawn_error", Message: "Empty argv: no program to run", Err: ErrSpawn}
 	}
-	return e.execute(ctx, argv, options)
+	return e.execute(ctx, argv, options, "")
 }
 
 func checkTimeout(timeout float64) error {
@@ -152,13 +159,70 @@ func checkTimeout(timeout float64) error {
 	return nil
 }
 
+// shellCommand is how strings run through a shell: the program, its
+// arguments, and whether the command goes on stdin rather than as the last
+// argument.
+type shellCommand struct {
+	shell string
+	args  []string
+	stdin bool
+}
+
+// bashShellConfig runs a bash (upstream getBashShellConfig): the legacy WSL
+// launcher reads the command on stdin, others take it with -c.
+func bashShellConfig(shell string) shellCommand {
+	systemRoot, set := os.LookupEnv("SystemRoot")
+	if isLegacyWSLBashPath(shell, systemRoot, set) {
+		return shellCommand{shell: shell, args: []string{"-s"}, stdin: true}
+	}
+	return shellCommand{shell: shell, args: []string{"-c"}}
+}
+
+// isLegacyWSLBashPath reports whether path is Windows' legacy WSL launcher,
+// bash.exe in System32 or Sysnative of SystemRoot, or of C:\Windows without
+// one (upstream isLegacyWslBashPath).
+func isLegacyWSLBashPath(path, systemRoot string, set bool) bool {
+	normalized := strings.ToLower(win32Normalize(path))
+	if set && systemRoot != "" {
+		if len(systemRoot) < 3 || !isASCIILetter(systemRoot[0]) || systemRoot[1] != ':' || systemRoot[2] != '\\' && systemRoot[2] != '/' {
+			return false
+		}
+		for _, directory := range []string{"System32", "Sysnative"} {
+			if normalized == strings.ToLower(win32Normalize(systemRoot+`\`+directory+`\bash.exe`)) {
+				return true
+			}
+		}
+		return false
+	}
+	return legacyWSLBash.MatchString(normalized)
+}
+
+var legacyWSLBash = regexp.MustCompile(`^[a-z]:\\windows\\(?:system32|sysnative)\\bash\.exe$`)
+
+func isASCIILetter(b byte) bool { return b|0x20 >= 'a' && b|0x20 <= 'z' }
+
+// win32Normalize normalizes a Windows path as Node's path.win32.normalize
+// does for drive paths: backslashes, and . and .. resolved.
+func win32Normalize(p string) string {
+	slashed := strings.ReplaceAll(p, `\`, "/")
+	if slashed == "" {
+		return "."
+	}
+	trailing := strings.HasSuffix(slashed, "/")
+	cleaned := path.Clean(slashed)
+	if trailing && !strings.HasSuffix(cleaned, "/") {
+		cleaned += "/"
+	}
+	return strings.ReplaceAll(cleaned, "/", `\`)
+}
+
 // shellConfig is the shell strings run through (upstream getShellConfig).
-func (e *LocalEnv) shellConfig() (string, []string, error) {
+func (e *LocalEnv) shellConfig() (shellCommand, error) {
 	if path := e.options.ShellPath; path != "" {
 		if _, err := os.Stat(path); err != nil {
-			return "", nil, &ExecutionError{Code: "shell_unavailable", Message: "Custom shell path not found: " + path}
+			return shellCommand{}, &ExecutionError{Code: "shell_unavailable", Message: "Custom shell path not found: " + path}
 		}
-		return path, []string{"-c"}, nil
+		return bashShellConfig(path), nil
 	}
 	if runtime.GOOS == "windows" {
 		var candidates []string
@@ -169,29 +233,29 @@ func (e *LocalEnv) shellConfig() (string, []string, error) {
 		}
 		for _, candidate := range candidates {
 			if _, err := os.Stat(candidate); err == nil {
-				return candidate, []string{"-c"}, nil
+				return bashShellConfig(candidate), nil
 			}
 		}
 		if bash, err := exec.LookPath("bash.exe"); err == nil {
-			return bash, []string{"-c"}, nil
+			return bashShellConfig(bash), nil
 		}
 		searched := ""
 		for _, candidate := range candidates {
 			searched += "\n  " + candidate
 		}
-		return "", nil, &ExecutionError{Code: "shell_unavailable", Message: "No bash shell found. Options:\n" +
+		return shellCommand{}, &ExecutionError{Code: "shell_unavailable", Message: "No bash shell found. Options:\n" +
 			"  1. Install Git for Windows: https://git-scm.com/download/win\n" +
 			"  2. Add your bash to PATH (Cygwin, MSYS2, etc.)\n" +
 			"  3. Configure an explicit shellPath\n\n" +
 			"Searched Git Bash in:" + searched}
 	}
 	if _, err := os.Stat("/bin/bash"); err == nil {
-		return "/bin/bash", []string{"-c"}, nil
+		return bashShellConfig("/bin/bash"), nil
 	}
 	if bash, err := exec.LookPath("bash"); err == nil {
-		return bash, []string{"-c"}, nil
+		return bashShellConfig(bash), nil
 	}
-	return "sh", []string{"-c"}, nil
+	return shellCommand{shell: "sh", args: []string{"-c"}}, nil
 }
 
 // commandEnv is a command's environment (upstream getShellEnv).
@@ -243,8 +307,9 @@ func spawnError(program string, err error) error {
 	return &ExecutionError{Code: "spawn_error", Message: message, Err: fmt.Errorf("%w: %v", ErrSpawn, err)}
 }
 
-// execute runs argv with options.
-func (e *LocalEnv) execute(ctx context.Context, argv []string, options ExecOptions) (ShellExecResult, error) {
+// execute runs argv with options, with stdin, when it is not empty, as its
+// input.
+func (e *LocalEnv) execute(ctx context.Context, argv []string, options ExecOptions, stdin string) (ShellExecResult, error) {
 	cwd := e.cwd
 	if options.Cwd != "" {
 		cwd = e.resolve(options.Cwd)
@@ -257,6 +322,9 @@ func (e *LocalEnv) execute(ctx context.Context, argv []string, options ExecOptio
 	cmd := exec.CommandContext(runCtx, argv[0], argv[1:]...)
 	cmd.Dir = cwd
 	cmd.Env = e.commandEnv(options)
+	if stdin != "" {
+		cmd.Stdin = strings.NewReader(stdin)
+	}
 	configureProcess(cmd)
 
 	var mu sync.Mutex

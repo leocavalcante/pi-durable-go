@@ -50,22 +50,33 @@ func splitLinesForCounting(content string) []string {
 // and maxReadBytes, given a prefix of it (the whole text, or more than
 // maxReadBytes+1 bytes) and its totals (upstream truncateHeadOf).
 func truncateHeadOf(prefix string, totalLines, totalBytes int) headTruncation {
-	if totalLines <= maxReadLines && totalBytes <= maxReadBytes {
+	return truncateHeadWith(prefix, totalLines, totalBytes, maxReadLines, maxReadBytes)
+}
+
+// truncateHead is upstream's truncateHead: the first whole lines of content
+// within the limits.
+func truncateHead(content string, maxLines, maxBytes int) headTruncation {
+	return truncateHeadWith(content, len(splitLinesForCounting(content)), len(content), maxLines, maxBytes)
+}
+
+// truncateHeadWith is truncateHeadOf with its limits.
+func truncateHeadWith(prefix string, totalLines, totalBytes, maxLines, maxBytes int) headTruncation {
+	if totalLines <= maxLines && totalBytes <= maxBytes {
 		return headTruncation{content: prefix, totalLines: totalLines, outputLines: totalLines}
 	}
 	lines := splitLinesForCounting(prefix)
-	if len(lines) > 0 && len(lines[0]) > maxReadBytes {
+	if len(lines) > 0 && len(lines[0]) > maxBytes {
 		return headTruncation{truncated: true, truncatedBy: "bytes", totalLines: totalLines, firstLineExceeds: true}
 	}
 	var kept []string
 	size := 0
 	by := "lines"
-	for i := 0; i < len(lines) && i < maxReadLines; i++ {
+	for i := 0; i < len(lines) && i < maxLines; i++ {
 		n := len(lines[i])
 		if i > 0 {
 			n++
 		}
-		if size+n > maxReadBytes {
+		if size+n > maxBytes {
 			by = "bytes"
 			break
 		}

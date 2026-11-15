@@ -94,7 +94,7 @@ func (e *LocalEnv) Exists(ctx context.Context, path string) (bool, error) {
 // named prefix and six random letters and digits, as Node's mkdtemp does
 // (upstream NodeExecutionEnv.createTempDir).
 func (e *LocalEnv) CreateTempDir(ctx context.Context, prefix string) (string, error) {
-	if err := ctx.Err(); err != nil {
+	if err := aborted(ctx, ""); err != nil {
 		return "", err
 	}
 	return mkdtemp(prefix)
@@ -155,16 +155,12 @@ func randomUUID() string {
 
 // ReadFile reads the named file; relative paths are based at CWD.
 func (e *LocalEnv) ReadFile(ctx context.Context, path string) ([]byte, error) {
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	data, err := os.ReadFile(e.resolve(path))
-	return data, nodeError(err)
+	return e.ReadBinaryFile(ctx, path)
 }
 
 // OpenFile opens path for streaming reads (FileOpener).
 func (e *LocalEnv) OpenFile(ctx context.Context, path string) (io.ReadCloser, error) {
-	if err := ctx.Err(); err != nil {
+	if err := aborted(ctx, e.resolve(path)); err != nil {
 		return nil, err
 	}
 	f, err := os.Open(e.resolve(path))
@@ -180,14 +176,14 @@ func (e *LocalEnv) OpenFile(ctx context.Context, path string) (io.ReadCloser, er
 // gets 0666 less the umask. Relative paths are based at CWD. The write is in
 // place, not atomic.
 func (e *LocalEnv) WriteFile(ctx context.Context, path string, data []byte) error {
-	if err := ctx.Err(); err != nil {
+	path = e.resolve(path)
+	if err := aborted(ctx, path); err != nil {
 		return err
 	}
-	path = e.resolve(path)
 	if err := mkdirAll(filepath.Dir(path)); err != nil {
 		return err
 	}
-	if err := ctx.Err(); err != nil {
+	if err := aborted(ctx, path); err != nil {
 		return err
 	}
 	return nodeError(os.WriteFile(path, data, 0o666))

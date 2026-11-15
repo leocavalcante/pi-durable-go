@@ -4,6 +4,13 @@ All notable changes to pi-durable-go, the experimental Go port of Pi Durable.
 Commits follow [Conventional Commits](https://www.conventionalcommits.org/), and
 versions follow semantic versioning: before v1, a minor version may change the API.
 
+## Unreleased
+
+- `fix(tools)`: file operations of an ended context fail as upstream's `aborted`
+  `FileError`, `WriteFile` and temporary files included, and Windows' legacy WSL
+  launcher gets commands on stdin, as upstream's environment sends them. Upstream's
+  environment, line scanner, and truncation tests run as Go tests.
+
 ## v0.1.0 (2026-11-15)
 
 The first release. It ports upstream Pi Durable's model and harness with v1.5.2
