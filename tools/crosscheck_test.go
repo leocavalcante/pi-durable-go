@@ -262,3 +262,59 @@ func TestCrosscheckReadPaths(t *testing.T) {
 		}
 	}
 }
+
+// TestCrosscheckToolErrors compares the coding tools' failures over a local
+// environment with upstream's over a Node environment: the model reads
+// Node's error messages there.
+func TestCrosscheckToolErrors(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("permissions do not apply to root")
+	}
+	dir := t.TempDir()
+	for _, sub := range []string{"sub", "ro"} {
+		if err := os.Mkdir(filepath.Join(dir, sub), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for name, content := range map[string]string{"ok.txt": "hi\n", "locked.txt": "secret\n", "ro/file.txt": "data\n"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Chmod(filepath.Join(dir, "locked.txt"), 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(filepath.Join(dir, "ro"), 0o555); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(filepath.Join(dir, "ro"), 0o755) })
+	cases := [][2]string{
+		{"write", `{"path":"sub","content":"x"}`}, {"write", `{"path":"ok.txt/inner.txt","content":"x"}`},
+		{"write", `{"path":"ok.txt/a/b.txt","content":"x"}`}, {"write", `{"path":"ro/new.txt","content":"x"}`},
+		{"write", `{"path":"ro/sub/new.txt","content":"x"}`}, {"write", `{"path":"locked.txt","content":"x"}`},
+		{"write", `{"path":"ro/x/y/new.txt","content":"x"}`},
+		{"edit", `{"path":"missing.txt","edits":[{"oldText":"a","newText":"b"}]}`}, {"edit", `{"path":"sub","edits":[{"oldText":"a","newText":"b"}]}`},
+		{"edit", `{"path":"locked.txt","edits":[{"oldText":"a","newText":"b"}]}`}, {"edit", `{"path":"ok.txt/x","edits":[{"oldText":"a","newText":"b"}]}`},
+		{"read", `{"path":"locked.txt"}`}, {"read", `{"path":"sub"}`}, {"read", `{"path":"nope/missing.txt"}`}, {"read", `{"path":"ok.txt/inner"}`},
+	}
+	var list [][2]any
+	for _, c := range cases {
+		list = append(list, [2]any{c[0], json.RawMessage(c[1])})
+	}
+	var want []struct {
+		Text        string   `json:"text"`
+		Diagnostics []string `json:"diagnostics"`
+		Error       string   `json:"error"`
+	}
+	crosscheck.Run(t, "codingTool", map[string]any{"dir": dir, "cases": list}, &want)
+	for i, c := range cases {
+		got, _ := runCoding(t, dir, c[0], c[1])
+		expected := want[i].Text
+		if want[i].Error != "" {
+			expected = "<harness>\n[error] " + want[i].Error + "\n</harness>"
+		}
+		if got.Content != expected {
+			t.Errorf("%s %s:\n got %q\nwant %q", c[0], c[1], got.Content, expected)
+		}
+	}
+}

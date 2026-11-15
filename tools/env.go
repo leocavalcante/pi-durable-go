@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -74,7 +75,7 @@ func (e *LocalEnv) Exists(ctx context.Context, path string) (bool, error) {
 	if errors.Is(err, os.ErrNotExist) {
 		return false, nil
 	}
-	return err == nil, err
+	return err == nil, nodeError(err)
 }
 
 // ReadFile reads the named file; relative paths are based at CWD.
@@ -84,14 +85,16 @@ func (e *LocalEnv) CreateTempDir(ctx context.Context, prefix string) (string, er
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
-	return os.MkdirTemp("", prefix+"*")
+	dir, err := os.MkdirTemp("", prefix+"*")
+	return dir, nodeError(err)
 }
 
 func (e *LocalEnv) ReadFile(ctx context.Context, path string) ([]byte, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	return os.ReadFile(e.resolve(path))
+	data, err := os.ReadFile(e.resolve(path))
+	return data, nodeError(err)
 }
 
 // OpenFile opens path for streaming reads (FileOpener).
@@ -99,7 +102,11 @@ func (e *LocalEnv) OpenFile(ctx context.Context, path string) (io.ReadCloser, er
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	return os.Open(e.resolve(path))
+	f, err := os.Open(e.resolve(path))
+	if err != nil {
+		return nil, nodeError(err)
+	}
+	return nodeFile{f}, nil
 }
 
 // WriteFile writes data to path as upstream's Node environment does
@@ -113,12 +120,12 @@ func (e *LocalEnv) WriteFile(ctx context.Context, path string, data []byte) erro
 	}
 	path = e.resolve(path)
 	if err := os.MkdirAll(filepath.Dir(path), 0o777); err != nil {
-		return err
+		return nodeError(err)
 	}
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	return os.WriteFile(path, data, 0o666)
+	return nodeError(os.WriteFile(path, data, 0o666))
 }
 
 // Exec executes command through bash, or /bin/sh without bash. Output is combined and retained as a
@@ -253,21 +260,39 @@ var mutations = struct {
 
 // mutationKey is a file's canonical path; for a file that does not exist
 // yet, its canonical parent joined with its name, so a write that creates a
-// file and a later edit share one key even under a symlinked directory.
-func mutationKey(env *LocalEnv, path string) string {
-	canonical := env.resolve(path)
-	if resolved, err := filepath.EvalSymlinks(canonical); err == nil {
-		canonical = resolved
-	} else if parent, err := filepath.EvalSymlinks(filepath.Dir(canonical)); err == nil {
-		canonical = filepath.Join(parent, filepath.Base(canonical))
+// file and a later edit share one key even under a symlinked directory
+// (upstream canonical). A path that cannot be resolved otherwise fails, as
+// Node's realpath reports it.
+func mutationKey(env *LocalEnv, path string) (string, error) {
+	return canonicalPath(filepath.Clean(env.resolve(path)))
+}
+
+func canonicalPath(path string) (string, error) {
+	resolved, err := filepath.EvalSymlinks(path)
+	if err == nil {
+		return resolved, nil
 	}
-	return filepath.Clean(canonical)
+	if !errors.Is(err, fs.ErrNotExist) {
+		return "", realpathError(path, err)
+	}
+	parent := filepath.Dir(path)
+	if parent == path {
+		return path, nil
+	}
+	canonicalParent, err := canonicalPath(parent)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(canonicalParent, filepath.Base(path)), nil
 }
 
 // queueMutation waits for the earlier mutations of the file and returns the
 // release that lets the next one run.
-func queueMutation(env *LocalEnv, path string) func() {
-	key := mutationKey(env, path)
+func queueMutation(env *LocalEnv, path string) (func(), error) {
+	key, err := mutationKey(env, path)
+	if err != nil {
+		return nil, err
+	}
 	done := make(chan struct{})
 	mutations.Lock()
 	previous := mutations.tails[key]
@@ -286,7 +311,7 @@ func queueMutation(env *LocalEnv, path string) func() {
 			mutations.Unlock()
 			close(done)
 		})
-	}
+	}, nil
 }
 
 var _ io.Writer = writerFunc(nil)

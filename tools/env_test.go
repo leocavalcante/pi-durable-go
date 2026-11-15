@@ -88,7 +88,18 @@ func TestFileMutationsRunInArrivalOrder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	key := mutationKey(env, "a.txt")
+	key, err := mutationKey(env, "a.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	queue := func(path string) func() {
+		release, err := queueMutation(env, path)
+		if err != nil {
+			t.Error(err)
+			return func() {}
+		}
+		return release
+	}
 	tail := func() chan struct{} {
 		mutations.Lock()
 		defer mutations.Unlock()
@@ -106,10 +117,10 @@ func TestFileMutationsRunInArrivalOrder(t *testing.T) {
 		t.Fatal("a mutation never queued")
 		return nil
 	}
-	first := queueMutation(env, "a.txt")
+	first := queue("a.txt")
 	order := make(chan int, 3)
 	after := func(n int, path string) {
-		release := queueMutation(env, path)
+		release := queue(path)
 		order <- n
 		release()
 	}
@@ -119,7 +130,7 @@ func TestFileMutationsRunInArrivalOrder(t *testing.T) {
 	go after(3, "a.txt")
 	queued(third)
 	// Other files never wait.
-	other := queueMutation(env, "b.txt")
+	other := queue("b.txt")
 	other()
 	order <- 1
 	first()

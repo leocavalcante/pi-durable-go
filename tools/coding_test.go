@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -430,5 +431,58 @@ func TestShellDiagnosticsKeepUpstreamOrder(t *testing.T) {
 	truncated := strings.Index(result.Content, "Output truncated to its end")
 	if !result.IsError || full < 0 || exit < full || truncated < exit {
 		t.Fatalf("result=%q", result.Content[max(0, len(result.Content)-600):])
+	}
+}
+
+// The local environment's file errors read as Node's, which upstream's
+// tools pass to the model (TestCrosscheckToolErrors), and a path that cannot
+// be resolved fails before the mutation, as upstream's mutation queue makes
+// it.
+func TestToolErrorsReadAsNodes(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("permissions do not apply to root")
+	}
+	dir := t.TempDir()
+	for _, sub := range []string{"sub", "ro"} {
+		if err := os.Mkdir(filepath.Join(dir, sub), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for name, content := range map[string]string{"ok.txt": "hi\n", "locked.txt": "secret\n"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Chmod(filepath.Join(dir, "locked.txt"), 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(filepath.Join(dir, "ro"), 0o555); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(filepath.Join(dir, "ro"), 0o755) })
+	for _, c := range []struct{ tool, args, want string }{
+		{"write", `{"path":"sub","content":"x"}`, "EISDIR: illegal operation on a directory, open '" + dir + "/sub'"},
+		{"write", `{"path":"ok.txt/inner.txt","content":"x"}`, "ENOTDIR: not a directory, realpath '" + dir + "/ok.txt/inner.txt'"},
+		{"write", `{"path":"ro/new.txt","content":"x"}`, "EACCES: permission denied, open '" + dir + "/ro/new.txt'"},
+		{"write", `{"path":"ro/x/y/new.txt","content":"x"}`, "EACCES: permission denied, mkdir '" + dir + "/ro/x'"},
+		{"edit", `{"path":"missing.txt","edits":[{"oldText":"a","newText":"b"}]}`, "Could not edit file: missing.txt. Error code: not_found."},
+		{"edit", `{"path":"ok.txt/x","edits":[{"oldText":"a","newText":"b"}]}`, "ENOTDIR: not a directory, realpath '" + dir + "/ok.txt/x'"},
+		{"read", `{"path":"locked.txt"}`, "EACCES: permission denied, open '" + dir + "/locked.txt'"},
+		{"read", `{"path":"sub"}`, "EISDIR: illegal operation on a directory, read"},
+		{"read", `{"path":"nope/missing.txt"}`, "ENOENT: no such file or directory, open '" + dir + "/nope/missing.txt'"},
+		{"read", `{"path":"ok.txt/inner"}`, "ENOTDIR: not a directory, lstat '" + dir + "/ok.txt/inner'"},
+	} {
+		got, _ := runCoding(t, dir, c.tool, c.args)
+		if want := "<harness>\n[error] " + c.want + "\n</harness>"; got.Content != want {
+			t.Errorf("%s %s:\n got %q\nwant %q", c.tool, c.args, got.Content, want)
+		}
+	}
+	// The error keeps its kind.
+	env, err := NewLocalEnv(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := env.ReadFile(context.Background(), "missing.txt"); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("missing file: %v", err)
 	}
 }

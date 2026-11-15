@@ -126,10 +126,10 @@ func env(rt *durable.ToolRuntime) (durable.ExecutionEnv, error) {
 	}
 	return e, nil
 }
-func lockMutation(e durable.ExecutionEnv, path string) func() {
+func lockMutation(e durable.ExecutionEnv, path string) (func(), error) {
 	local, ok := e.(*LocalEnv)
 	if !ok {
-		return func() {}
+		return func() {}, nil
 	}
 	return queueMutation(local, path)
 }
@@ -218,7 +218,10 @@ func writeTool(ctx context.Context, raw json.RawMessage, rt *durable.ToolRuntime
 	if err != nil {
 		return durable.ToolResult{}, err
 	}
-	unlock := lockMutation(e, target)
+	unlock, err := lockMutation(e, target)
+	if err != nil {
+		return durable.ToolResult{}, err
+	}
 	defer unlock()
 	if err := e.WriteFile(ctx, target, []byte(a.Content)); err != nil {
 		return durable.ToolResult{}, err
@@ -245,7 +248,10 @@ func editTool(ctx context.Context, raw json.RawMessage, rt *durable.ToolRuntime)
 	if err != nil {
 		return durable.ToolResult{}, err
 	}
-	unlock := lockMutation(e, target)
+	unlock, err := lockMutation(e, target)
+	if err != nil {
+		return durable.ToolResult{}, err
+	}
 	defer unlock()
 	original, err := e.ReadFile(ctx, target)
 	if err != nil {

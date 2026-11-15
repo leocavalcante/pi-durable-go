@@ -90,6 +90,32 @@ const ops: Record<string, (input: any) => Promise<unknown>> = {
 		return out;
 	},
 
+	/** A coding tool (read, write, or edit) over a Node environment in dir: its output, diagnostics, or thrown error. */
+	async codingTool({ dir, cases }: { dir: string; cases: [string, Record<string, unknown>][] }) {
+		const tools: Record<string, any> = {
+			read: (await durable("tools/read.ts")).createReadTool(),
+			write: (await durable("tools/write.ts")).createWriteTool(),
+			edit: (await durable("tools/edit.ts")).createEditTool(),
+		};
+		const { NodeExecutionEnv } = await durable("env/node.ts");
+		const { BACKGROUND_CONTEXT } = await chord("context/index.ts");
+		const env = new NodeExecutionEnv({ cwd: dir });
+		const out: unknown[] = [];
+		for (const [name, args] of cases) {
+			const api = { env, diagnostic: () => {}, output: () => {}, retainedOutput: () => ({ text: "", truncated: false }) };
+			try {
+				const result = await tools[name].execute(args, api, BACKGROUND_CONTEXT);
+				out.push({
+					text: (result.output ?? []).map((block: any) => (block.type === "text" ? block.text : "[image]")).join(""),
+					diagnostics: (result.diagnostics ?? []).map((d: any) => `${d.severity}|${d.code ?? ""}|${d.message}`),
+				});
+			} catch (error: any) {
+				out.push({ error: String(error?.message ?? error) });
+			}
+		}
+		return out;
+	},
+
 	/** A summarized transcript and each message's token estimate. */
 	async serialize({ messages }: { messages: unknown[] }) {
 		const compaction = await durable("harness/compaction.ts");
