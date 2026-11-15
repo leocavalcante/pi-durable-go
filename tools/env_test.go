@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -191,5 +192,38 @@ func TestTempPathsAreNamedAsNodes(t *testing.T) {
 	}
 	if data, err := os.ReadFile(spill[1]); err != nil || !strings.HasPrefix(string(data), "1\n2\n") || !strings.HasSuffix(string(data), "2999\n3000\n") {
 		t.Fatalf("spill content %d bytes %v", len(data), err)
+	}
+}
+
+// Each output stream is decoded as upstream's StreamDecoder decodes it: a
+// byte-order mark at its start dropped, a character split across writes
+// joined, an invalid byte replaced, and stdout and stderr decoded apart.
+func TestExecDecodesEachStream(t *testing.T) {
+	if _, err := exec.LookPath("bash"); err != nil {
+		t.Skip("bash is not installed")
+	}
+	env, err := NewLocalEnv(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	run := func(command string) string {
+		var got strings.Builder
+		if _, err := env.Exec(context.Background(), command, func(text string) error {
+			got.WriteString(text)
+			return nil
+		}); err != nil {
+			t.Fatal(err)
+		}
+		return got.String()
+	}
+	if got := run(`printf '\xef\xbb\xbfA\xc3'; sleep 0.05; printf '\xa9\xff\n'`); got != "Aé\ufffd\n" {
+		t.Fatalf("stdout: %q", got)
+	}
+	got := run(`printf '\xc3' >&2; sleep 0.05; printf 'x'; sleep 0.05; printf '\xa9' >&2`)
+	if strings.ContainsRune(got, '\ufffd') || !strings.Contains(got, "x") || !strings.Contains(got, "é") {
+		t.Fatalf("streams: %q", got)
+	}
+	if got := run(`printf 'ok\xe2\x9c'`); got != "ok\ufffd" {
+		t.Fatalf("cut short: %q", got)
 	}
 }

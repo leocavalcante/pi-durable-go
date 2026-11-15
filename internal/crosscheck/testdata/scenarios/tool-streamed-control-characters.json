@@ -1,0 +1,50 @@
+{
+ "name": "tool-streamed-control-characters",
+ "tools": [
+  {
+   "name": "streamer",
+   "parameters": {
+    "type": "object"
+   },
+   "results": [
+    {
+     "stream": [
+      "plain\n",
+      "nul\u0000byte and bell\u0007\n",
+      "\u001b[31mred\u001b[0m and \u001b]0;title\u0007osc\n",
+      "crlf line\r\n",
+      "tab\tkept\n",
+      "\u001bcreset \u001b(B charset\n",
+      "annotation\ufff9x\ufffay\ufffbz\n",
+      "del\u007f and c1\u0085 kept?\n"
+     ]
+    }
+   ]
+  }
+ ],
+ "model": [
+  {
+   "calls": [
+    {
+     "id": "c1",
+     "name": "streamer",
+     "args": {}
+    }
+   ]
+  },
+  {
+   "text": "done"
+  }
+ ],
+ "steps": [
+  {
+   "submit": {
+    "type": "input",
+    "content": "go"
+   }
+  },
+  {
+   "wait": "settled"
+  }
+ ]
+}

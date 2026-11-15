@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -47,15 +46,15 @@ func (r *ToolRuntime) CommitChange(ctx context.Context, change func(*Tx) error) 
 	})
 }
 
-// maxToolOutputBytes bounds a running tool's committed output, keeping the tail.
-const maxToolOutputBytes = 50 * 1024
-
-// Output appends progress to the call's pi.live slot, keeping the trailing
-// 50 KiB. It is presentation, not task progress: the checkpoint is
-// unchanged, so output does not reset the task's crash count. Commits are
-// throttled to Settings.Progress.OutputIntervalMs (default 100 ms), with one
-// in flight; the call's result flushes what is pending, while a crash loses
-// at most about one interval. With an interval of 0, each call commits.
+// Output adds running output to the call's retained window, the head or
+// tail of its tool's output limits (upstream api.output), and publishes the
+// window, sanitized, to its pi.live slot. It is presentation, not task
+// progress: the checkpoint is unchanged, so output does not reset the
+// task's crash count. Commits are throttled to
+// Settings.Progress.OutputIntervalMs (default 100 ms), with one in flight;
+// the call's result flushes what is pending, while a crash loses at most
+// about one interval. With an interval of 0, each call commits. Text is
+// decoded as one UTF-8 stream, so a character split across calls survives.
 func (r *ToolRuntime) Output(ctx context.Context, text string) error {
 	if err := r.check(); err != nil {
 		return err
@@ -64,12 +63,17 @@ func (r *ToolRuntime) Output(ctx context.Context, text string) error {
 	if ms := r.h.settings().Progress.OutputIntervalMs; ms != nil && *ms >= 0 {
 		interval = time.Duration(*ms * float64(time.Millisecond))
 	}
-	if interval == 0 {
-		return r.commitOutput(ctx, text)
-	}
 	r.output.mu.Lock()
+	if !r.output.retained().push(text) {
+		r.output.mu.Unlock()
+		return nil
+	}
+	r.output.dirty = true
+	if interval == 0 {
+		r.output.mu.Unlock()
+		return r.commitOutput(ctx)
+	}
 	defer r.output.mu.Unlock()
-	r.output.pending.WriteString(text)
 	if !r.output.armed && !r.output.stopped {
 		r.output.armed = true
 		r.output.disarm = r.SetTimer(r.flushOutput, interval)
@@ -77,10 +81,12 @@ func (r *ToolRuntime) Output(ctx context.Context, text string) error {
 	return nil
 }
 
-// outputThrottle buffers running output between throttled commits.
+// outputThrottle keeps a call's running output and paces its commits.
 type outputThrottle struct {
 	mu          sync.Mutex
-	pending     strings.Builder
+	buffer      *outputBuffer    // the retained window; nil until used
+	limits      *OutputLimits    // the tool's limits, defaults filled in
+	dirty       bool             // output not committed yet
 	diagnostics []ToolDiagnostic // reported, not yet in the slot
 	armed       bool
 	stopped     bool
@@ -88,21 +94,46 @@ type outputThrottle struct {
 	inFlight    sync.WaitGroup
 }
 
-func (r *ToolRuntime) commitOutput(ctx context.Context, text string, diagnostics ...ToolDiagnostic) error {
+// retained is the call's output window; mu is held.
+func (o *outputThrottle) retained() *outputBuffer {
+	if o.buffer == nil {
+		limits := outputLimitsOf(nil)
+		if o.limits != nil {
+			limits = *o.limits
+		}
+		o.buffer = newOutputBuffer(limits)
+	}
+	return o.buffer
+}
+
+// snapshot is the retained output now; mu is not held.
+func (o *outputThrottle) snapshot() boundedOutput {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return o.retained().snapshot()
+}
+
+// commitOutput publishes the retained window as it is when the commit runs,
+// with diagnostics, to the call's slot.
+func (r *ToolRuntime) commitOutput(ctx context.Context, diagnostics ...ToolDiagnostic) error {
 	return r.CommitWith(ctx, progressCommit(), func(tx *Tx) (TaskTransition, error) {
 		task, err := tx.Task(r.ID)
 		if err != nil {
 			return TaskTransition{}, err
 		}
+		r.output.mu.Lock()
+		r.output.dirty = false
+		snapshot := r.output.retained().snapshot()
+		r.output.mu.Unlock()
 		if err := r.updateLive(tx, func(slot *ToolSlot) {
 			slot.Diagnostics = append(slot.Diagnostics, diagnostics...)
-			combined := slot.Output + text
-			kept := tailBytes(combined, maxToolOutputBytes)
-			if dropped := combined[:len(combined)-len(kept)]; dropped != "" {
-				slot.DroppedBytes += len(dropped)
-				slot.DroppedLines += strings.Count(dropped, "\n")
+			slot.Output = snapshot.text
+			if snapshot.droppedBytes > 0 {
+				slot.DroppedBytes = snapshot.droppedBytes
 			}
-			slot.Output = kept
+			if snapshot.droppedLines > 0 {
+				slot.DroppedLines = snapshot.droppedLines
+			}
 		}); err != nil {
 			return TaskTransition{}, err
 		}
@@ -112,25 +143,24 @@ func (r *ToolRuntime) commitOutput(ctx context.Context, text string, diagnostics
 
 func (r *ToolRuntime) flushOutput() {
 	r.output.mu.Lock()
-	text := r.output.pending.String()
+	dirty := r.output.dirty
 	diagnostics := r.output.diagnostics
-	r.output.pending.Reset()
 	r.output.diagnostics = nil
 	r.output.armed = false
-	if text == "" && len(diagnostics) == 0 || r.output.stopped {
+	if !dirty && len(diagnostics) == 0 || r.output.stopped {
 		r.output.mu.Unlock()
 		return
 	}
 	r.output.inFlight.Add(1)
 	r.output.mu.Unlock()
-	if err := r.commitOutput(context.Background(), text, diagnostics...); err != nil && r.check() == nil {
+	if err := r.commitOutput(context.Background(), diagnostics...); err != nil && r.check() == nil {
 		r.Report(err)
 	}
 	r.output.inFlight.Done()
 }
 
-// stopOutput ends throttling and commits what is still pending, so the
-// result reads every output the tool produced.
+// stopOutput ends the output stream and its throttling and commits what is
+// still pending, so the result reads every output the tool produced.
 func (r *ToolRuntime) stopOutput(ctx context.Context) error {
 	r.output.mu.Lock()
 	r.output.stopped = true
@@ -141,15 +171,17 @@ func (r *ToolRuntime) stopOutput(ctx context.Context) error {
 	}
 	r.output.inFlight.Wait()
 	r.output.mu.Lock()
-	text := r.output.pending.String()
+	if r.output.buffer != nil && r.output.buffer.end() {
+		r.output.dirty = true
+	}
+	dirty := r.output.dirty
 	diagnostics := r.output.diagnostics
-	r.output.pending.Reset()
 	r.output.diagnostics = nil
 	r.output.mu.Unlock()
-	if text == "" && len(diagnostics) == 0 {
+	if !dirty && len(diagnostics) == 0 {
 		return nil
 	}
-	return r.commitOutput(ctx, text, diagnostics...)
+	return r.commitOutput(ctx, diagnostics...)
 }
 
 // tailBytes keeps at most max trailing bytes of s, starting at a rune boundary.

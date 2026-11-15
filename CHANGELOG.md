@@ -49,8 +49,8 @@ says how the port is compared with upstream's own code.
   and names temporary files as upstream's Node environment does.
 - **Cross-checks.** `make crosscheck` runs upstream's TypeScript sources on the same
   inputs as the Go code:
-  - 105 conversation scenarios replayed through upstream's Harness, 10 of them
-    with code mode and 4 with the coding tools on files;
+  - 111 conversation scenarios replayed through upstream's Harness, 10 of them
+    with code mode and 7 with the coding tools on files;
   - checks of argument coercion and validation, JSON parsing, partial arguments, the
     read and edit tools, compaction, and OpenAI requests and responses;
   - code mode's declarations, source parsing, prompt section, result formatting, and
@@ -78,6 +78,10 @@ No release carried the earlier behavior. These matter only to code that followed
 - `fix(tools)!`: a `pi.tool-result` entry's data is `{"diagnostics": [...]}`, as
   upstream's, and the result's details are on its message (`Message.Details`); it
   held the whole result before.
+- `fix(tools)!`: running output is kept in the window of the tool's output limits and
+  sanitized, as upstream chord's `OutputBuffer` keeps it, rather than as the trailing
+  50 KiB, and `bash` and `powershell` return no content: the Harness shows their
+  retained output, as upstream's does.
 - `feat(model)!`: model availability and `model.OpenAI` settings:
   - `OpenAI.StrictMode` replaces `NoStrictMode`;
   - an agent without a model fails runs with `no_model`;

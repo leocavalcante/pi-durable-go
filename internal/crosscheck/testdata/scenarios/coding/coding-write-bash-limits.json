@@ -1,0 +1,103 @@
+{
+ "name": "coding tools: writes and bash limits",
+ "coding": {
+  "files": {
+   "old.txt": "old content\n"
+  }
+ },
+ "model": [
+  {
+   "calls": [
+    {
+     "id": "c1",
+     "name": "write",
+     "args": {
+      "path": "old.txt",
+      "content": "new content"
+     }
+    }
+   ]
+  },
+  {
+   "calls": [
+    {
+     "id": "c2",
+     "name": "write",
+     "args": {
+      "path": "empty.txt",
+      "content": ""
+     }
+    }
+   ]
+  },
+  {
+   "calls": [
+    {
+     "id": "c3",
+     "name": "bash",
+     "args": {
+      "command": "cat old.txt empty.txt; echo"
+     }
+    }
+   ]
+  },
+  {
+   "calls": [
+    {
+     "id": "c4",
+     "name": "bash",
+     "args": {
+      "command": "head -c 60000 /dev/zero | tr '\\\\0' 'y'; echo"
+     }
+    }
+   ]
+  },
+  {
+   "calls": [
+    {
+     "id": "c5",
+     "name": "bash",
+     "args": {
+      "command": "for i in $(seq 1 600); do printf 'row %03d %s\\\\n' $i 'abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz'; done"
+     }
+    }
+   ]
+  },
+  {
+   "calls": [
+    {
+     "id": "c6",
+     "name": "bash",
+     "args": {
+      "command": "printf 'h\\\\xc3\\\\xa9llo w\\\\xc3\\\\xb6rld \\\\xe2\\\\x9c\\\\x93\\\\n'"
+     }
+    }
+   ]
+  },
+  {
+   "calls": [
+    {
+     "id": "c7",
+     "name": "bash",
+     "args": {
+      "command": "echo partial; printf 'no newline'; exit 1"
+     }
+    }
+   ]
+  },
+  {
+   "text": "done"
+  }
+ ],
+ "steps": [
+  {
+   "submit": {
+    "type": "input",
+    "content": "go"
+   }
+  },
+  {
+   "wait": "settled"
+  }
+ ]
+}

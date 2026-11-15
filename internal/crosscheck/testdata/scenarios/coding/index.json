@@ -2,5 +2,8 @@
  "coding-files",
  "coding-bash",
  "coding-errors",
- "coding-image"
+ "coding-image",
+ "coding-edit-matching",
+ "coding-read-limits",
+ "coding-write-bash-limits"
 ]

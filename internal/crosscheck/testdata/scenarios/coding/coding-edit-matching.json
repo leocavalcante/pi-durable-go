@@ -1,0 +1,184 @@
+{
+ "name": "coding tools: edit matching",
+ "coding": {
+  "files": {
+   "crlf.txt": "one\r\ntwo\r\nthree\r\n",
+   "bom.txt": "\ufeffhello world\n",
+   "spaces.txt": "keep  \nvalue = 1   \nend\n",
+   "quotes.txt": "say \u201chello\u201d and it\u2019s fine \u2014 ok\n",
+   "multi.txt": "a1\nb2\nc3\nd4\n"
+  }
+ },
+ "model": [
+  {
+   "calls": [
+    {
+     "id": "c1",
+     "name": "edit",
+     "args": {
+      "path": "crlf.txt",
+      "edits": [
+       {
+        "oldText": "two\nthree",
+        "newText": "TWO\nTHREE"
+       }
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "calls": [
+    {
+     "id": "c2",
+     "name": "edit",
+     "args": {
+      "path": "bom.txt",
+      "edits": [
+       {
+        "oldText": "hello",
+        "newText": "goodbye"
+       }
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "calls": [
+    {
+     "id": "c3",
+     "name": "edit",
+     "args": {
+      "path": "spaces.txt",
+      "edits": [
+       {
+        "oldText": "value = 1\nend",
+        "newText": "value = 2\nend"
+       }
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "calls": [
+    {
+     "id": "c4",
+     "name": "edit",
+     "args": {
+      "path": "quotes.txt",
+      "edits": [
+       {
+        "oldText": "say \"hello\" and it's fine - ok",
+        "newText": "said hi"
+       }
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "calls": [
+    {
+     "id": "c5",
+     "name": "edit",
+     "args": {
+      "path": "multi.txt",
+      "edits": [
+       {
+        "oldText": "a1\nb2",
+        "newText": "A"
+       },
+       {
+        "oldText": "b2\nc3",
+        "newText": "B"
+       }
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "calls": [
+    {
+     "id": "c6",
+     "name": "edit",
+     "args": {
+      "path": "multi.txt",
+      "edits": [
+       {
+        "oldText": "d4",
+        "newText": "d4"
+       }
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "calls": [
+    {
+     "id": "c7",
+     "name": "edit",
+     "args": {
+      "path": "multi.txt",
+      "edits": [
+       {
+        "oldText": "",
+        "newText": "x"
+       }
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "calls": [
+    {
+     "id": "c8",
+     "name": "edit",
+     "args": {
+      "path": "multi.txt",
+      "edits": []
+     }
+    }
+   ]
+  },
+  {
+   "calls": [
+    {
+     "id": "c9",
+     "name": "edit",
+     "args": {
+      "path": "multi.txt",
+      "edits": [
+       {
+        "oldText": "c3",
+        "newText": "C3"
+       },
+       {
+        "oldText": "a1",
+        "newText": "A1"
+       }
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "text": "done"
+  }
+ ],
+ "steps": [
+  {
+   "submit": {
+    "type": "input",
+    "content": "go"
+   }
+  },
+  {
+   "wait": "settled"
+  }
+ ]
+}

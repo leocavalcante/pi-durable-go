@@ -1,0 +1,47 @@
+{
+ "name": "tool-streamed-head-beyond-window",
+ "tools": [
+  {
+   "name": "streamer",
+   "parameters": {
+    "type": "object"
+   },
+   "outputLimits": {
+    "retain": "head"
+   },
+   "results": [
+    {
+     "streamRepeat": {
+      "text": "a row of streamed output text that is fairly long\n",
+      "times": 3000
+     }
+    }
+   ]
+  }
+ ],
+ "model": [
+  {
+   "calls": [
+    {
+     "id": "c1",
+     "name": "streamer",
+     "args": {}
+    }
+   ]
+  },
+  {
+   "text": "done"
+  }
+ ],
+ "steps": [
+  {
+   "submit": {
+    "type": "input",
+    "content": "go"
+   }
+  },
+  {
+   "wait": "settled"
+  }
+ ]
+}

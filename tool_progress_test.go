@@ -3,6 +3,7 @@ package durable
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -323,9 +324,8 @@ func TestToolOutputCountsWhatItsBoundDrops(t *testing.T) {
 	published := make(chan struct{})
 	release := make(chan struct{})
 	registry := toolExtension("big", true, func(ctx context.Context, _ json.RawMessage, r *ToolRuntime) (ToolResult, error) {
-		line := strings.Repeat("y", 1023) + "\n"
 		for i := 0; i < 60; i++ {
-			if err := r.Output(ctx, line); err != nil {
+			if err := r.Output(ctx, fmt.Sprintf("%02d", i)+strings.Repeat("y", 1021)+"\n"); err != nil {
 				return ToolResult{}, err
 			}
 		}
@@ -342,7 +342,9 @@ func TestToolOutputCountsWhatItsBoundDrops(t *testing.T) {
 	sub := submit(t, root, SubmissionRequest{Content: "go"})
 	<-published
 	slot := toolSlot(t, h, root.ID(), toolTask(t, h).ID)
-	if len(slot.Output) != maxToolOutputBytes || slot.DroppedBytes != 60*1024-maxToolOutputBytes || slot.DroppedLines != 10 {
+	// The default limits keep the first 50 KiB, whole lines (upstream).
+	if len(slot.Output) != 50*1024 || slot.DroppedBytes != 10*1024 || slot.DroppedLines != 10 ||
+		!strings.HasPrefix(slot.Output, "00y") || !strings.Contains(slot.Output, "\n49y") || strings.Contains(slot.Output, "\n50y") {
 		t.Fatalf("output=%d dropped=%d/%d", len(slot.Output), slot.DroppedBytes, slot.DroppedLines)
 	}
 	close(release)

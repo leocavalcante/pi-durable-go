@@ -14,7 +14,6 @@ import (
 	"strings"
 	"syscall"
 	"time"
-	"unicode/utf8"
 
 	durable "github.com/leocavalcante/pi-durable-go"
 )
@@ -347,10 +346,19 @@ func shellTool(ctx context.Context, raw json.RawMessage, rt *durable.ToolRuntime
 	local, _ := e.(*LocalEnv)
 	spill := &outputSpill{env: local, enabled: local != nil}
 	defer spill.close()
+	streamed := false
 	res, err := run(runCtx, e, a.Command, func(text string) error {
+		streamed = true
 		spill.write(text)
 		return rt.Output(ctx, text)
 	})
+	// An environment that returns its output without streaming it.
+	if !streamed && res.Output != "" {
+		spill.write(res.Output)
+		if outputErr := rt.Output(ctx, res.Output); outputErr != nil && err == nil {
+			err = outputErr
+		}
+	}
 	// Reported as the call runs, so a timeout's error result keeps it too
 	// (upstream api.diagnostic).
 	if spill.path != "" {
@@ -365,19 +373,11 @@ func shellTool(ctx context.Context, raw json.RawMessage, rt *durable.ToolRuntime
 		}
 		return durable.ToolResult{}, err
 	}
-	content, droppedLines, droppedBytes := truncateTail(res.Output, spill.lines, spill.bytes)
-	// The exit code comes before the truncation note, which upstream's
-	// Harness adds after the result's own diagnostics.
-	var diagnostics []durable.ToolDiagnostic
-	if res.ExitCode != 0 {
-		diagnostics = append(diagnostics, durable.ToolDiagnostic{Severity: "error", Code: "exit_code", Message: fmt.Sprintf("Command exited with code %d", res.ExitCode)})
-	}
-	if droppedBytes > 0 {
-		diagnostics = append(diagnostics, durable.ToolDiagnostic{Severity: "warn", Code: "truncated",
-			Message: fmt.Sprintf("Output truncated to its end: %d lines, %d bytes dropped", droppedLines, droppedBytes)})
-	}
-	// Programs get the retained output with the exit code, also on an error.
-	output := map[string]any{"output": content, "truncated": droppedBytes > 0, "exitCode": res.ExitCode}
+	// The result's content is the output the call kept, which the Harness
+	// fills in, with a note after the exit code when the limits dropped some
+	// (upstream). Programs get the retained output with the exit code.
+	retained, truncated := rt.RetainedOutput(ctx)
+	output := map[string]any{"output": retained, "truncated": truncated, "exitCode": res.ExitCode}
 	if spill.path != "" {
 		output["fullOutputPath"] = spill.path
 	}
@@ -386,9 +386,10 @@ func shellTool(ctx context.Context, raw json.RawMessage, rt *durable.ToolRuntime
 		return durable.ToolResult{}, err
 	}
 	if res.ExitCode != 0 {
-		return durable.ToolResult{Content: content, StructuredOutput: structured, IsError: true, Diagnostics: diagnostics}, nil
+		exited := durable.ToolDiagnostic{Severity: "error", Code: "exit_code", Message: fmt.Sprintf("Command exited with code %d", res.ExitCode)}
+		return durable.ToolResult{StructuredOutput: structured, IsError: true, Diagnostics: []durable.ToolDiagnostic{exited}}, nil
 	}
-	return durable.ToolResult{Content: content, StructuredOutput: structured, Diagnostics: diagnostics}, nil
+	return durable.ToolResult{StructuredOutput: structured}, nil
 }
 
 // outputSpill counts a command's whole output and, once it passes the read
@@ -404,6 +405,9 @@ type outputSpill struct {
 }
 
 func (s *outputSpill) write(text string) {
+	if text == "" {
+		return
+	}
 	s.bytes += len(text)
 	s.lines += strings.Count(text, "\n")
 	if !s.enabled {
@@ -411,7 +415,12 @@ func (s *outputSpill) write(text string) {
 	}
 	if s.file == nil {
 		s.pending.WriteString(text)
-		if s.bytes <= maxReadBytes && s.lines <= maxReadLines {
+		// An unterminated last line counts (upstream).
+		lines := s.lines
+		if !strings.HasSuffix(text, "\n") {
+			lines++
+		}
+		if s.bytes <= maxReadBytes && lines <= maxReadLines {
 			return
 		}
 		// upstream: env.createTempFile({prefix: "pi-output-", suffix: ".log"})
@@ -436,43 +445,6 @@ func (s *outputSpill) close() {
 	if s.file != nil {
 		_ = s.file.Close()
 	}
-}
-
-// truncateTail keeps the last whole lines of a command's retained output
-// within the read limits, and counts what the whole output lost: totalLines
-// newlines and totalBytes bytes were produced in all.
-func truncateTail(retained string, totalNewlines, totalBytes int) (string, int, int) {
-	lines := strings.SplitAfter(retained, "\n")
-	if lines[len(lines)-1] == "" {
-		lines = lines[:len(lines)-1]
-	}
-	kept, size := 0, 0
-	for i := len(lines) - 1; i >= 0 && kept < maxReadLines; i-- {
-		if size+len(lines[i]) > maxReadBytes {
-			break
-		}
-		size += len(lines[i])
-		kept++
-	}
-	if kept == 0 && len(lines) > 0 { // one line over the limit: its end
-		last := lines[len(lines)-1]
-		cut := len(last) - maxReadBytes
-		for cut < len(last) && !utf8.RuneStart(last[cut]) {
-			cut++
-		}
-		content := last[cut:]
-		return content, totalNewlines - strings.Count(content, "\n"), max(totalBytes, len(retained)) - len(content)
-	}
-	content := strings.Join(lines[len(lines)-kept:], "")
-	if totalBytes < len(retained) { // an Exec that reports no output
-		totalBytes, totalNewlines = len(retained), strings.Count(retained, "\n")
-	}
-	droppedBytes := totalBytes - len(content)
-	droppedLines := totalNewlines - strings.Count(content, "\n")
-	if droppedBytes == 0 {
-		droppedLines = 0
-	}
-	return content, droppedLines, droppedBytes
 }
 
 // editAccessError is upstream's message for a file the edit tool cannot read

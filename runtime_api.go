@@ -2,7 +2,6 @@ package durable
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"time"
 )
@@ -138,7 +137,7 @@ func (r *ToolRuntime) Diagnostic(diagnostic ToolDiagnostic) {
 		interval = time.Duration(*ms * float64(time.Millisecond))
 	}
 	if interval == 0 {
-		if err := r.commitOutput(context.Background(), "", diagnostic); err != nil && r.check() == nil {
+		if err := r.commitOutput(context.Background(), diagnostic); err != nil && r.check() == nil {
 			r.Report(err)
 		}
 		return
@@ -161,29 +160,13 @@ func (r *ToolRuntime) takeDiagnostics() []ToolDiagnostic {
 	return out
 }
 
-// RetainedOutput is the running output the slot keeps, as the model would
-// see it if the call ended now (upstream api.retainedOutput): its trailing
-// 50 KiB, including output not committed yet, and whether earlier output was
-// dropped.
+// RetainedOutput is the running output the call keeps, as the model would
+// see it if the call ended now (upstream api.retainedOutput): the window of
+// its tool's output limits, sanitized, and whether the limits dropped
+// output.
 func (r *ToolRuntime) RetainedOutput(ctx context.Context) (string, bool) {
-	var text string
-	var dropped bool
-	if state, err := r.h.read(ctx); err == nil {
-		if doc, _ := state.document(documentKey(liveDocument, uint64(r.ConversationID))); doc != nil {
-			var live LiveState
-			if value, err := migratedDocument(liveDocument, doc); err == nil && json.Unmarshal(value, &live) == nil {
-				if slot := live.toolSlot(r.ID); slot != nil {
-					text, dropped = slot.Output, slot.DroppedBytes > 0
-				}
-			}
-		}
-	}
-	r.output.mu.Lock()
-	pending := r.output.pending.String()
-	r.output.mu.Unlock()
-	combined := text + pending
-	kept := tailBytes(combined, maxToolOutputBytes)
-	return kept, dropped || len(kept) < len(combined)
+	snapshot := r.output.snapshot()
+	return snapshot.text, snapshot.droppedBytes > 0
 }
 
 // Model is the Harness model for requests a task, hook, or tool makes itself,
@@ -233,34 +216,18 @@ func EachTaskHook[H any](ctx context.Context, r *TaskRuntime, invoke func(H) err
 	return nil
 }
 
-// retainedResult is the output a call's slot kept, for a result that omits
-// its content, and the note that it dropped some, worded with the tool's
-// output limits (upstream truncated(retained, limits.retain)).
-func (r *ToolRuntime) retainedResult(ctx context.Context, def *ToolDefinition) (string, *ToolDiagnostic) {
-	state, err := r.h.read(ctx)
-	if err != nil {
-		return "", nil
-	}
-	doc, _ := state.document(documentKey(liveDocument, uint64(r.ConversationID)))
-	if doc == nil {
-		return "", nil
-	}
-	var live LiveState
-	value, err := migratedDocument(liveDocument, doc)
-	if err != nil || json.Unmarshal(value, &live) != nil {
-		return "", nil
-	}
-	slot := live.toolSlot(r.ID)
-	if slot == nil {
-		return "", nil
-	}
-	if slot.DroppedBytes == 0 {
-		return slot.Output, nil
+// retainedResult is the output the call kept, for a result that omits its
+// content, and the note that the limits dropped some, worded with the
+// tool's retention (upstream truncated(retained, limits.retain)).
+func (r *ToolRuntime) retainedResult(def *ToolDefinition) (string, *ToolDiagnostic) {
+	snapshot := r.output.snapshot()
+	if snapshot.droppedBytes == 0 {
+		return snapshot.text, nil
 	}
 	kept := "beginning"
-	if def != nil && def.OutputLimits != nil && def.OutputLimits.Retain == "tail" {
+	if outputLimitsOf(def).Retain == "tail" {
 		kept = "end"
 	}
-	return slot.Output, &ToolDiagnostic{Severity: "warn", Code: "truncated",
-		Message: fmt.Sprintf("Output truncated to its %s: %d lines, %d bytes dropped", kept, slot.DroppedLines, slot.DroppedBytes)}
+	return snapshot.text, &ToolDiagnostic{Severity: "warn", Code: "truncated",
+		Message: fmt.Sprintf("Output truncated to its %s: %d lines, %d bytes dropped", kept, snapshot.droppedLines, snapshot.droppedBytes)}
 }

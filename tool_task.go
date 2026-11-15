@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"strings"
 	"time"
-	"unicode/utf8"
 )
 
 type toolTaskInput struct {
@@ -116,6 +115,8 @@ func resolveToolCall(ctx context.Context, r *TaskRuntime, task TaskRecord) (*too
 	}
 	call.runtime = &ToolRuntime{TaskRuntime: r, ConversationID: task.Conversation, Call: call.input.Call,
 		nested: call.input.Kind == "nested", noProgress: call.input.NoProgress}
+	limits := outputLimitsOf(call.def)
+	call.runtime.output.limits = &limits
 	call.hooks = registry.hooks(c.Agent)
 	return call, nil
 }
@@ -352,7 +353,7 @@ func runTool(ctx context.Context, r *TaskRuntime, task TaskRecord) error {
 	// output dropped some (upstream).
 	retained, truncation := "", (*ToolDiagnostic)(nil)
 	if result.Content == "" && len(result.Images) == 0 {
-		retained, truncation = runtime.retainedResult(ctx, def)
+		retained, truncation = runtime.retainedResult(def)
 		result.Content = retained
 	}
 	result.DurationMs = &durationMs
@@ -624,57 +625,10 @@ const (
 )
 
 // boundOutput keeps whole lines from the head or the tail of text within
-// the limits, and reports how many lines and bytes it dropped (upstream
-// chord boundOutput). A single line longer than the byte limit is cut at a
-// rune boundary, and counts as kept.
+// the limits, the defaults filled in, and reports how many lines and bytes
+// it dropped (upstream chord boundOutput). A single line longer than the
+// byte limit is cut at a rune boundary, and counts as kept.
 func boundOutput(text string, limits OutputLimits) (string, int, int) {
-	maxBytes, maxLines := limits.MaxBytes, limits.MaxLines
-	if maxBytes <= 0 {
-		maxBytes = defaultMaxOutputBytes
-	}
-	if maxLines <= 0 {
-		maxLines = defaultMaxOutputLines
-	}
-	lines := strings.SplitAfter(text, "\n")
-	if lines[len(lines)-1] == "" {
-		lines = lines[:len(lines)-1]
-	}
-	if len(text) <= maxBytes && len(lines) <= maxLines {
-		return text, 0, 0
-	}
-	tail := limits.Retain == "tail"
-	var kept []string
-	size := 0
-	for i := 0; i < len(lines) && len(kept) < maxLines; i++ {
-		line := lines[i]
-		if tail {
-			line = lines[len(lines)-1-i]
-		}
-		if size+len(line) > maxBytes {
-			if len(kept) == 0 { // one oversized line: keep what fits of it
-				if tail {
-					line = tailBytes(line, maxBytes)
-				} else {
-					cut := maxBytes
-					for cut > 0 && !utf8.RuneStart(line[cut]) {
-						cut--
-					}
-					line = line[:cut]
-				}
-				kept = append(kept, line)
-				size += len(line)
-			}
-			break
-		}
-		kept = append(kept, line)
-		size += len(line)
-	}
-	if tail {
-		for i, j := 0, len(kept)-1; i < j; i, j = i+1, j-1 {
-			kept[i], kept[j] = kept[j], kept[i]
-		}
-	}
-	// A line kept in part is kept (upstream chord's lineCount difference).
-	bounded := strings.Join(kept, "")
-	return bounded, len(lines) - len(kept), len(text) - len(bounded)
+	slice := boundSlice(text, outputLimitsOf(&ToolDefinition{OutputLimits: &limits}))
+	return slice.text, slice.droppedLines, slice.droppedBytes
 }

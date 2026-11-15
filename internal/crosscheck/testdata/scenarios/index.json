@@ -89,5 +89,8 @@
  "after-run-terminate",
  "malformed-arguments",
  "builtin-documents",
- "custom-head"
+ "custom-head",
+ "tool-streamed-control-characters",
+ "tool-streamed-head-beyond-window",
+ "tool-streamed-tail-lines-beyond-window"
 ]

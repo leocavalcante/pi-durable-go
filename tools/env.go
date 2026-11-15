@@ -16,9 +16,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	durable "github.com/leocavalcante/pi-durable-go"
+	"github.com/leocavalcante/pi-durable-go/internal/js"
 )
 
 const maxExecOutput = 64 * 1024
@@ -237,29 +239,40 @@ func (e *LocalEnv) run(ctx, runCtx context.Context, cancel context.CancelFunc, a
 	var output tailBuffer
 	var callbackMu sync.Mutex
 	var callbackErr error
-	writer := func(p []byte) (int, error) {
-		output.Write(p)
-		if onOutput == nil {
+	// emit passes decoded text on; callbackMu is held.
+	emit := func(text string) {
+		if text == "" {
+			return
+		}
+		output.Write([]byte(text))
+		if onOutput == nil || callbackErr != nil {
+			return
+		}
+		if callbackErr = onOutput(text); callbackErr != nil {
+			cancel()
+		}
+	}
+	// One decoder per stream, so a character split across chunks of one
+	// stream survives interleaving (upstream).
+	var stdout, stderr streamDecoder
+	stream := func(decoder *streamDecoder) writerFunc {
+		return func(p []byte) (int, error) {
+			callbackMu.Lock()
+			defer callbackMu.Unlock()
+			emit(decoder.decode(p, false))
+			// Keep consuming after failure, so the child cannot block on a full pipe.
 			return len(p), nil
 		}
-		callbackMu.Lock()
-		defer callbackMu.Unlock()
-		if callbackErr == nil {
-			callbackErr = onOutput(string(p))
-			if callbackErr != nil {
-				cancel()
-			}
-		}
-		// Keep consuming after failure, so the child cannot block on a full pipe.
-		return len(p), nil
 	}
-	cmd.Stdout = writerFunc(writer)
-	cmd.Stderr = writerFunc(writer)
+	cmd.Stdout = stream(&stdout)
+	cmd.Stderr = stream(&stderr)
 	if err := cmd.Start(); err != nil {
 		return durable.ExecResult{}, fmt.Errorf("%w: %v", ErrSpawn, err)
 	}
 	err := cmd.Wait()
 	callbackMu.Lock()
+	emit(stdout.decode(nil, true))
+	emit(stderr.decode(nil, true))
 	cbErr := callbackErr
 	callbackMu.Unlock()
 	if cbErr != nil {
@@ -278,6 +291,23 @@ func (e *LocalEnv) run(ctx, runCtx context.Context, cancel context.CancelFunc, a
 		return result, nil
 	}
 	return result, err
+}
+
+// streamDecoder decodes one output stream as upstream's StreamDecoder: as
+// UTF-8 decoded whole, a character split across chunks held back, and a
+// byte-order mark at the stream's very start dropped.
+type streamDecoder struct {
+	decoder js.UTF8Decoder
+	started bool
+}
+
+func (d *streamDecoder) decode(p []byte, end bool) string {
+	text := d.decoder.Decode(p, !end)
+	if d.started || text == "" {
+		return text
+	}
+	d.started = true
+	return strings.TrimPrefix(text, "\ufeff")
 }
 
 type writerFunc func([]byte) (int, error)
