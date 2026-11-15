@@ -6,7 +6,7 @@ An experimental Go port of [Pi Durable v1.5.2](https://github.com/earendil-works
 
 ## Requirements
 
-Go 1.24 or newer. SQLite uses a pure-Go driver; CGO is not required.
+Go 1.25 or newer. SQLite uses a pure-Go driver; CGO is not required.
 
 ```sh
 go get github.com/leocavalcante/pi-durable-go

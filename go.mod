@@ -1,14 +1,14 @@
 module github.com/leocavalcante/pi-durable-go
 
-go 1.24.0
+go 1.25.0
 
 require (
 	github.com/dlclark/regexp2 v1.12.0
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2
 	github.com/tetratelabs/wazero v1.11.0
-	golang.org/x/image v0.24.0
-	golang.org/x/sys v0.38.0
-	golang.org/x/text v0.22.0
+	golang.org/x/image v0.45.0
+	golang.org/x/sys v0.47.0
+	golang.org/x/text v0.41.0
 	modernc.org/sqlite v1.36.3
 )
 
