@@ -1,0 +1,36 @@
+name: Parity gap
+description: pi-durable-go behaves differently from upstream Pi Durable.
+labels: [parity]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        pi-durable-go follows upstream Pi Durable's behavior. Check [COMPATIBILITY.md](https://github.com/leocavalcante/pi-durable-go/blob/main/COMPATIBILITY.md) first: it lists the known, deliberate differences.
+  - type: input
+    id: upstream-version
+    attributes:
+      label: Upstream version
+      description: The Pi Durable release you compared with.
+      placeholder: v1.5.2
+    validations:
+      required: true
+  - type: textarea
+    id: upstream
+    attributes:
+      label: Upstream behavior
+      description: What upstream does, with links to its source, tests, or spec where you can.
+    validations:
+      required: true
+  - type: textarea
+    id: port
+    attributes:
+      label: Behavior here
+      description: What pi-durable-go does instead.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: A Go test, a cross-check scenario (internal/crosscheck/testdata/scenarios), or steps.
+      render: go

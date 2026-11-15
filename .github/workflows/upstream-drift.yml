@@ -1,0 +1,46 @@
+name: Upstream drift
+
+# Opens an issue when upstream Pi Durable releases a version past the
+# compatibility target, the tag in scripts/crosscheck-setup.sh.
+
+on:
+  schedule:
+    - cron: "23 7 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  drift:
+    name: Compare with the latest upstream release
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - name: Compare
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          target="$(sed -nE 's/^tag="\$\{PI_DURABLE_UPSTREAM_TAG:-v([^}]+)\}"$/\1/p' scripts/crosscheck-setup.sh)"
+          latest="$(npm view @earendil-works/pi-durable version)"
+          echo "Compatibility target v$target, latest upstream v$latest" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$latest" = "$target" ]; then
+            exit 0
+          fi
+          title="Upstream Pi Durable v$latest is out"
+          if [ "$(gh issue list --state open --search "\"$title\" in:title" --json number --jq length)" != "0" ]; then
+            echo "An issue is open already."
+            exit 0
+          fi
+          gh label create upstream --color 5319e7 --description "Upstream Pi Durable changes" 2> /dev/null || true
+          gh issue create --title "$title" --label upstream --body "$(cat <<BODY
+          Upstream released [Pi Durable v$latest](https://www.npmjs.com/package/@earendil-works/pi-durable/v/$latest); this port targets v$target.
+
+          - [ ] Read upstream's changes between v$target and v$latest
+          - [ ] Port the behavior changes, with tests and cross-check cases
+          - [ ] Move the compatibility target (\`scripts/crosscheck-setup.sh\`, README, COMPATIBILITY.md, NOTICE, AGENTS.md)
+          - [ ] Run \`make crosscheck\` against v$latest
+          BODY
+          )"

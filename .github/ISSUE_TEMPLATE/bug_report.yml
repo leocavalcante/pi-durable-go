@@ -1,0 +1,56 @@
+name: Bug report
+description: Something in pi-durable-go does not work as documented.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug. If the behavior differs from upstream Pi Durable, the **Parity gap** form fits better.
+
+        **Security issues must not be reported here**; see [SECURITY.md](https://github.com/leocavalcante/pi-durable-go/blob/main/SECURITY.md). Do not paste credentials, private prompts, transcripts, or database contents.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: A minimal Go program or test, ideally with a fake model, that shows the problem.
+      render: go
+  - type: textarea
+    id: logs
+    attributes:
+      label: Errors and output
+      description: Error messages, reports from `HarnessOptions.OnReport`, or test output.
+      render: text
+  - type: input
+    id: version
+    attributes:
+      label: pi-durable-go version
+      description: A release (`v0.1.0`) or a commit.
+    validations:
+      required: true
+  - type: input
+    id: go-version
+    attributes:
+      label: Go version and OS
+      placeholder: go1.27.4 linux/amd64
+    validations:
+      required: true
+  - type: dropdown
+    id: components
+    attributes:
+      label: Components involved
+      multiple: true
+      options:
+        - Harness, conversations, or tasks
+        - Storage (memory, JSONL, SQLite)
+        - model.OpenAI
+        - model.Pi
+        - Coding tools or LocalEnv
+        - Code mode
+        - Other

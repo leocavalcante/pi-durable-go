@@ -1,0 +1,77 @@
+name: Release
+
+# A pushed version tag (vX.Y.Z) is verified, released on GitHub with its
+# CHANGELOG.md section as notes, and published to the Go module proxy, so
+# pkg.go.dev picks it up.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: An existing version tag to release, such as v0.1.0
+        required: true
+
+permissions:
+  contents: read
+
+env:
+  GOTOOLCHAIN: local
+  TAG: ${{ inputs.tag || github.ref_name }}
+
+jobs:
+  verify:
+    name: Verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.TAG }}
+      - uses: actions/setup-go@v7
+        with:
+          go-version: stable
+      - run: go vet ./...
+      - run: go test -race ./...
+
+  release:
+    name: Publish
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.TAG }}
+      - name: Release notes
+        run: |
+          # The tag's section of CHANGELOG.md, links made absolute.
+          awk -v tag="$TAG" '
+            /^## / { if (found) exit; if ($0 == "## " tag || index($0, "## " tag " ") == 1) { found = 1; next } }
+            found { print }
+          ' CHANGELOG.md > notes.md
+          if [ ! -s notes.md ]; then
+            echo "See [CHANGELOG.md](https://github.com/$GITHUB_REPOSITORY/blob/$TAG/CHANGELOG.md)." > notes.md
+          fi
+          sed -i -E "s#\]\((COMPATIBILITY\.md|CHANGELOG\.md|docs/[^)]*)\)#](https://github.com/$GITHUB_REPOSITORY/blob/$TAG/\1)#g" notes.md
+          cat notes.md >> "$GITHUB_STEP_SUMMARY"
+      - name: GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            echo "The release $TAG exists."
+            exit 0
+          fi
+          prerelease=""
+          case "$TAG" in *-*) prerelease="--prerelease" ;; esac
+          gh release create "$TAG" --title "$TAG" --notes-file notes.md --verify-tag $prerelease
+      - name: Go module proxy
+        run: |
+          module="github.com/${GITHUB_REPOSITORY,,}"
+          curl -fsS "https://proxy.golang.org/$module/@v/$TAG.info"
+          echo
+          echo "Published $module@$TAG: https://pkg.go.dev/$module@$TAG" >> "$GITHUB_STEP_SUMMARY"

@@ -1,0 +1,5 @@
+# Generated data and embedded binaries: kept out of language statistics and
+# collapsed in diffs.
+model/catalog/*.json linguist-generated=true
+**/testdata/** linguist-generated=true
+*.wasm binary

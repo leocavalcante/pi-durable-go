@@ -1,0 +1,61 @@
+name: Cross-check
+
+# Plays the same cases through this port and through the pinned upstream
+# release's own TypeScript (docs/upstream-cross-checks.md): 118 whole
+# conversations, and thousands of unit-level comparisons.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  GOTOOLCHAIN: local
+
+jobs:
+  crosscheck:
+    name: Against upstream Pi Durable
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: stable
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - name: Compatibility target
+        run: |
+          version="$(sed -nE 's/^tag="\$\{PI_DURABLE_UPSTREAM_TAG:-v([^}]+)\}"$/\1/p' scripts/crosscheck-setup.sh)"
+          echo "PI_VERSION=$version" >> "$GITHUB_ENV"
+          echo "Upstream Pi Durable v$version" >> "$GITHUB_STEP_SUMMARY"
+      - name: Cache Pi
+        uses: actions/cache@v6
+        with:
+          path: ${{ runner.temp }}/pi
+          key: pi-${{ env.PI_VERSION }}-${{ runner.os }}
+      - name: Install Pi
+        run: |
+          if [ ! -d "$RUNNER_TEMP/pi/node_modules/@earendil-works/pi-ai" ]; then
+            npm install --prefix "$RUNNER_TEMP/pi" "@earendil-works/pi-coding-agent@$PI_VERSION" \
+              --no-audit --no-fund --loglevel=error
+          fi
+      - name: Cross-checks
+        env:
+          PI_DURABLE_PI_MODULES: ${{ runner.temp }}/pi/node_modules
+        run: make crosscheck
+      - name: Tests with an installed Pi
+        env:
+          PI_DURABLE_TEST_PI_PACKAGE_DIR: ${{ runner.temp }}/pi/node_modules/@earendil-works/pi-coding-agent
+        run: go test -count=1 ./model ./codemode

@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Questions and ideas
+    url: https://github.com/leocavalcante/pi-durable-go/discussions
+    about: Ask how to use pi-durable-go, or share what you built with it.
+  - name: Report a vulnerability
+    url: https://github.com/leocavalcante/pi-durable-go/security/advisories/new
+    about: Report security issues privately, never in a public issue.
+  - name: Upstream Pi
+    url: https://github.com/earendil-works/pi
+    about: Issues with Pi itself, the coding agent, or upstream Pi Durable.
