@@ -1,15 +1,16 @@
 # Changelog
 
 All notable changes to pi-durable-go, the experimental Go port of Pi Durable.
-Commits follow [Conventional Commits](https://www.conventionalcommits.org/);
-versions will follow semantic versioning once a release is tagged.
+Commits follow [Conventional Commits](https://www.conventionalcommits.org/), and
+versions follow semantic versioning: before v1, a minor version may change the API.
 
-## Unreleased
+## v0.1.0 (2026-11-15)
 
-The first release candidate. It ports upstream Pi Durable's model and harness
-with v1.5.2 as the compatibility target. [COMPATIBILITY.md](COMPATIBILITY.md)
-lists what differs, and [docs/upstream-cross-checks.md](docs/upstream-cross-checks.md)
-says how the port is compared with upstream's own code.
+The first release. It ports upstream Pi Durable's model and harness with v1.5.2
+as the compatibility target, and needs Go 1.24 or newer.
+[COMPATIBILITY.md](COMPATIBILITY.md) lists what differs, and
+[docs/upstream-cross-checks.md](docs/upstream-cross-checks.md) says how the port
+is compared with upstream's own code.
 
 ### Highlights
 
@@ -64,7 +65,10 @@ says how the port is compared with upstream's own code.
   - 118 conversation scenarios replayed through upstream's Harness, 10 of them
     with code mode, 8 with the coding tools on files, and 3 with tool search;
   - checks of argument coercion and validation, JSON parsing, partial arguments, the
-    read and edit tools, compaction, and OpenAI requests and responses;
+    read and edit tools and the coding tools' errors, compaction, and OpenAI requests
+    and responses, those of every catalog model included;
+  - the execution environment's file system and commands against upstream's
+    `NodeExecutionEnv`;
   - code mode's declarations, source parsing, prompt section, result formatting, and
     `models.*` checks, and scripts run in the Go VM and in pi-codemode's own.
 
