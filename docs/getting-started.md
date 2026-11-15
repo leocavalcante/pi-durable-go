@@ -5,7 +5,7 @@ a real model, persistent storage, tools, and recovery from a crash.
 
 ## Install
 
-You need Go 1.25 or newer. Nothing else: SQLite storage is pure Go, and the
+You need Go 1.26 or newer. Nothing else: SQLite storage is pure Go, and the
 OpenAI-compatible model adapter needs no Node.
 
 ```sh

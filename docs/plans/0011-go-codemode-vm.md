@@ -24,7 +24,7 @@ The same WASM module and prelude can run from Go through wazero, a pure-Go WebAs
   Values, strings (WTF-8), exceptions, and job draining follow quickjs-wasi's wrappers. Each VM runs on its own goroutine.
 - **The driver.** It ports `startVm`: the prelude, the bridge, the fingerprint, the `(async (tools, console) => {…})` wrapper, `settle`, `run`, `stalled`, idle counts, `seq`-ordered delivery, and job draining with interrupt polls every 50 jobs.
 - **The host.** It ports `Execution`: output, call records, pending calls, deliveries, the timeout, aborts, store writes, `during`, and sandbox errors.
-- **Dependency.** `github.com/tetratelabs/wazero` v1.11.0 (Apache-2.0; v1.12 needs Go 1.25).
+- **Dependency.** `github.com/tetratelabs/wazero` v1.11.0 (Apache-2.0; v1.12 needed Go 1.25). Since the module needs Go 1.26, it uses v1.12.0.
 
 ## 3. Tests
 

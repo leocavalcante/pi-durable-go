@@ -211,7 +211,7 @@ differs on purpose, or where something is not ported yet,
 [COMPATIBILITY.md](COMPATIBILITY.md) says so.
 
 It is **pre-1.0**: minor versions may change the API, and the changelog marks
-every breaking change. It needs Go 1.25 or newer. CI runs the whole test suite on
+every breaking change. It needs Go 1.26 or newer. CI runs the whole test suite on
 Linux and macOS; on Windows the module builds and the model adapters and code
 mode are tested, while JSONL storage and the local shell are POSIX-only.
 

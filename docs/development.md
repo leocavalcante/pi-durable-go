@@ -11,7 +11,7 @@ make crosscheck  # the comparisons with upstream's own code (needs Node and Pi)
 go run ./examples/recovery -crash && go run ./examples/recovery
 ```
 
-`make check` needs only Go 1.25 or newer. Tests use fake models, `httptest`,
+`make check` needs only Go 1.26 or newer. Tests use fake models, `httptest`,
 and temporary directories; none needs credentials or a network.
 
 ## Tests

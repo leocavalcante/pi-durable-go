@@ -20,10 +20,12 @@ versions follow semantic versioning: before v1, a minor version may change the A
   minimum and the newest Go, the race detector, the cross-checks against
   upstream, and `govulncheck`; tags publish releases; a weekly job watches for
   new upstream releases. Dependabot keeps modules and actions current.
-- `build!`: Go 1.25 or newer is required. `golang.org/x/image` v0.45.0 and
-  `golang.org/x/text` v0.41.0 fix vulnerabilities that `govulncheck` finds
-  reachable (image decoding, Unicode handling), and need Go 1.25; Go 1.24 is no
-  longer supported upstream either.
+- `build!`: Go 1.26 or newer is required, the older of the two releases the Go
+  team supports. The dependencies are at their newest, which need it:
+  `golang.org/x/image` v0.48.0 and `golang.org/x/text` v0.44.0 fix
+  vulnerabilities that `govulncheck` finds reachable in the versions v0.1.0
+  used (image decoding, Unicode handling); `modernc.org/sqlite` v1.62.0,
+  `golang.org/x/sys` v0.50.0, wazero v1.12.0, and jsonschema v6.0.3 follow.
 - `fix(tools)`: file operations of an ended context fail as upstream's `aborted`
   `FileError`, `WriteFile` and temporary files included, and Windows' legacy WSL
   launcher gets commands on stdin, as upstream's environment sends them. Upstream's

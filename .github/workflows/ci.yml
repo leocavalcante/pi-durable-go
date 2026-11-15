@@ -56,7 +56,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest]
         # The minimum in go.mod, and the newest release.
-        go: ["1.25.x", stable]
+        go: ["1.26.x", stable]
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7

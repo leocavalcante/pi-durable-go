@@ -22,7 +22,7 @@ and model adapters are all welcome. Please read the
 
 ## Development
 
-You need Go 1.25 or newer. Everything else is optional.
+You need Go 1.26 or newer. Everything else is optional.
 
 ```sh
 git clone https://github.com/leocavalcante/pi-durable-go
