@@ -66,6 +66,20 @@ func toolSlot(t *testing.T, h *Harness, cid ConversationID, id TaskID) ToolSlot 
 	return ToolSlot{}
 }
 
+// awaitSlot waits for the call's slot to satisfy ok: progress commits are
+// paced and run apart from the tool.
+func awaitSlot(t *testing.T, h *Harness, cid ConversationID, id TaskID, ok func(ToolSlot) bool) ToolSlot {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		slot := toolSlot(t, h, cid, id)
+		if ok(slot) || time.Now().After(deadline) {
+			return slot
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
 func toolResultEntry(t *testing.T, h *Harness, cid ConversationID) Entry {
 	t.Helper()
 	state, err := h.Snapshot(context.Background())
@@ -134,12 +148,9 @@ func TestToolProgressIsNotTaskProgress(t *testing.T) {
 	if settled, err := submission.Wait(ctx); err != nil || settled.Status != "done" {
 		t.Fatalf("submission=%+v error=%v", settled, err)
 	}
-	// An empty result content falls back to the committed slot output.
+	// An empty result content falls back to the retained output.
 	if entry := toolResultEntry(t, h, root.ID()); entry.Message.Content != "chunk one, chunk two" {
 		t.Fatalf("result=%q", entry.Message.Content)
-	}
-	if tailBytes("a界b", 4) != "界b" || tailBytes("ab界", 2) != "" || tailBytes("abc", 5) != "abc" {
-		t.Fatal("tailBytes must cut at a rune boundary")
 	}
 }
 
@@ -341,7 +352,7 @@ func TestToolOutputCountsWhatItsBoundDrops(t *testing.T) {
 	}
 	sub := submit(t, root, SubmissionRequest{Content: "go"})
 	<-published
-	slot := toolSlot(t, h, root.ID(), toolTask(t, h).ID)
+	slot := awaitSlot(t, h, root.ID(), toolTask(t, h).ID, func(slot ToolSlot) bool { return slot.DroppedBytes == 10*1024 })
 	// The default limits keep the first 50 KiB, whole lines (upstream).
 	if len(slot.Output) != 50*1024 || slot.DroppedBytes != 10*1024 || slot.DroppedLines != 10 ||
 		!strings.HasPrefix(slot.Output, "00y") || !strings.Contains(slot.Output, "\n49y") || strings.Contains(slot.Output, "\n50y") {
@@ -368,7 +379,7 @@ func TestToolDiagnosticsLiveInTheSlotAndLeadTheResult(t *testing.T) {
 	}
 	sub := submit(t, root, SubmissionRequest{Content: "go"})
 	<-reported
-	if slot := toolSlot(t, h, root.ID(), toolTask(t, h).ID); len(slot.Diagnostics) != 1 || slot.Diagnostics[0].Message != "halfway" {
+	if slot := awaitSlot(t, h, root.ID(), toolTask(t, h).ID, func(slot ToolSlot) bool { return len(slot.Diagnostics) > 0 }); len(slot.Diagnostics) != 1 || slot.Diagnostics[0].Message != "halfway" {
 		t.Fatalf("slot=%+v", slot)
 	}
 	close(release)

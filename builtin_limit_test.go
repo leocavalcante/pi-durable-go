@@ -160,7 +160,7 @@ func TestCrashLoopToolCutOffEndsWithErrorResult(t *testing.T) {
 		<-ctx.Done()
 		return ToolResult{}, ctx.Err()
 	})
-	// Commit each output at once: the test crashes right after it.
+	// Commit each output at once: the test crashes once it is committed.
 	hosts := newCrashHosts(t, nil, HarnessOptions{Model: &toolCallingModel{name: "stream"}, Registry: registry, OnReport: log.add,
 		Settings: Settings{RestartLimit: 2, Progress: ProgressSettings{OutputIntervalMs: ptr(0.0)}}})
 	h := hosts.open(nil)
@@ -178,6 +178,9 @@ func TestCrashLoopToolCutOffEndsWithErrorResult(t *testing.T) {
 		case <-ctx.Done():
 			t.Fatal(ctx.Err())
 		}
+		// The output's progress commit runs apart from the tool.
+		want := "partial " + itoa(TaskID(crash))
+		awaitSlot(t, h, root.ID(), toolTask(t, h).ID, func(slot ToolSlot) bool { return slot.Output == want })
 		hosts.crash(h)
 		h = hosts.open(nil)
 		if tool := toolTask(t, h); tool.Restarts != crash {

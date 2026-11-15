@@ -116,7 +116,7 @@ func resolveToolCall(ctx context.Context, r *TaskRuntime, task TaskRecord) (*too
 	call.runtime = &ToolRuntime{TaskRuntime: r, ConversationID: task.Conversation, Call: call.input.Call,
 		nested: call.input.Kind == "nested", noProgress: call.input.NoProgress}
 	limits := outputLimitsOf(call.def)
-	call.runtime.output.limits = &limits
+	call.runtime.reported.limits = &limits
 	call.hooks = registry.hooks(c.Agent)
 	return call, nil
 }
@@ -332,11 +332,10 @@ func runTool(ctx context.Context, r *TaskRuntime, task TaskRecord) error {
 	started := time.Now()
 	result, executeErr := def.Execute(ctx, cp.Arguments, runtime)
 	runtime.executed.Store(true)
-	if err := runtime.stopOutput(ctx); err != nil && ctx.Err() == nil {
-		runtime.Report(err)
-	}
+	runtime.endReports()
 	durationMs := time.Since(started).Milliseconds()
 	if ctx.Err() != nil {
+		runtime.settleReports(ctx.Err())
 		return ctx.Err()
 	}
 	status, outcomeError := "completed", ""
@@ -346,8 +345,12 @@ func runTool(ctx context.Context, r *TaskRuntime, task TaskRecord) error {
 		status, outcomeError = "failed", fmt.Sprintf("Tool %s threw", def.Name)
 		result = ToolResult{IsError: true, Diagnostics: []ToolDiagnostic{{Severity: "error", Code: "tool_error", Message: diagnostic(executeErr.Error())}}}
 	}
-	// Diagnostics the tool reported while it ran come before its result's own.
+	// Diagnostics the tool reported while it ran come before its result's
+	// own, and its reported details stand in for none (upstream).
 	result.Diagnostics = append(runtime.takeDiagnostics(), result.Diagnostics...)
+	if len(result.Details) == 0 {
+		result.Details = runtime.reportedDetails()
+	}
 	// A result without content shows the output the call kept, to the
 	// afterTool chain too, with a note while the chain keeps it when that
 	// output dropped some (upstream).
@@ -377,7 +380,10 @@ func runTool(ctx context.Context, r *TaskRuntime, task TaskRecord) error {
 		}
 	}
 	result.DurationMs = &durationMs
-	return finishToolEnding(ctx, r, task, result, status, outcomeError, nil, true)
+	// Details still waiting settle with the settling commit (upstream).
+	settled := finishToolEnding(ctx, r, task, result, status, outcomeError, nil, true)
+	runtime.settleReports(settled)
+	return settled
 }
 
 // checkStructuredOutput holds a result to its tool's structured output

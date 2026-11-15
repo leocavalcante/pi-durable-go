@@ -78,6 +78,10 @@ No release carried the earlier behavior. These matter only to code that followed
 - `fix(tools)!`: a `pi.tool-result` entry's data is `{"diagnostics": [...]}`, as
   upstream's, and the result's details are on its message (`Message.Details`); it
   held the whole result before.
+- `fix(tools)!`: progress commits are paced as upstream's: the first output after an
+  idle period commits at once, an interval of 0 no longer commits synchronously in
+  `ToolRuntime.Output`, and `ToolRuntime.Details` is a paced progress commit that
+  returns once it is published.
 - `fix(tools)!`: running output is kept in the window of the tool's output limits and
   sanitized, as upstream chord's `OutputBuffer` keeps it, rather than as the trailing
   50 KiB, and `bash` and `powershell` return no content: the Harness shows their
