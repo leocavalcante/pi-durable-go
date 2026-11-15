@@ -344,8 +344,8 @@ func shellTool(ctx context.Context, raw json.RawMessage, rt *durable.ToolRuntime
 		runCtx, cancel = context.WithTimeout(ctx, time.Duration(*a.Timeout*float64(time.Second)))
 		defer cancel()
 	}
-	_, local := e.(*LocalEnv)
-	spill := &outputSpill{enabled: local}
+	local, _ := e.(*LocalEnv)
+	spill := &outputSpill{env: local, enabled: local != nil}
 	defer spill.close()
 	res, err := run(runCtx, e, a.Command, func(text string) error {
 		spill.write(text)
@@ -394,6 +394,7 @@ func shellTool(ctx context.Context, raw json.RawMessage, rt *durable.ToolRuntime
 // outputSpill counts a command's whole output and, once it passes the read
 // limits, writes all of it to a temporary file (upstream's spill).
 type outputSpill struct {
+	env     *LocalEnv
 	enabled bool
 	lines   int
 	bytes   int
@@ -413,12 +414,18 @@ func (s *outputSpill) write(text string) {
 		if s.bytes <= maxReadBytes && s.lines <= maxReadLines {
 			return
 		}
-		f, err := os.CreateTemp("", "pi-bash-*.log")
+		// upstream: env.createTempFile({prefix: "pi-output-", suffix: ".log"})
+		path, err := s.env.CreateTempFile(context.Background(), "pi-output-", ".log")
 		if err != nil {
 			s.enabled = false
 			return
 		}
-		s.file, s.path = f, f.Name()
+		f, err := os.OpenFile(path, os.O_WRONLY|os.O_APPEND, 0)
+		if err != nil {
+			s.enabled = false
+			return
+		}
+		s.file, s.path = f, path
 		text = s.pending.String()
 		s.pending.Reset()
 	}

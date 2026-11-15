@@ -96,6 +96,7 @@ const ops: Record<string, (input: any) => Promise<unknown>> = {
 			read: (await durable("tools/read.ts")).createReadTool(),
 			write: (await durable("tools/write.ts")).createWriteTool(),
 			edit: (await durable("tools/edit.ts")).createEditTool(),
+			bash: (await durable("tools/bash.ts")).createBashTool(),
 		};
 		const { NodeExecutionEnv } = await durable("env/node.ts");
 		const { BACKGROUND_CONTEXT } = await chord("context/index.ts");

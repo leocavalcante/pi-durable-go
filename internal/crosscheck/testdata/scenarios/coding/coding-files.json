@@ -1,0 +1,110 @@
+{
+ "name": "coding tools on files",
+ "coding": {
+  "files": {
+   "notes.txt": "alpha\nbeta\ngamma\n",
+   "deep/nested/file.md": "# Title\n\nText.\n"
+  }
+ },
+ "model": [
+  {
+   "calls": [
+    {
+     "id": "c1",
+     "name": "read",
+     "args": {
+      "path": "notes.txt"
+     }
+    }
+   ]
+  },
+  {
+   "calls": [
+    {
+     "id": "c2",
+     "name": "write",
+     "args": {
+      "path": "new/dir/out.txt",
+      "content": "written\n"
+     }
+    }
+   ]
+  },
+  {
+   "calls": [
+    {
+     "id": "c3",
+     "name": "edit",
+     "args": {
+      "path": "notes.txt",
+      "edits": [
+       {
+        "oldText": "beta",
+        "newText": "BETA"
+       },
+       {
+        "oldText": "gamma\n",
+        "newText": "gamma\ndelta\n"
+       }
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "calls": [
+    {
+     "id": "c4",
+     "name": "read",
+     "args": {
+      "path": "notes.txt",
+      "offset": 2,
+      "limit": 2
+     }
+    }
+   ]
+  },
+  {
+   "calls": [
+    {
+     "id": "c5",
+     "name": "read",
+     "args": {
+      "path": "deep/nested/file.md"
+     }
+    }
+   ]
+  },
+  {
+   "calls": [
+    {
+     "id": "c6",
+     "name": "edit",
+     "args": {
+      "path": "deep/nested/file.md",
+      "edits": [
+       {
+        "oldText": "Text.",
+        "newText": "More text."
+       }
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "text": "done"
+  }
+ ],
+ "steps": [
+  {
+   "submit": {
+    "type": "input",
+    "content": "go"
+   }
+  },
+  {
+   "wait": "settled"
+  }
+ ]
+}

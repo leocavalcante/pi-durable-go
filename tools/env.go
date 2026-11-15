@@ -8,6 +8,7 @@ package tools
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"io"
@@ -78,17 +79,74 @@ func (e *LocalEnv) Exists(ctx context.Context, path string) (bool, error) {
 	return err == nil, nodeError(err)
 }
 
-// ReadFile reads the named file; relative paths are based at CWD.
 // CreateTempDir creates a directory in the system's temporary directory
-// whose name starts with prefix, as Node's mkdtemp does.
+// named prefix and six random letters and digits, as Node's mkdtemp does
+// (upstream NodeExecutionEnv.createTempDir).
 func (e *LocalEnv) CreateTempDir(ctx context.Context, prefix string) (string, error) {
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
-	dir, err := os.MkdirTemp("", prefix+"*")
-	return dir, nodeError(err)
+	return mkdtemp(prefix)
 }
 
+// CreateTempFile creates an empty file named prefix, a random UUID, and
+// suffix in a new temporary directory (upstream
+// NodeExecutionEnv.createTempFile).
+func (e *LocalEnv) CreateTempFile(ctx context.Context, prefix, suffix string) (string, error) {
+	dir, err := e.CreateTempDir(ctx, "tmp-")
+	if err != nil {
+		return "", err
+	}
+	path := filepath.Join(dir, prefix+randomUUID()+suffix)
+	if err := os.WriteFile(path, nil, 0o666); err != nil {
+		return "", nodeError(err)
+	}
+	return path, nil
+}
+
+// tempNameChars are the characters mkdtemp(3) fills its template with.
+const tempNameChars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
+
+// mkdtemp creates the directory prefix, joined to the system's temporary
+// directory as Node's path.join joins it, with six random characters.
+func mkdtemp(prefix string) (string, error) {
+	base := filepath.Join(os.TempDir(), prefix)
+	if prefix != "" && os.IsPathSeparator(prefix[len(prefix)-1]) && !os.IsPathSeparator(base[len(base)-1]) {
+		base += string(filepath.Separator)
+	}
+	var err error
+	for range 100 {
+		var random [6]byte
+		_, _ = rand.Read(random[:])
+		for i, b := range random {
+			random[i] = tempNameChars[int(b)%len(tempNameChars)]
+		}
+		dir := base + string(random[:])
+		if err = os.Mkdir(dir, 0o700); err == nil {
+			return dir, nil
+		}
+		if !errors.Is(err, fs.ErrExist) {
+			break
+		}
+	}
+	// Node names the template in its error.
+	code, message, ok := errnoOf(err)
+	if !ok {
+		return "", err
+	}
+	return "", &fsError{message: code + ": " + message + ", mkdtemp '" + base + "XXXXXX'", err: err}
+}
+
+// randomUUID is a random (version 4) UUID, as crypto.randomUUID makes.
+func randomUUID() string {
+	var b [16]byte
+	_, _ = rand.Read(b[:])
+	b[6] = b[6]&0x0f | 0x40
+	b[8] = b[8]&0x3f | 0x80
+	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
+}
+
+// ReadFile reads the named file; relative paths are based at CWD.
 func (e *LocalEnv) ReadFile(ctx context.Context, path string) ([]byte, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err

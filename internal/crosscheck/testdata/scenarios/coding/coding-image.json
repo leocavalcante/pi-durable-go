@@ -1,0 +1,44 @@
+{
+ "name": "coding tools: an image",
+ "coding": {
+  "files": {}
+ },
+ "model": [
+  {
+   "calls": [
+    {
+     "id": "c1",
+     "name": "bash",
+     "args": {
+      "command": "printf '%s' 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==' | base64 -d > pixel.png && echo ok"
+     }
+    }
+   ]
+  },
+  {
+   "calls": [
+    {
+     "id": "c2",
+     "name": "read",
+     "args": {
+      "path": "pixel.png"
+     }
+    }
+   ]
+  },
+  {
+   "text": "done"
+  }
+ ],
+ "steps": [
+  {
+   "submit": {
+    "type": "input",
+    "content": "go"
+   }
+  },
+  {
+   "wait": "settled"
+  }
+ ]
+}

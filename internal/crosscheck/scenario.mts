@@ -1,6 +1,6 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 // Runs a cross-check scenario through upstream's Harness: pi-ai's faux
 // provider plays the scripted model, tools return scripted results, and the
@@ -367,6 +367,22 @@ export async function runScenario(
 			}),
 		);
 	}
+	// The coding tools over a Node environment in a temp directory seeded
+	// with the scenario's files; the report names it <dir>.
+	let codingDir: string | undefined;
+	let codingEnv: (() => unknown) | undefined;
+	if (scenario.coding) {
+		codingDir = realpathSync(mkdtempSync(join(tmpdir(), "crosscheck-coding-")));
+		for (const [path, content] of Object.entries(scenario.coding.files ?? {})) {
+			mkdirSync(dirname(join(codingDir, path)), { recursive: true });
+			writeFileSync(join(codingDir, path), content as string);
+		}
+		const { createCodingTools } = await load.durable("tools/index.ts");
+		const { NodeExecutionEnv } = await load.durable("env/node.ts");
+		registry.install(createCodingTools());
+		const dir = codingDir;
+		codingEnv = () => new NodeExecutionEnv({ cwd: dir });
+	}
 	// Real time: retries and timers wait for it; timestamps are not compared.
 	// A scenario that reopens needs storage that outlives its Harness.
 	const reopens = (scenario.steps ?? []).some((step: any) => step.reopen);
@@ -374,7 +390,11 @@ export async function runScenario(
 	const { openNodeJsonlStorage } = await load.durable("storage/jsonl/node.ts");
 	const storage = async () => (directory === undefined ? new pd.MemoryStorage() : openNodeJsonlStorage(directory, context));
 	const open = async () => {
-		const opened = await pd.Harness.open(await storage(), { models, registry, settings: scenario.settings ?? {} }, context);
+		const opened = await pd.Harness.open(
+			await storage(),
+			{ models, registry, settings: scenario.settings ?? {}, ...(codingEnv === undefined ? {} : { env: codingEnv }) },
+			context,
+		);
 		// Tools are named in scenarios and passed as their registrations.
 		const { tools: enabled, ...agent } = scenario.agent ?? {};
 		const conversation = await opened.root(context, {
@@ -527,7 +547,20 @@ export async function runScenario(
 	}
 	await harness.close(context);
 	if (directory !== undefined) rmSync(directory, { recursive: true, force: true });
-	return {
+	// The files the tools left, by path.
+	const files: Record<string, string> = {};
+	if (codingDir !== undefined) {
+		const walk = (relative: string) => {
+			for (const name of readdirSync(join(codingDir!, relative)).sort()) {
+				const path = relative === "" ? name : `${relative}/${name}`;
+				if (statSync(join(codingDir!, path)).isDirectory()) walk(path);
+				else files[path] = readFileSync(join(codingDir!, path), "utf8");
+			}
+		};
+		walk("");
+		rmSync(codingDir, { recursive: true, force: true });
+	}
+	const report = {
 		requests,
 		summaryRequests,
 		transcript,
@@ -537,6 +570,11 @@ export async function runScenario(
 		...(lives.length > 0 ? { live: lives } : {}),
 		...(builtins.length > 0 ? { builtins } : {}),
 		...(scenario.afterRun ? { afterRun } : {}),
+		...(codingDir !== undefined ? { files } : {}),
 		submissions: settled,
 	};
+	if (codingDir === undefined) return report;
+	// Paths that differ between runs: the directory and spill files.
+	const text = JSON.stringify(report).split(codingDir).join("<dir>").replace(/Full output: [^"\\]*/g, "Full output: <spill>");
+	return JSON.parse(text);
 }

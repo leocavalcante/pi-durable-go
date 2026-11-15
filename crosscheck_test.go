@@ -7,6 +7,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
+	"math/rand/v2"
+	"os"
+	"path/filepath"
 	"reflect"
 	"regexp"
 	"sort"
@@ -483,6 +487,12 @@ type scenarioSpec struct {
 	// Codemode installs the code mode extension with these options
 	// (namespaces), through scenarioCodemode.
 	Codemode json.RawMessage `json:"codemode,omitempty"`
+	// Coding installs the coding tools over a local environment in a temp
+	// directory seeded with Files, through scenarioCoding; the report lists
+	// the files the tools left.
+	Coding *struct {
+		Files map[string]string `json:"files,omitempty"`
+	} `json:"coding,omitempty"`
 	AfterRun *struct {
 		Hold string `json:"hold,omitempty"`
 	} `json:"afterRun,omitempty"`
@@ -1051,6 +1061,48 @@ func runScenario(t *testing.T, sc scenarioSpec) json.RawMessage {
 			t.Fatal(err)
 		}
 	}
+	var codingDir string
+	var codingEnv func(ConversationRecord) (ExecutionEnv, error)
+	if sc.Coding != nil {
+		if scenarioCoding == nil {
+			t.Skip("a coding scenario runs from TestCrosscheckCodingScenarios")
+		}
+		// Named as upstream's runner names its directory (mkdtemp), so the
+		// paths in messages have the same length and token estimates agree.
+		dir := ""
+		for dir == "" {
+			name := []byte("crosscheck-coding-XXXXXX")
+			for i := len(name) - 6; i < len(name); i++ {
+				name[i] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"[rand.IntN(62)]
+			}
+			candidate := filepath.Join(os.TempDir(), string(name))
+			if err := os.Mkdir(candidate, 0o700); err == nil {
+				dir = candidate
+			} else if !errors.Is(err, fs.ErrExist) {
+				t.Fatal(err)
+			}
+		}
+		t.Cleanup(func() { _ = os.RemoveAll(dir) })
+		dir, err := filepath.EvalSymlinks(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		codingDir = dir
+		for path, content := range sc.Coding.Files {
+			file := filepath.Join(dir, filepath.FromSlash(path))
+			if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(file, []byte(content), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		extension, env := scenarioCoding(t, dir)
+		if err := registry.Install(extension); err != nil {
+			t.Fatal(err)
+		}
+		codingEnv = env
+	}
 	if sc.Codemode != nil {
 		if scenarioCodemode == nil {
 			t.Skip("a code mode scenario runs from TestCrosscheckCodemodeScenarios")
@@ -1074,7 +1126,7 @@ func runScenario(t *testing.T, sc scenarioSpec) json.RawMessage {
 	var root *Conversation
 	open := func() {
 		var err error
-		h, err = Open(ctx, store, HarnessOptions{Model: harnessModel, Registry: registry, Settings: settings})
+		h, err = Open(ctx, store, HarnessOptions{Model: harnessModel, Registry: registry, Settings: settings, Environment: codingEnv})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1422,12 +1474,39 @@ func runScenario(t *testing.T, sc scenarioSpec) json.RawMessage {
 	if sc.AfterRun != nil {
 		report["afterRun"] = afterRun
 	}
+	if codingDir != "" {
+		files := map[string]string{}
+		if err := filepath.WalkDir(codingDir, func(path string, entry fs.DirEntry, err error) error {
+			if err != nil || entry.IsDir() {
+				return err
+			}
+			data, err := os.ReadFile(path)
+			relative, _ := filepath.Rel(codingDir, path)
+			files[filepath.ToSlash(relative)] = string(data)
+			return err
+		}); err != nil {
+			t.Fatal(err)
+		}
+		report["files"] = files
+	}
 	data, err := json.Marshal(report)
 	if err != nil {
 		t.Fatal(err)
 	}
+	if codingDir != "" {
+		// Paths that differ between runs: the directory and spill files.
+		text := strings.ReplaceAll(string(data), codingDir, "<dir>")
+		data = []byte(fullOutputPath.ReplaceAllString(text, "Full output: <spill>"))
+	}
 	return data
 }
+
+// fullOutputPath is a spill file's path in a full_output diagnostic.
+var fullOutputPath = regexp.MustCompile(`Full output: [^"\\]*`)
+
+// scenarioCoding installs the coding tools over a local environment in dir;
+// the external test package sets it, as this package cannot import tools.
+var scenarioCoding func(t *testing.T, dir string) (Extension, func(ConversationRecord) (ExecutionEnv, error))
 
 func TestCrosscheckScenarios(t *testing.T) {
 	var names []string

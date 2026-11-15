@@ -45,11 +45,12 @@ says how the port is compared with upstream's own code.
   Pi; and `model.Pi` serves scripts' `models.*` from Pi's catalog.
 - **Coding tools.** `read`, `write`, `edit`, `bash`, `powershell`, and `tool_search`,
   with upstream's schemas, outputs, and notes. Paths resolve as upstream resolves
-  them, and `LocalEnv` writes files in place as upstream's Node environment does.
+  them, and `LocalEnv` writes files in place, reports file errors with Node's messages,
+  and names temporary files as upstream's Node environment does.
 - **Cross-checks.** `make crosscheck` runs upstream's TypeScript sources on the same
   inputs as the Go code:
-  - 101 conversation scenarios replayed through upstream's Harness, 10 of them
-    with code mode;
+  - 105 conversation scenarios replayed through upstream's Harness, 10 of them
+    with code mode and 4 with the coding tools on files;
   - checks of argument coercion and validation, JSON parsing, partial arguments, the
     read and edit tools, compaction, and OpenAI requests and responses;
   - code mode's declarations, source parsing, prompt section, result formatting, and

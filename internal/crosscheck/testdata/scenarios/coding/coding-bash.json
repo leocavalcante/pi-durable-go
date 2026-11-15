@@ -1,0 +1,91 @@
+{
+ "name": "coding tools: bash",
+ "coding": {
+  "files": {
+   "data.txt": "one\ntwo\n"
+  }
+ },
+ "model": [
+  {
+   "calls": [
+    {
+     "id": "c1",
+     "name": "bash",
+     "args": {
+      "command": "cat data.txt; echo err >&2"
+     }
+    }
+   ]
+  },
+  {
+   "calls": [
+    {
+     "id": "c2",
+     "name": "bash",
+     "args": {
+      "command": "echo out; exit 3"
+     }
+    }
+   ]
+  },
+  {
+   "calls": [
+    {
+     "id": "c3",
+     "name": "bash",
+     "args": {
+      "command": "seq 1 3000"
+     }
+    }
+   ]
+  },
+  {
+   "calls": [
+    {
+     "id": "c4",
+     "name": "bash",
+     "args": {
+      "command": "printf 'no newline'"
+     }
+    }
+   ]
+  },
+  {
+   "calls": [
+    {
+     "id": "c5",
+     "name": "bash",
+     "args": {
+      "command": "sleep 3",
+      "timeout": 1
+     }
+    }
+   ]
+  },
+  {
+   "calls": [
+    {
+     "id": "c6",
+     "name": "bash",
+     "args": {
+      "command": "ls"
+     }
+    }
+   ]
+  },
+  {
+   "text": "done"
+  }
+ ],
+ "steps": [
+  {
+   "submit": {
+    "type": "input",
+    "content": "go"
+   }
+  },
+  {
+   "wait": "settled"
+  }
+ ]
+}

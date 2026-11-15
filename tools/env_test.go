@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -144,5 +145,51 @@ func TestFileMutationsRunInArrivalOrder(t *testing.T) {
 	}
 	if tail() != nil {
 		t.Fatal("the file's mutation queue was left behind")
+	}
+}
+
+// Temporary paths are named as Node's environment names them: mkdtemp's six
+// letters and digits, and a file named with a random UUID in its own
+// directory, which is where bash spills its output.
+func TestTempPathsAreNamedAsNodes(t *testing.T) {
+	t.Setenv("TMPDIR", t.TempDir())
+	tmp, err := filepath.EvalSymlinks(os.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	cwd := t.TempDir()
+	env, err := NewLocalEnv(cwd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	dir, err := env.CreateTempDir(ctx, "pi-x-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !regexp.MustCompile(`^pi-x-[A-Za-z0-9]{6}$`).MatchString(filepath.Base(dir)) || filepath.Dir(dir) != tmp {
+		t.Fatalf("dir %q", dir)
+	}
+	if info, err := os.Stat(dir); err != nil || info.Mode().Perm() != 0o700 {
+		t.Fatalf("dir mode: %v %v", info, err)
+	}
+	uuidFile := regexp.MustCompile(`^` + regexp.QuoteMeta(tmp) + `/tmp-[A-Za-z0-9]{6}/pi-output-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.log$`)
+	file, err := env.CreateTempFile(ctx, "pi-output-", ".log")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !uuidFile.MatchString(file) {
+		t.Fatalf("file %q", file)
+	}
+	if data, err := os.ReadFile(file); err != nil || len(data) != 0 {
+		t.Fatalf("file content %q %v", data, err)
+	}
+	got, _ := runCoding(t, cwd, "bash", `{"command":"seq 1 3000"}`)
+	spill := regexp.MustCompile(`Full output: (\S+)`).FindStringSubmatch(got.Content)
+	if spill == nil || !uuidFile.MatchString(spill[1]) {
+		t.Fatalf("spill in %q", got.Content[len(got.Content)-200:])
+	}
+	if data, err := os.ReadFile(spill[1]); err != nil || !strings.HasPrefix(string(data), "1\n2\n") || !strings.HasSuffix(string(data), "2999\n3000\n") {
+		t.Fatalf("spill content %d bytes %v", len(data), err)
 	}
 }

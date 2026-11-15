@@ -1,0 +1,122 @@
+{
+ "name": "coding tools: failures",
+ "coding": {
+  "files": {
+   "notes.txt": "same\nsame\n",
+   "dir/keep.txt": "k\n"
+  }
+ },
+ "model": [
+  {
+   "calls": [
+    {
+     "id": "c1",
+     "name": "read",
+     "args": {
+      "path": "missing.txt"
+     }
+    }
+   ]
+  },
+  {
+   "calls": [
+    {
+     "id": "c2",
+     "name": "edit",
+     "args": {
+      "path": "notes.txt",
+      "edits": [
+       {
+        "oldText": "absent",
+        "newText": "x"
+       }
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "calls": [
+    {
+     "id": "c3",
+     "name": "edit",
+     "args": {
+      "path": "notes.txt",
+      "edits": [
+       {
+        "oldText": "same",
+        "newText": "x"
+       }
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "calls": [
+    {
+     "id": "c4",
+     "name": "read",
+     "args": {
+      "path": "dir"
+     }
+    }
+   ]
+  },
+  {
+   "calls": [
+    {
+     "id": "c5",
+     "name": "edit",
+     "args": {
+      "path": "missing.txt",
+      "edits": [
+       {
+        "oldText": "a",
+        "newText": "b"
+       }
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "calls": [
+    {
+     "id": "c6",
+     "name": "write",
+     "args": {
+      "path": "notes.txt/inner",
+      "content": "x"
+     }
+    }
+   ]
+  },
+  {
+   "calls": [
+    {
+     "id": "c7",
+     "name": "read",
+     "args": {
+      "path": "notes.txt",
+      "offset": 9
+     }
+    }
+   ]
+  },
+  {
+   "text": "done"
+  }
+ ],
+ "steps": [
+  {
+   "submit": {
+    "type": "input",
+    "content": "go"
+   }
+  },
+  {
+   "wait": "settled"
+  }
+ ]
+}
