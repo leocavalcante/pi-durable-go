@@ -30,11 +30,13 @@ const maxExecOutput = 64 * 1024
 // not a filesystem or process sandbox.
 type LocalEnv struct {
 	cwd string
-	// processes are the running commands, which Cleanup ends.
+	// processes are the running commands, which Cleanup ends; its mutex
+	// also guards watchOptions.
 	processes struct {
 		sync.Mutex
 		running map[*exec.Cmd]func() error
 	}
+	watchOptions WatchOptions
 }
 
 var _ durable.ExecutionEnv = (*LocalEnv)(nil)

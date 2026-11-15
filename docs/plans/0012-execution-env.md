@@ -1,6 +1,6 @@
 # Plan 0012: the execution environment's file system
 
-Status: M1 and M2 done; M3 later
+Status: Done (M1–M3)
 
 ## Goal
 
@@ -44,9 +44,11 @@ and implements what it supports.
    new oracle op on the same files.
 2. M2: `OpenTextLineReader`, `ReadTextLines`, and `OpenBinaryReader` with
    `Info`, `Read`, and `ScanLines` (a port of `LineScanner`).
-3. M3, later: `listFiles` (git ignore rules) and `watch` (native and polling
-   watchers), which need their own designs.
+3. M3: `Watch`, a port of `NodeFileWatcher`: snapshots compared after
+   debounced native events, inotify on Linux, polling elsewhere. `listFiles`
+   is optional, and `NodeExecutionEnv` does not implement it.
 
 ## Implementation record
 
 - M1, M2: `FileError` with upstream's codes, `FileInfo`, the plain methods, directory, text-line, and binary readers, and `LineScanner`; the `envOps` oracle op compares about 90 operations with `NodeExecutionEnv`, all equal (recorded in `tools/testdata/env-ops-upstream.json`). Node's recursive `mkdir` and `rename(2)`'s errors are ported where Go's `MkdirAll` and `os.Rename` differ.
+- M3: `Watch` with `WatchOptions` (`SetWatchOptions`), the snapshot watcher, inotify through `golang.org/x/sys/unix` on Linux with libuv's mask and reporting, polling elsewhere; upstream's nine watch conformance cases and eight reader cases are Go tests, the watch cases in both modes. macOS polls where upstream uses FSEvents.
