@@ -12,7 +12,7 @@ checked against upstream's own code.
 [![CI](https://github.com/leocavalcante/pi-durable-go/actions/workflows/ci.yml/badge.svg)](https://github.com/leocavalcante/pi-durable-go/actions/workflows/ci.yml)
 [![Cross-check](https://github.com/leocavalcante/pi-durable-go/actions/workflows/crosscheck.yml/badge.svg)](https://github.com/leocavalcante/pi-durable-go/actions/workflows/crosscheck.yml)
 [![Go Reference](https://pkg.go.dev/badge/github.com/leocavalcante/pi-durable-go.svg)](https://pkg.go.dev/github.com/leocavalcante/pi-durable-go)
-[![Go Report Card](https://goreportcard.com/badge/github.com/leocavalcante/pi-durable-go)](https://goreportcard.com/report/github.com/leocavalcante/pi-durable-go)
+[![Go version](https://img.shields.io/github/go-mod/go-version/leocavalcante/pi-durable-go)](go.mod)
 [![Release](https://img.shields.io/github/v/release/leocavalcante/pi-durable-go?sort=semver)](https://github.com/leocavalcante/pi-durable-go/releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
