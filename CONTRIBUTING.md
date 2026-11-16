@@ -2,7 +2,9 @@
 
 Thanks for helping. Bug reports, parity fixes, docs, examples, storage backends,
 and model adapters are all welcome. Please read the
-[Code of Conduct](CODE_OF_CONDUCT.md) first.
+[Code of Conduct](CODE_OF_CONDUCT.md) first. Questions and ideas belong in
+[Discussions](https://github.com/leocavalcante/pi-durable-go/discussions); for a
+larger change, start there or in an issue before the pull request.
 
 ## Ground rules
 

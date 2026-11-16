@@ -217,9 +217,11 @@ mode are tested, while JSONL storage and the local shell are POSIX-only.
 
 ## Contributing
 
-Issues and pull requests are welcome; see [CONTRIBUTING.md](CONTRIBUTING.md)
-and the [code of conduct](CODE_OF_CONDUCT.md). Please report vulnerabilities
-privately, as [SECURITY.md](SECURITY.md) explains.
+Questions and ideas are welcome in
+[Discussions](https://github.com/leocavalcante/pi-durable-go/discussions), and
+issues and pull requests too; see [CONTRIBUTING.md](CONTRIBUTING.md) and the
+[code of conduct](CODE_OF_CONDUCT.md). Please report vulnerabilities privately,
+as [SECURITY.md](SECURITY.md) explains.
 
 ## License
 
