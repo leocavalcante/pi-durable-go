@@ -12,3 +12,6 @@ coverage.out
 !.env.example
 /bin/
 .crosscheck/
+
+# Python bytecode from scripts/
+__pycache__/
