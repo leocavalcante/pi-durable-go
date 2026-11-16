@@ -2,6 +2,15 @@
 
 Changes that need action when moving to a newer pi-durable-go. Each release's changes are in the [changelog](../CHANGELOG.md).
 
+## v0.2.0
+
+- Go 1.26 or newer is required; v0.1.0 needed Go 1.24. `go get` raises the `go` line of your `go.mod` to 1.26 when it adds this version.
+- A `pi.durable.submit` span's `result` is its admission's status (`placed`, `queued`, or `done`), as upstream records it. It could read `done` for an input whose run settled before the span ended; such inputs now read `placed`.
+
+## Before v0.1.0
+
+Changes made on `main` before the first release:
+
 - `Submission.Abort` now returns what it found (`SubmissionAborted`, `SubmissionAlreadyPlaced`, or `SubmissionSettled`) instead of an error for a submission that was not queued.
 - `Settings.RetryMax` and `RetryDelay` are removed, and retries are now on by default. Replace `RetryMax: n, RetryDelay: d` with `Retry: durable.RetrySettings{MaxRetries: ptr(float64(n)), BaseDelayMs: ptr(float64(d.Milliseconds()))}` using a local `func ptr[T any](v T) *T { return &v }`; delays now double up to `MaxAgentDelayMs`. Set `Enabled: ptr(false)` to disable retries, for example for test fakes whose error text looks transient (such as "timeout" or "503").
 - `pi.generation` and `pi.compaction` are version 3, and `pi.tool` is version 2; each migrates older records at reservation. Older builds leave newer records blocked as `task_too_old`, so do not downgrade with runs live.

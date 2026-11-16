@@ -4,7 +4,25 @@ All notable changes to pi-durable-go, the experimental Go port of Pi Durable.
 Commits follow [Conventional Commits](https://www.conventionalcommits.org/), and
 versions follow semantic versioning: before v1, a minor version may change the API.
 
-## Unreleased
+## v0.2.0 (2026-11-16)
+
+Go 1.26 is now the minimum, with every dependency at its newest. Code mode
+admits the calls a script makes together in the order it made them, as
+upstream does; two data races and a telemetry attribute are fixed; and the
+project gains a documentation site, examples, and continuous integration that
+checks it against upstream. [Upgrading](docs/upgrading.md) lists what needs
+action.
+
+### Breaking changes
+
+- `build!`: Go 1.26 or newer is required, the older of the two releases the Go
+  team supports. The dependencies are at their newest, which need it:
+  `golang.org/x/image` v0.48.0 and `golang.org/x/text` v0.44.0 fix
+  vulnerabilities that `govulncheck` finds reachable in the versions v0.1.0
+  used (image decoding, Unicode handling); `modernc.org/sqlite` v1.62.0,
+  `golang.org/x/sys` v0.50.0, wazero v1.12.0, and jsonschema v6.0.3 follow.
+
+### Fixes
 
 - `fix(codemode)`: calls a script makes together are admitted in the order it
   made them, as upstream's single-threaded `executeTool` admits them: their
@@ -18,6 +36,13 @@ versions follow semantic versioning: before v1, a minor version may change the A
 - `fix(telemetry)`: a `pi.durable.submit` span's `result` is its admission's
   status, as upstream records it; it could read `done` when the run the
   submission started had settled before the span ended.
+- `fix(tools)`: file operations of an ended context fail as upstream's `aborted`
+  `FileError`, `WriteFile` and temporary files included, and Windows' legacy WSL
+  launcher gets commands on stdin, as upstream's environment sends them. Upstream's
+  environment, line scanner, and truncation tests run as Go tests.
+
+### Documentation, examples, and tooling
+
 - `docs`: a documentation site in `docs/`: getting started, concepts, and guides
   to conversations, persistence and recovery, retries and compaction, tasks,
   tools and models, the execution environment, and code mode; package overviews
@@ -29,16 +54,6 @@ versions follow semantic versioning: before v1, a minor version may change the A
   minimum and the newest Go, the race detector, the cross-checks against
   upstream, and `govulncheck`; tags publish releases; a weekly job watches for
   new upstream releases. Dependabot keeps modules and actions current.
-- `build!`: Go 1.26 or newer is required, the older of the two releases the Go
-  team supports. The dependencies are at their newest, which need it:
-  `golang.org/x/image` v0.48.0 and `golang.org/x/text` v0.44.0 fix
-  vulnerabilities that `govulncheck` finds reachable in the versions v0.1.0
-  used (image decoding, Unicode handling); `modernc.org/sqlite` v1.62.0,
-  `golang.org/x/sys` v0.50.0, wazero v1.12.0, and jsonschema v6.0.3 follow.
-- `fix(tools)`: file operations of an ended context fail as upstream's `aborted`
-  `FileError`, `WriteFile` and temporary files included, and Windows' legacy WSL
-  launcher gets commands on stdin, as upstream's environment sends them. Upstream's
-  environment, line scanner, and truncation tests run as Go tests.
 
 ## v0.1.0 (2026-11-15)
 
