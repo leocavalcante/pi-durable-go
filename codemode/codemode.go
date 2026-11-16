@@ -462,6 +462,9 @@ type call struct {
 	rows            map[int]*NestedCall
 	gateOpen        bool
 	gateWaiters     []func()
+	// admitting closes once the last nested call to proceed is admitted: the
+	// next one waits for it, so calls are admitted in the order they proceed.
+	admitting chan struct{}
 	// outputDir caches the run's output directory for this attempt.
 	outputDir     string
 	outputDirErr  error
@@ -1264,8 +1267,21 @@ func (c *call) callTool(call HostCall, done func(Outcome, error)) {
 		if len(args) == 0 {
 			args = json.RawMessage("{}")
 		}
+		// Admitted in the order they proceed, as upstream's executeTool calls
+		// enter its commit line: each waits for the previous admission.
+		previous, admitted := c.admitting, make(chan struct{})
+		c.admitting = admitted
 		c.async(func() (any, error) {
-			return c.r.ExecuteTool(c.ctx, call.Name, args, durable.NestedCallOptions{Key: fmt.Sprintf("c%d", call.ID)})
+			var once sync.Once
+			signal := func() { once.Do(func() { close(admitted) }) }
+			defer signal()
+			if previous != nil {
+				select {
+				case <-previous:
+				case <-c.ctx.Done():
+				}
+			}
+			return c.r.ExecuteTool(c.ctx, call.Name, args, durable.NestedCallOptions{Key: fmt.Sprintf("c%d", call.ID), Admitted: signal})
 		}, func(value any, err error) {
 			if model {
 				c.releaseModelSlot()

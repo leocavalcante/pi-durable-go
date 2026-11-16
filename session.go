@@ -193,6 +193,9 @@ func (s *Session) commitWith(ctx context.Context, fn func(*Tx) error, internal b
 	if err != nil || admitted == nil {
 		return err
 	}
+	if options.admitted != nil {
+		options.admitted()
+	}
 	// The caller gets its commit's outcome once the writer stored and
 	// published it, whatever happens to ctx meanwhile.
 	return <-admitted.done

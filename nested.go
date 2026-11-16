@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 // NestedToolResult is a nested call's result, as ExecuteTool returns it.
@@ -29,9 +30,18 @@ type NestedToolResult struct {
 // finds the calls it already made (default: the call's sequence number in
 // this attempt). NoProgress commits no running output or details to the
 // nested call's slot.
+//
+// Admitted, when set, is called once, when the call's admission has its place
+// in the commit line, before ExecuteTool waits for it and runs the tool; or
+// when ExecuteTool returns without admitting it. A call admitted after that is
+// admitted after this one: a caller that runs calls on several goroutines and
+// starts each after the previous one's Admitted admits them in its order, as
+// upstream's single-threaded executeTool does (its nested tasks are created in
+// that order, and their pi.live slots listed in it).
 type NestedCallOptions struct {
 	Key        string
 	NoProgress bool
+	Admitted   func()
 }
 
 // nestedCallsDocument is the caller's task-scoped record of its nested calls
@@ -88,6 +98,13 @@ type NestedToolSummary struct {
 // the call ended. A rerun of a replay-safe caller finds calls it already made
 // by key; reusing a key for another tool or other arguments fails.
 func (r *ToolRuntime) ExecuteTool(ctx context.Context, name string, args json.RawMessage, options NestedCallOptions) (NestedToolResult, error) {
+	var admittedOnce sync.Once
+	admitted := func() {
+		if options.Admitted != nil {
+			admittedOnce.Do(options.Admitted)
+		}
+	}
+	defer admitted()
 	if r.executed.Load() || r.check() != nil {
 		return NestedToolResult{}, ErrClosed
 	}
@@ -108,7 +125,7 @@ func (r *ToolRuntime) ExecuteTool(ctx context.Context, name string, args json.Ra
 	call := ToolCall{ID: r.Call.ID + "/" + key, Name: name, Arguments: append(json.RawMessage(nil), args...)}
 	var id TaskID
 	replayed := false
-	err := r.Commit(ctx, func(tx *Tx) (TaskTransition, error) {
+	err := r.CommitWith(ctx, CommitOptions{admitted: admitted}, func(tx *Tx) (TaskTransition, error) {
 		replayed = false
 		current, err := tx.Task(r.ID)
 		if err != nil {

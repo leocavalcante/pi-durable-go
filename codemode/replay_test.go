@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"reflect"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -988,5 +990,36 @@ func TestCodemodeJournalsResultsThatFinishTogetherInOneCommit(t *testing.T) {
 	// The journal's creation and a few groups, not one commit per result.
 	if journalCommits >= 10 {
 		t.Fatalf("%d journal commits", journalCommits)
+	}
+}
+
+// Calls a script makes together are admitted in the order it made them, as
+// upstream's executeTool calls enter its commit line: their nested tasks are
+// created in that order.
+func TestCodemodeAdmitsCallsInTheOrderTheScriptMadeThem(t *testing.T) {
+	s := newSetup(t)
+	s.holds.setBlock(false)
+	s.model.mu.Lock()
+	s.model.scripts, s.model.next = []string{`await Promise.all([1, 2, 3, 4, 5, 6].map((i) => tools.echo({ text: "e" + i })));`}, 0
+	s.model.mu.Unlock()
+	chat := s.openSQLite()
+	t.Cleanup(func() { _ = chat.h.Close(context.Background()) })
+	sub, err := chat.root.Submit(s.ctx, durable.SubmissionRequest{Content: "go"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result := s.answer(chat.h, sub.ID()); result.IsError {
+		t.Fatalf("result %+v", result)
+	}
+	calls := nestedCalls(t, s.ctx, chat.h)
+	sort.Slice(calls, func(i, j int) bool { return calls[i].ID < calls[j].ID })
+	var keys []string
+	for _, task := range calls {
+		var input struct{ Key string }
+		_ = json.Unmarshal(task.Input, &input)
+		keys = append(keys, input.Key)
+	}
+	if want := []string{"c1", "c2", "c3", "c4", "c5", "c6"}; !reflect.DeepEqual(keys, want) {
+		t.Fatalf("nested tasks in the order %v, want %v", keys, want)
 	}
 }

@@ -125,6 +125,11 @@ calls other tools with `ExecuteTool`. `OutputLimits` bound its result,
 call it, and `Deferred` keeps it out of requests until a search loads it. The
 [conversations guide](conversations.md#tool-calls) covers how calls end.
 
+Nested calls are keyed (`NestedCallOptions.Key`), so a rerun finds the calls
+it already made. A tool that makes several at once, each on its own goroutine,
+can keep them in its order: `NestedCallOptions.Admitted` says when a call has
+its place in the commit line, so the next can start then, as code mode does.
+
 ### Code mode
 
 `codemode.Extension` adds upstream's `codemode` tool: the model writes

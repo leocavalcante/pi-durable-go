@@ -874,6 +874,11 @@ type ProgressSettings struct {
 type CommitOptions struct {
 	Deferred bool
 	WithinMs *float64
+
+	// admitted, when set, is called once the commit has its place in the
+	// line, before the caller waits for it to be stored: a commit admitted
+	// later is stored no earlier.
+	admitted func()
 }
 
 type HarnessOptions struct {

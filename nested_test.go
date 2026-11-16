@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -302,5 +304,37 @@ func TestNestedCallsValidateArgumentsThatAreNotObjects(t *testing.T) {
 	}
 	if lookupErr != nil || !found || record.TaskID != got.TaskID || record.Call.Name != "inner" || string(record.Call.Arguments) != `"not an object"` || record.Result == nil {
 		t.Fatalf("record %+v found %v err %v", record, found, lookupErr)
+	}
+}
+
+// Admitted comes once a nested call's admission has its place in the commit
+// line, before its tool runs, and when ExecuteTool returns without admitting.
+func TestNestedCallsSignalTheirAdmission(t *testing.T) {
+	var admitted, seenByInner atomic.Int32
+	seenByInner.Store(-1)
+	var outerErr error
+	h, root, _ := nestedHarness(t, func(ctx context.Context, _ json.RawMessage, r *ToolRuntime) (ToolResult, error) {
+		invalid := false
+		_, err := r.ExecuteTool(ctx, "inner", json.RawMessage(`{}`), NestedCallOptions{Key: "a/b", Admitted: func() { invalid = true }})
+		if !errors.Is(err, ErrInvalid) || !invalid {
+			outerErr = fmt.Errorf("an invalid key: %v, Admitted called %v", err, invalid)
+			return ToolResult{}, outerErr
+		}
+		if _, err := r.ExecuteTool(ctx, "inner", json.RawMessage(`{}`), NestedCallOptions{Key: "k", Admitted: func() { admitted.Add(1) }}); err != nil {
+			outerErr = err
+			return ToolResult{}, err
+		}
+		return ToolResult{Content: "ok"}, nil
+	}, ToolDefinition{ToolSpec: ToolSpec{Name: "inner", Parameters: json.RawMessage(`{"type":"object"}`)}, Callers: []string{"tools"},
+		Execute: func(ctx context.Context, args json.RawMessage, r *ToolRuntime) (ToolResult, error) {
+			seenByInner.Store(admitted.Load())
+			return ToolResult{Content: "inner"}, nil
+		}})
+	waitSettled(t, h, submit(t, root, SubmissionRequest{Content: "go"}))
+	if outerErr != nil {
+		t.Fatal(outerErr)
+	}
+	if admitted.Load() != 1 || seenByInner.Load() != 1 {
+		t.Fatalf("Admitted called %d times, %d before the tool ran", admitted.Load(), seenByInner.Load())
 	}
 }

@@ -6,6 +6,12 @@ versions follow semantic versioning: before v1, a minor version may change the A
 
 ## Unreleased
 
+- `fix(codemode)`: calls a script makes together are admitted in the order it
+  made them, as upstream's single-threaded `executeTool` admits them: their
+  nested tasks are created, and their `pi.live` slots listed, in that order.
+  Go admitted them in whatever order their goroutines ran. The new
+  `NestedCallOptions.Admitted` says when a nested call has its place in the
+  commit line.
 - `fix(codemode)`: two data races in `QuickJSSandbox` that Go 1.25's timers
   exposed: a short timeout could fire before its timer was stored, and a run's VM
   read the engine field the next run's start wrote.
