@@ -97,6 +97,18 @@ with the changelog section as its notes, and announces the version to the Go
 module proxy, which pkg.go.dev reads. Versions follow semantic versioning;
 before v1, a minor version may change the API.
 
+## The social preview
+
+`.github/social-preview.png`, the image links to the repository show, is drawn
+by `scripts/social-preview.py` with Pillow, in the Go fonts:
+
+```sh
+python3 scripts/social-preview.py
+```
+
+GitHub takes it only through the repository's settings (General, Social
+preview), so upload it again after a change.
+
 ## Design records
 
 [plans/](plans/README.md) holds a record of each larger change: its goal,
