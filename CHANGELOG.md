@@ -15,6 +15,9 @@ versions follow semantic versioning: before v1, a minor version may change the A
 - `fix(codemode)`: two data races in `QuickJSSandbox` that Go 1.25's timers
   exposed: a short timeout could fire before its timer was stored, and a run's VM
   read the engine field the next run's start wrote.
+- `fix(telemetry)`: a `pi.durable.submit` span's `result` is its admission's
+  status, as upstream records it; it could read `done` when the run the
+  submission started had settled before the span ended.
 - `docs`: a documentation site in `docs/`: getting started, concepts, and guides
   to conversations, persistence and recovery, retries and compaction, tasks,
   tools and models, the execution environment, and code mode; package overviews
